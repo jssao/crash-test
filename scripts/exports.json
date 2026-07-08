@@ -1,0 +1,11 @@
+[
+  "_b3GetVersion",
+  "_b3GetWorldCount",
+  "_b3GetMaxWorldCount",
+  "_b3DefaultWorldDef",
+  "_b3CreateWorld",
+  "_b3DestroyWorld",
+  "_b3World_Step",
+  "_malloc",
+  "_free"
+]
