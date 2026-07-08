@@ -34,7 +34,7 @@ single precision; no SharedArrayBuffer dependency; honest rigid-body framing (no
 | Phase | Work | Tier | Status | Tokens | Notes |
 |---|---|---|---|---|---|
 | P0 | Toolchain (emsdk+cmake via brew) + core wasm build + scripts/build-wasm.sh | sonnet | pending | — | emcc/cmake NOT installed; brew 6.0.2 present; node v22 ✓; vendor @ 52f1a254 ✓ |
-| P0b | Enumerate box3d.h API surface (joints/contacts/raycast/heightfield/reaction forces) | haiku | pending | — | feeds P1 design; runs ∥ P0 |
+| P0b | Enumerate box3d.h API surface (joints/contacts/raycast/heightfield/reaction forces) | haiku | **done** | 110,727 | wheel joint has suspension+spin motor+steering built in; weld constraint-force getters exist; polled hit events carry point/normal/approachSpeed; move events give changed-body transforms; handles are by-value structs → C shim (see P1-binding-design.md) |
 | P1 | Binding design (Fable) + TS wrapper implementation (sonnet) | fable+sonnet | pending | — | widened surface per spec |
 | P2 | Vitest tests: gravity, rest, memory stability | sonnet | pending | — | ∥ P3 |
 | P3 | Three.js boxes example + headless render verify | sonnet | pending | — | ∥ P2 |
