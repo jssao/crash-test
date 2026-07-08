@@ -1,0 +1,19 @@
+{
+  "name": "box3d-js",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WASM + TypeScript binding for Box3D (Erin Catto's C17 3D physics engine), for use from Three.js. Standalone package, independent of game/.",
+  "main": "src/ts/index.ts",
+  "types": "src/ts/index.ts",
+  "scripts": {
+    "build:wasm": "scripts/build-wasm.sh",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

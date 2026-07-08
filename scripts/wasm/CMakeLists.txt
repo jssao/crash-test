@@ -61,10 +61,18 @@ set(BOX3D_VENDOR_BIN "${CMAKE_CURRENT_BINARY_DIR}/box3d-src")
 add_subdirectory("${BOX3D_VENDOR_SRC}" "${BOX3D_VENDOR_BIN}")
 
 # ---- Final linked artifact: a "no entry point" wasm module exposing the core lib's C API ----
-add_executable(box3d_core stub.c)
+#
+# stub.c only anchors the executable target; binding.c (src/wasm-shim/, OUR code, not vendor/) is the
+# P1 flattening shim -- see docs/loom/P1-binding-design.md. It is compiled and linked into the same
+# module and does not touch vendor/box3d.
+add_executable(box3d_core stub.c "${CMAKE_CURRENT_SOURCE_DIR}/../../src/wasm-shim/binding.c")
 target_link_libraries(box3d_core PRIVATE box3d)
 
+# Match the vendor lib's C standard (box3d/src/CMakeLists.txt requires C17 for _Static_assert and
+# anonymous unions); binding.c also relies on C99+ compound literals and designated initializers.
 set_target_properties(box3d_core PROPERTIES
+	C_STANDARD 17
+	C_STANDARD_REQUIRED YES
 	OUTPUT_NAME "box3d"
 	SUFFIX ".mjs"
 	RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../build/wasm"
@@ -79,7 +87,11 @@ target_link_options(box3d_core PRIVATE
 	-sEXPORT_NAME=Box3D
 	-sALLOW_MEMORY_GROWTH=1
 	-sENVIRONMENT=web,node
-	-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPF32,HEAPU8,HEAP32
+	# WASM_BIGINT: our shim's b3js_* functions pass/return uint64_t handles (bit-cast id structs, see
+	# src/wasm-shim/binding.c); this makes Emscripten marshal i64 params/returns as JS BigInt instead
+	# of the legacy split-into-two-i32s ABI.
+	-sWASM_BIGINT
+	-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPF32,HEAPU8,HEAP32,HEAPU32
 	# 1MiB stack: comfortable headroom for the solver/broad-phase's stack-allocated scratch arrays
 	# (Emscripten's default is only 64KiB).
 	-sSTACK_SIZE=1048576
