@@ -52,7 +52,7 @@ deformation feeds back into physics.
 
 | Phase | Work | Tier | Status | Tokens | Notes |
 |---|---|---|---|---|---|
-| P0 | Toolchain (emsdk+cmake via brew) + core wasm build + scripts/build-wasm.sh | sonnet | pending | — | emcc/cmake NOT installed; brew 6.0.2 present; node v22 ✓; vendor @ 52f1a254 ✓ |
+| P0 | Toolchain (emsdk+cmake via brew) + core wasm build + scripts/build-wasm.sh | sonnet | **done** | 187,207 | cmake 4.3.4 + emcc 6.0.2 via brew; out-of-tree CMake consumes vendor/box3d/src directly (no pthread flags, vendor untouched); box3d.wasm 325KB simd; smoke green; commit d5a7396. ABI: ALL structs pass by pointer → shim design validated; P1 must add -sWASM_BIGINT |
 | P0b | Enumerate box3d.h API surface (joints/contacts/raycast/heightfield/reaction forces) | haiku | **done** | 110,727 | wheel joint has suspension+spin motor+steering built in; weld constraint-force getters exist; polled hit events carry point/normal/approachSpeed; move events give changed-body transforms; handles are by-value structs → C shim (see P1-binding-design.md) |
 | P1 | Binding design (Fable) + TS wrapper implementation (sonnet) | fable+sonnet | pending | — | widened surface per spec |
 | P2 | Vitest tests: gravity, rest, memory stability | sonnet | pending | — | ∥ P3 |
@@ -60,7 +60,7 @@ deformation feeds back into physics.
 | P4 | npm packaging + README | sonnet | pending | — | |
 | GATE-PORT | Verify BRIEF items 1–6 | loom:verifier | pending | — | |
 | G1 | Game scaffold (vite+TS) + renderer (PBR/HDRI/tonemap/shadows) | sonnet (+threejs-rendering agent) | pending | — | ∥ G1b |
-| G1b | Asset sourcing: car GLB w/ separable panels + HDRI + licenses | modern-threejs-assets | pending | — | risk item 3 |
+| G1b | Asset sourcing: car GLB w/ separable panels + HDRI + licenses | sonnet | **done** | 126,602 | Khronos CarConcept.glb CC-BY 4.0, 11MB, 213k tris, wheels+hood+doors+hatch+roof all separate nodes; 2 Poly Haven CC0 HDRIs; committed dc1b6ca. Caveat: avoid Khronos-logo material variant (trademark); decimate if perf demands |
 | G2 | Vehicle: chassis+wheel joints+powertrain+steering (design fable, impl sonnet) | fable+sonnet | pending | — | |
 | G3 | Damage: weld panels + break thresholds + crumple | fable+sonnet | pending | — | |
 | G4 | World: terrain, destructibles, ramps, spawn/reset | sonnet | pending | — | |
