@@ -1,0 +1,22 @@
+{
+  "name": "crash-sandbox-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Crash Sandbox driving game — visual foundation (Three.js + Vite + TypeScript). Standalone npm package, independent of the box3d-js repo root.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "analyze-car": "node scripts/analyze-car.mjs",
+    "verify": "node verify/shoot.mjs"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.0",
+    "typescript": "7.0.2",
+    "vite": "8.1.3"
+  }
+}
