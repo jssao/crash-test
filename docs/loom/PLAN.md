@@ -29,6 +29,25 @@ Constraints: don't modify vendor/box3d (except documented minimal CMake workarou
 single precision; no SharedArrayBuffer dependency; honest rigid-body framing (no soft-body claim).
 **Bound: 3 gate passes per phase; on 3rd fail stop and report blocker.**
 
+## Budget (user directive 2026-07-08, overnight autonomous run)
+
+Session usage cap **40%**; 3% used at directive time → ~37 points remain. Allocation: port 9 ·
+game 17 · playtest+fixes 6 · gates/deploy 2 · contingency 3. Rules: one worker per phase, merged
+briefs (P1+P2 one worker; P3 one; P4 minimal), haiku gates, compact returns, ≤2 re-dispatches per
+phase. If hot: cut packaging polish and playtest rounds first; NEVER cut car quality, graphics,
+or deformation (user's priorities). User priorities verbatim: runs well · realistic · good car
+model · realistic graphics · closest-possible-to-soft-body deformation · good crash physics ·
+orchestrated playtesting/simulations at the end.
+
+## Damage upgrades (user ask: "like soft body deformation")
+
+G3 scope now: (a) accumulated PLASTIC vertex deformation — dents persist, radius falloff,
+crease noise, per-vertex max clamp; (b) weld LOOSENING before break (drop weld hertz on
+mid-impacts → dangling doors/hood) then destroy on threshold; (c) wheels detachable on extreme
+impacts (destroy wheel joint); (d) STRETCH: after major impacts, rebuild the chassis collision
+hull from the deformed mesh (destroy+recreate hull shape, low vert count, rate-limited) so
+deformation feeds back into physics.
+
 ## Phase status ledger
 
 | Phase | Work | Tier | Status | Tokens | Notes |
