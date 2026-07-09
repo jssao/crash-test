@@ -14,7 +14,8 @@
     "verify:crash": "node verify/shoot-crash.mjs",
     "verify:world": "node verify/shoot-world.mjs",
     "test:sim": "vitest run",
-    "bench": "vite-node sim/perf-bench.mjs"
+    "bench": "vite-node sim/perf-bench.mjs",
+    "bench:full": "vite-node sim/perf-bench-full.mjs"
   },
   "dependencies": {
     "three": "0.185.1"

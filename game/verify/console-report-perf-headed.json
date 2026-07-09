@@ -1,0 +1,83 @@
+{
+  "headed": true,
+  "spawnFps": {
+    "frames": 361,
+    "elapsedMs": 3003.5,
+    "fps": 120.19310804061928
+  },
+  "telemetryAtCrash": {
+    "speedKmh": 5.04943171850666,
+    "gear": 1,
+    "rpm": 900,
+    "wheelOmegas": {
+      "fl": 0.5498158931732178,
+      "fr": 0,
+      "rl": 0.9729925394058228,
+      "rr": 0.5391421914100647
+    },
+    "slipHints": {
+      "fl": 0.9343877112024954,
+      "fr": 0.7199595128649405,
+      "rl": 1.0935886479967765,
+      "rr": 0.9269901143664054
+    },
+    "steeringAngle": 0.0009119735332205892,
+    "chassisPos": {
+      "x": -0.22650693356990814,
+      "y": 0.3848632872104645,
+      "z": 22.19470977783203
+    },
+    "chassisQuat": {
+      "x": -0.042987972497940063,
+      "y": 0.031825434416532516,
+      "z": 0.0018887262558564544,
+      "w": 0.9985668659210205
+    },
+    "rollAngleRad": 0.0010358173021452618,
+    "yawRateRadS": 0.25611412533567474,
+    "upDot": 0.9962969338672936,
+    "groundedWheelCount": 2,
+    "assistAuthority": 1,
+    "damage": {
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "loosened",
+        "doorR": "loosened",
+        "hatch": "attached",
+        "roof": "loosened"
+      },
+      "stressLevels": {
+        "hood": 93.76341702376232,
+        "doorL": 57.14637680765166,
+        "doorR": 89.37997303697621,
+        "hatch": 15.598565373422291,
+        "roof": 57.01368015722024
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "detached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 11827,
+      "glassShattered": []
+    }
+  },
+  "midCrashFps": {
+    "frames": 360,
+    "elapsedMs": 3004,
+    "fps": 119.84021304926765
+  },
+  "screenshots": {
+    "spawn": "/Users/jesuscalderon/Documents/crash test/game/verify/perf-headed-spawn.png",
+    "midCrash": "/Users/jesuscalderon/Documents/crash test/game/verify/perf-headed-mid-crash.png"
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T14:50:32.586Z",
+  "gate": {
+    "requiredMidCrashFpsGte": 55,
+    "actual": 119.84021304926765,
+    "pass": true
+  }
+}

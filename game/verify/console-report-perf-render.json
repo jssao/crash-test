@@ -1,0 +1,19 @@
+{
+  "spawn": {
+    "renderCalls": 814,
+    "triangles": 657469,
+    "featureBodyCount": 343,
+    "destructibleBodyCount": 131
+  },
+  "midCrashChase": {
+    "renderCalls": 814,
+    "triangles": 657469
+  },
+  "midCrashWideOrbit": {
+    "renderCalls": 814,
+    "triangles": 657469
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T14:47:53.440Z"
+}

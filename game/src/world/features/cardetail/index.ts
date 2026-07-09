@@ -333,6 +333,11 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 
 		hooks: {
 			detachedCount: () => handles.filter((h) => h.state !== 'attached').length,
+			/** Read-only diagnostic: the live Body handle per component (perf-bench-full.mjs's
+			 * awake-count/force-wake instrumentation needs direct handles -- cardetail has no
+			 * separate bodies.ts module like trees/buildings/occupants do, so this hook is the
+			 * equivalent accessor). Never mutates state itself. */
+			bodies: () => handles.map((h) => h.body),
 			states: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.state])),
 			/** Diagnostic: current weld constraint-force magnitude (N) per component, or null once
 			 * broken (no weld left to read). Useful for calibrating tuning.ts's break thresholds. */
