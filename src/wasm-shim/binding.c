@@ -772,9 +772,33 @@ int32_t b3js_Shape_GetFilterGroupIndex( uint64_t shapeId64 )
 // Joints -- common
 // =================================================================================================
 
+// wakeAttached=false is BEST-EFFORT: destroying a joint whose attached body (or bodies) is currently
+// ASLEEP, while asking box3d not to wake it, is a latent memory-safety hazard in the vendor
+// joint-destroy path (b3DestroyJointInternal, vendor/box3d/src/joint.c) -- the sleeping-island
+// bookkeeping (constraint-graph/solver-set/island removal) that destroy leaves behind is only
+// actually resolved (split/recomputed) the next time that island wakes or steps; skip waking it here
+// and nothing ever resolves it. This build's Release/NDEBUG config compiles out every B3_ASSERT/
+// B3_VALIDATE (see vendor/box3d/include/box3d/base.h: B3_ENABLE_VALIDATION requires !NDEBUG), so the
+// violation never trips a clean assertion -- it silently corrupts state instead, which has been
+// observed (100% reproducible in the browser -- see tests/joint-destroy-sleeping.test.ts's doc
+// comment) to eventually surface as a wasm "memory access out of bounds" trap that permanently
+// poisons the module. Force a wake here whenever either attached body is asleep, regardless of what
+// the caller asked for; a body that's already awake is left exactly as requested (no gratuitous wake,
+// so legitimate wakeAttached=false use on awake bodies is unaffected).
 void b3js_DestroyJoint( uint64_t jointId64, int wakeAttached )
 {
-	b3DestroyJoint( b3LoadJointId( jointId64 ), wakeAttached != 0 );
+	b3JointId jointId = b3LoadJointId( jointId64 );
+	bool wake = wakeAttached != 0;
+	if ( !wake )
+	{
+		b3BodyId bodyA = b3Joint_GetBodyA( jointId );
+		b3BodyId bodyB = b3Joint_GetBodyB( jointId );
+		if ( !b3Body_IsAwake( bodyA ) || !b3Body_IsAwake( bodyB ) )
+		{
+			wake = true;
+		}
+	}
+	b3DestroyJoint( jointId, wake );
 }
 
 int b3js_Joint_IsValid( uint64_t jointId64 )

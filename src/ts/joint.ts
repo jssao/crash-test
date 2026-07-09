@@ -84,7 +84,15 @@ export class Joint {
 		return this.native._b3js_Joint_GetTorqueThreshold( this.handle );
 	}
 
-	/** @param wakeAttached wake both attached bodies (default true). */
+	/**
+	 * @param wakeAttached wake both attached bodies (default true). BEST-EFFORT when false: if
+	 * either attached body is currently asleep, it is woken anyway -- destroying a joint on a
+	 * sleeping body without waking it is a vendor solver-set/island bookkeeping hazard that can
+	 * corrupt wasm memory (observed as a "memory access out of bounds" trap that permanently poisons
+	 * the module). See src/wasm-shim/binding.c's b3js_DestroyJoint doc comment and
+	 * tests/joint-destroy-sleeping.test.ts for the full story. A body that's already awake is left
+	 * exactly as requested.
+	 */
 	destroy( wakeAttached = true ): void {
 		if ( this.destroyed ) {
 			throw new Error( "box3d-js: Joint already destroyed" );

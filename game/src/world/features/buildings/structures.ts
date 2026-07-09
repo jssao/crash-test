@@ -490,7 +490,16 @@ export function resetStructure(world: World, structure: Structure): void {
 	}
 	for (const record of structure.joints) {
 		if (record.joint) {
-			record.joint.destroy(false);
+			// Default wakeAttached=true -- correct here anyway (reset teleports pieces; they
+			// re-settle/re-sleep naturally on the next step). The previous destroy(false) was the only
+			// call site in the codebase asking box3d not to wake a joint's attached bodies -- a
+			// latent vendor solver-set/island bookkeeping hazard on its own terms (see
+			// src/ts/joint.ts's Joint.destroy() doc comment + tests/joint-destroy-sleeping.test.ts),
+			// even though it was NOT the cause of window.__GAME__.resetWorld()'s reproducing
+			// "memory access out of bounds" trap (that one is in
+			// game/src/world/features/cardetail/index.ts's destroyAll() -- see this task's report).
+			// There was never a reason to ask for the risky flag here regardless.
+			record.joint.destroy();
 		}
 		record.joint = rebuildWeld(world, record.spec);
 		record.broken = false;
