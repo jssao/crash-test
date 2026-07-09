@@ -57,7 +57,13 @@ NEVER cut: reset integrity, camera, suspension feel, terrain.
 
 | Wave | Work | Tier | Status | Tokens | Notes |
 |---|---|---|---|---|---|
-| W1a | Reset-integrity root-cause + fix (user repro: crash→Shift+R→panels wrecked) | opus | dispatched | | |
-| W1b | Click-drag orbit camera + wheel zoom | sonnet | dispatched | | |
+| W1a | Reset-integrity root-cause + fix | opus | **done** | (wf 355,623 w/ W1b) | commit 4dc611f: repairPanelVisual restored panels under car.root but authored parents are intermediate GLB groups w/ -90° rotation → saved local pose in wrong frame; wrecked visuals, all hooks green. Restores to captured originalParent; 0.00cm/0.00° ×7 cycles; regression red-checked. |
+| W1b | Click-drag orbit camera | sonnet→fable inline | **done** | (merged W1a) | worker's code worked but returned garbage report; orchestrator verified+committed (3fcfe2c). USER BUGS (inverted axes + click-snap) fixed inline by orchestrator (5b69667): signs flipped, takeover seeds sphericalFromCameraPose; 17/17 asserts incl. permanent no-snap guard. |
+| W2a | Suspension feel | sonnet xhigh | **done** | (wf 1,008,433 shared) | commit 93bd161: ROOT CAUSE — spring hertz computed vs wheel's 22kg (not corner load) → equilibrium beyond travel → car sat pinned on bump-stop LIMIT with zero compliance ("collapses on wheels"). Hertz 3→6, travel ±0.12→±0.14; dive 1.84°, squat 1.36°@50.8% travel, roll 1.59°@1.05g, landing 7 decaying half-cycles. BONUS vendor gap: WheelJoint motors never wake sleeping bodies → frozen-car-at-rest; input-wake added. 0-100 honestly faster (5.35s) from real launch squat. |
+| W2b | Destruction feel | **opus** xhigh | **done** | (shared) | commit b2924e5: baseline measured (30km/h nudge flung 105/120 bricks 14m!) → per-material plastic-yield state machine (lean/bulge/crease before break; ductile studs/posts stay bent), impulse-clamped debris, per-material restitution/friction; staged signatures 30/70/120km/h: broken 1/25/32, debris 6.3/21/43 m/s; mid trees lean 4.7°@40 fell@80. bench 0.430ms avg. |
+| W3-pre | Asset sourcing | sonnet | **done** | (shared) | commit 761fc2e: 157MB CC0 — 5 Poly Haven terrain sets (2k, dim-verified), Kenney nature kit (329 GLBs, trunk/canopy separable), 3 hero rocks, 4 building material sets, forest HDRI. Honest gaps: Kenney trees flat-shaded low-poly; NO license-clear car upgrade exists (negative result documented). |
+| W3-pre | Heightfield spike | sonnet | **done** | (shared) | commit ffe485f: binding VALIDATED no bugs — row-major, corner-origin (docs in tests); 256×256/400×400m creates 4.06ms, 0 heap surprise; bit-identical determinism; drive test 27-30× suspension variance vs flat. Terrain wave GO. |
+| W-ragdoll | Active ragdolls (brace/eject-through-glass/self-preserve) | **opus** (animation specialist) | dispatched | | |
+| W3a | Terrain: 400×400m heightfield world (dirt, potholes, forest zone) | **opus** | dispatched | | |
 
 ## Pass log
