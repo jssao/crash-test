@@ -1,0 +1,920 @@
+{
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "results": {
+    "scenario1": {
+      "drives": [
+        {
+          "steps": 341,
+          "speedKmh": 39.91460435772832,
+          "finalPos": {
+            "x": -39.531166076660156,
+            "y": 0.2574827969074249,
+            "z": 6.037951946258545
+          }
+        },
+        {
+          "steps": 260,
+          "speedKmh": 40.08874189258222,
+          "finalPos": {
+            "x": -37.68952560424805,
+            "y": 0.2585889995098114,
+            "z": -3.4377782344818115
+          }
+        },
+        {
+          "steps": 260,
+          "speedKmh": 26.1347173859329,
+          "finalPos": {
+            "x": -47.87920379638672,
+            "y": 0.2611226439476013,
+            "z": 4.7916717529296875
+          }
+        },
+        {
+          "steps": 141,
+          "speedKmh": 40.02103248193499,
+          "finalPos": {
+            "x": -47.87062454223633,
+            "y": 0.25743719935417175,
+            "z": 27.685894012451172
+          }
+        },
+        {
+          "steps": 260,
+          "speedKmh": 39.70251451271638,
+          "finalPos": {
+            "x": -52.82817459106445,
+            "y": 0.2559618353843689,
+            "z": 35.54279327392578
+          }
+        }
+      ],
+      "snapshot": {
+        "saplings": [
+          {
+            "id": "sapling-0",
+            "broken": true
+          },
+          {
+            "id": "sapling-1",
+            "broken": true
+          },
+          {
+            "id": "sapling-2",
+            "broken": false
+          },
+          {
+            "id": "sapling-3",
+            "broken": true
+          },
+          {
+            "id": "sapling-4",
+            "broken": false
+          },
+          {
+            "id": "sapling-5",
+            "broken": false
+          },
+          {
+            "id": "far-sapling-0",
+            "broken": false
+          }
+        ],
+        "mids": [
+          {
+            "id": "mid-0",
+            "broken": false
+          },
+          {
+            "id": "mid-1",
+            "broken": false
+          },
+          {
+            "id": "mid-2",
+            "broken": false
+          },
+          {
+            "id": "mid-3",
+            "broken": false
+          },
+          {
+            "id": "far-mid-0",
+            "broken": false
+          }
+        ],
+        "larges": [
+          {
+            "id": "large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-1",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-2",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "far-large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          }
+        ]
+      }
+    },
+    "scenario2": {
+      "pre": {
+        "saplings": [
+          {
+            "id": "sapling-0",
+            "broken": true
+          },
+          {
+            "id": "sapling-1",
+            "broken": true
+          },
+          {
+            "id": "sapling-2",
+            "broken": false
+          },
+          {
+            "id": "sapling-3",
+            "broken": true
+          },
+          {
+            "id": "sapling-4",
+            "broken": false
+          },
+          {
+            "id": "sapling-5",
+            "broken": false
+          },
+          {
+            "id": "far-sapling-0",
+            "broken": false
+          }
+        ],
+        "mids": [
+          {
+            "id": "mid-0",
+            "broken": false
+          },
+          {
+            "id": "mid-1",
+            "broken": false
+          },
+          {
+            "id": "mid-2",
+            "broken": false
+          },
+          {
+            "id": "mid-3",
+            "broken": false
+          },
+          {
+            "id": "far-mid-0",
+            "broken": false
+          }
+        ],
+        "larges": [
+          {
+            "id": "large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-1",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-2",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "far-large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          }
+        ]
+      },
+      "drive": {
+        "steps": 380,
+        "speedKmh": 8.262723954853296
+      },
+      "midBroken": true,
+      "snapshot": {
+        "saplings": [
+          {
+            "id": "sapling-0",
+            "broken": true
+          },
+          {
+            "id": "sapling-1",
+            "broken": true
+          },
+          {
+            "id": "sapling-2",
+            "broken": false
+          },
+          {
+            "id": "sapling-3",
+            "broken": true
+          },
+          {
+            "id": "sapling-4",
+            "broken": false
+          },
+          {
+            "id": "sapling-5",
+            "broken": false
+          },
+          {
+            "id": "far-sapling-0",
+            "broken": false
+          }
+        ],
+        "mids": [
+          {
+            "id": "mid-0",
+            "broken": true
+          },
+          {
+            "id": "mid-1",
+            "broken": false
+          },
+          {
+            "id": "mid-2",
+            "broken": false
+          },
+          {
+            "id": "mid-3",
+            "broken": false
+          },
+          {
+            "id": "far-mid-0",
+            "broken": false
+          }
+        ],
+        "larges": [
+          {
+            "id": "large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-1",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-2",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "far-large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          }
+        ]
+      },
+      "afterContinue": {
+        "speedKmh": 25.709102334875436,
+        "gear": 1,
+        "rpm": 2233.9130610302955,
+        "wheelOmegas": {
+          "fl": 18.40550422668457,
+          "fr": 18.638368606567383,
+          "rl": 56.792755126953125,
+          "rr": 28.50160026550293
+        },
+        "slipHints": {
+          "fl": 0.037369683023388944,
+          "fr": 0.1281867911776864,
+          "rl": 14.667641003366406,
+          "rr": 3.8038375365695325
+        },
+        "steeringAngle": 0.00009775166108738631,
+        "chassisPos": {
+          "x": -59.941131591796875,
+          "y": 0.26271912455558777,
+          "z": 21.85072135925293
+        },
+        "chassisQuat": {
+          "x": -0.0012189785484224558,
+          "y": -0.5712419748306274,
+          "z": -0.0026438243221491575,
+          "w": 0.8207765817642212
+        },
+        "rollAngleRad": -0.002947319020355658,
+        "yawRateRadS": 0.05439852724803976,
+        "upDot": 0.9999830485685042,
+        "groundedWheelCount": 4,
+        "assistAuthority": 1,
+        "damage": {
+          "panelStates": {
+            "hood": "broken",
+            "doorL": "loosened",
+            "doorR": "loosened",
+            "hatch": "attached",
+            "roof": "loosened"
+          },
+          "stressLevels": {
+            "hood": 135.15166726559482,
+            "doorL": 52.88104653739657,
+            "doorR": 29.737009042947896,
+            "hatch": 6.223060448359652,
+            "roof": 32.81430252480206
+          },
+          "wheelStates": {
+            "fl": "attached",
+            "fr": "attached",
+            "rl": "attached",
+            "rr": "attached"
+          },
+          "dentedVertexCount": 46514,
+          "glassShattered": [
+            "glass-BodyWindshield-1",
+            "glass-BodyRearwindow-43"
+          ]
+        }
+      }
+    },
+    "scenario3": {
+      "driveSpeedKmh": 84.28650824523675,
+      "damage": {
+        "panelStates": {
+          "hood": "broken",
+          "doorL": "broken",
+          "doorR": "broken",
+          "hatch": "loosened",
+          "roof": "broken"
+        },
+        "stressLevels": {
+          "hood": 145.66462227266092,
+          "doorL": 155.75125028589162,
+          "doorR": 162.98479323769115,
+          "hatch": 68.97978652244102,
+          "roof": 144.18730994036548
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 48605,
+        "glassShattered": [
+          "glass-BodyWindshield-1"
+        ]
+      },
+      "ejectedCount": 4,
+      "featureBodyCount": 343,
+      "treesSnapshot": {
+        "saplings": [
+          {
+            "id": "sapling-0",
+            "broken": false
+          },
+          {
+            "id": "sapling-1",
+            "broken": false
+          },
+          {
+            "id": "sapling-2",
+            "broken": false
+          },
+          {
+            "id": "sapling-3",
+            "broken": false
+          },
+          {
+            "id": "sapling-4",
+            "broken": false
+          },
+          {
+            "id": "sapling-5",
+            "broken": false
+          },
+          {
+            "id": "far-sapling-0",
+            "broken": false
+          }
+        ],
+        "mids": [
+          {
+            "id": "mid-0",
+            "broken": false
+          },
+          {
+            "id": "mid-1",
+            "broken": false
+          },
+          {
+            "id": "mid-2",
+            "broken": false
+          },
+          {
+            "id": "mid-3",
+            "broken": false
+          },
+          {
+            "id": "far-mid-0",
+            "broken": false
+          }
+        ],
+        "larges": [
+          {
+            "id": "large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-1",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "large-2",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          },
+          {
+            "id": "far-large-0",
+            "branchesBroken": 0,
+            "branchesTotal": 3
+          }
+        ]
+      }
+    },
+    "scenario4": {
+      "structuresBefore": [
+        {
+          "id": "shed",
+          "pieceCount": 31,
+          "jointCount": 30
+        },
+        {
+          "id": "house-corner",
+          "pieceCount": 36,
+          "jointCount": 32
+        },
+        {
+          "id": "brick-wall",
+          "pieceCount": 121,
+          "jointCount": 232
+        },
+        {
+          "id": "fence-near",
+          "pieceCount": 14,
+          "jointCount": 13
+        },
+        {
+          "id": "fence-far",
+          "pieceCount": 14,
+          "jointCount": 13
+        }
+      ],
+      "drives": {
+        "shed": 55.23810680692201,
+        "corner": 0.010128610198316063,
+        "brick": 0.011797027913626565,
+        "fenceNear": 0.025427474237920283,
+        "fenceFar": 0.024248768042560515
+      },
+      "finalPos": {
+        "shed": {
+          "x": 32.18816375732422,
+          "y": 0.24802473187446594,
+          "z": 16.615673065185547
+        },
+        "corner": {
+          "x": 68.54865264892578,
+          "y": 0.27122676372528076,
+          "z": 20.54740333557129
+        },
+        "brick": {
+          "x": 68.548583984375,
+          "y": 0.27127546072006226,
+          "z": 20.547285079956055
+        },
+        "fenceNear": {
+          "x": 68.54741668701172,
+          "y": 0.2729407548904419,
+          "z": 20.543127059936523
+        },
+        "fenceFar": {
+          "x": 68.54755401611328,
+          "y": 0.27319979667663574,
+          "z": 20.54124641418457
+        }
+      },
+      "after": {
+        "totalBroken": 62,
+        "totalPieces": 216,
+        "brokenPerStruct": {
+          "shed": 24,
+          "house-corner": 13,
+          "brick-wall": 25,
+          "fence-near": 0,
+          "fence-far": 0
+        }
+      }
+    },
+    "scenario5": {
+      "approachSpeedKmh": 60.42207728359054,
+      "airSamples": [
+        {
+          "i": 0,
+          "y": 0.2463977187871933,
+          "quat": {
+            "x": -0.0024498540442436934,
+            "y": 0.007751879747956991,
+            "z": -0.00022151798475533724,
+            "w": 0.9999669194221497
+          },
+          "wheelHeights": {
+            "fl": 0.3624749481678009,
+            "fr": 0.36602047085762024,
+            "rl": 0.35168665647506714,
+            "rr": 0.3514164686203003
+          }
+        },
+        {
+          "i": 5,
+          "y": 0.2448531538248062,
+          "quat": {
+            "x": -0.003055303357541561,
+            "y": 0.009035415947437286,
+            "z": 0.0000887764326762408,
+            "w": 0.9999545216560364
+          },
+          "wheelHeights": {
+            "fl": 0.362030953168869,
+            "fr": 0.3628583252429962,
+            "rl": 0.34334537386894226,
+            "rr": 0.3466249108314514
+          }
+        },
+        {
+          "i": 10,
+          "y": 0.2780703008174896,
+          "quat": {
+            "x": -0.021698283031582832,
+            "y": 0.007050692103803158,
+            "z": -0.003619933733716607,
+            "w": 0.9997332096099854
+          },
+          "wheelHeights": {
+            "fl": 0.3779454231262207,
+            "fr": 0.3713150918483734,
+            "rl": 0.3300895392894745,
+            "rr": 0.33284980058670044
+          }
+        },
+        {
+          "i": 15,
+          "y": 0.5344310998916626,
+          "quat": {
+            "x": -0.08659704029560089,
+            "y": 0.007811213843524456,
+            "z": -0.003628019243478775,
+            "w": 0.9962062835693359
+          },
+          "wheelHeights": {
+            "fl": 0.7846181988716125,
+            "fr": 0.8088322281837463,
+            "rl": 0.37327197194099426,
+            "rr": 0.3771898150444031
+          }
+        },
+        {
+          "i": 20,
+          "y": 0.7842254638671875,
+          "quat": {
+            "x": -0.14610157907009125,
+            "y": 0.008043132722377777,
+            "z": -0.0031912478152662516,
+            "w": 0.9892318248748779
+          },
+          "wheelHeights": {
+            "fl": 1.2764008045196533,
+            "fr": 1.29404878616333,
+            "rl": 0.4453127682209015,
+            "rr": 0.46081259846687317
+          }
+        },
+        {
+          "i": 25,
+          "y": 0.9853275418281555,
+          "quat": {
+            "x": -0.19158455729484558,
+            "y": 0.007561523467302322,
+            "z": 0.0008489679894410074,
+            "w": 0.9814466834068298
+          },
+          "wheelHeights": {
+            "fl": 1.649604082107544,
+            "fr": 1.6523107290267944,
+            "rl": 0.5068241953849792,
+            "rr": 0.5149350166320801
+          }
+        },
+        {
+          "i": 30,
+          "y": 1.1731096506118774,
+          "quat": {
+            "x": -0.22506481409072876,
+            "y": 0.004803160205483437,
+            "z": -0.0011833654716610909,
+            "w": 0.9743313193321228
+          },
+          "wheelHeights": {
+            "fl": 1.859316349029541,
+            "fr": 1.8427191972732544,
+            "rl": 0.6445569396018982,
+            "rr": 0.6938261389732361
+          }
+        },
+        {
+          "i": 35,
+          "y": 1.480446219444275,
+          "quat": {
+            "x": -0.2122945636510849,
+            "y": 0.005944598000496626,
+            "z": -0.0011756555177271366,
+            "w": 0.9771870374679565
+          },
+          "wheelHeights": {
+            "fl": 2.0533182621002197,
+            "fr": 2.0642943382263184,
+            "rl": 1.0302459001541138,
+            "rr": 1.0433235168457031
+          }
+        },
+        {
+          "i": 40,
+          "y": 1.7672345638275146,
+          "quat": {
+            "x": -0.18553486466407776,
+            "y": 0.006050982046872377,
+            "z": -0.003628307720646262,
+            "w": 0.9826123714447021
+          },
+          "wheelHeights": {
+            "fl": 2.275691509246826,
+            "fr": 2.3014705181121826,
+            "rl": 1.3876574039459229,
+            "rr": 1.402376651763916
+          }
+        },
+        {
+          "i": 45,
+          "y": 2.033557415008545,
+          "quat": {
+            "x": -0.15870241820812225,
+            "y": 0.0071478839963674545,
+            "z": -0.003447073046118021,
+            "w": 0.9872945547103882
+          },
+          "wheelHeights": {
+            "fl": 2.466322660446167,
+            "fr": 2.484590768814087,
+            "rl": 1.707889437675476,
+            "rr": 1.7282174825668335
+          }
+        },
+        {
+          "i": 50,
+          "y": 2.2301223278045654,
+          "quat": {
+            "x": -0.14693434536457062,
+            "y": 0.008110386319458485,
+            "z": -0.005214981734752655,
+            "w": 0.9890993237495422
+          },
+          "wheelHeights": {
+            "fl": 2.630166530609131,
+            "fr": 2.6530847549438477,
+            "rl": 1.9154677391052246,
+            "rr": 1.9406181573867798
+          }
+        },
+        {
+          "i": 55,
+          "y": 2.3558189868927,
+          "quat": {
+            "x": -0.14077451825141907,
+            "y": 0.008746218867599964,
+            "z": -0.006419404875487089,
+            "w": 0.9899822473526001
+          },
+          "wheelHeights": {
+            "fl": 2.74202561378479,
+            "fr": 2.7717692852020264,
+            "rl": 2.045609951019287,
+            "rr": 2.0759525299072266
+          }
+        },
+        {
+          "i": 60,
+          "y": 2.411555528640747,
+          "quat": {
+            "x": -0.13853172957897186,
+            "y": 0.009165927767753601,
+            "z": -0.006762315519154072,
+            "w": 0.990292489528656
+          },
+          "wheelHeights": {
+            "fl": 2.7935311794281006,
+            "fr": 2.8259012699127197,
+            "rl": 2.102475643157959,
+            "rr": 2.1346912384033203
+          }
+        },
+        {
+          "i": 65,
+          "y": 2.3971164226531982,
+          "quat": {
+            "x": -0.13755401968955994,
+            "y": 0.00948477815836668,
+            "z": -0.006242294330149889,
+            "w": 0.9904292225837708
+          },
+          "wheelHeights": {
+            "fl": 2.7797250747680664,
+            "fr": 2.8102827072143555,
+            "rl": 2.089667320251465,
+            "rr": 2.119983673095703
+          }
+        },
+        {
+          "i": 70,
+          "y": 2.312422513961792,
+          "quat": {
+            "x": -0.13694226741790771,
+            "y": 0.010015659034252167,
+            "z": -0.004871693905442953,
+            "w": 0.9905164241790771
+          },
+          "wheelHeights": {
+            "fl": 2.6966564655303955,
+            "fr": 2.722266912460327,
+            "rl": 2.008462905883789,
+            "rr": 2.0338311195373535
+          }
+        },
+        {
+          "i": 75,
+          "y": 2.1582889556884766,
+          "quat": {
+            "x": -0.13669799268245697,
+            "y": 0.010457988828420639,
+            "z": -0.0029507747385650873,
+            "w": 0.9905532598495483
+          },
+          "wheelHeights": {
+            "fl": 2.5455126762390137,
+            "fr": 2.563243865966797,
+            "rl": 1.858516812324524,
+            "rr": 1.876082181930542
+          }
+        },
+        {
+          "i": 80,
+          "y": 1.9344907999038696,
+          "quat": {
+            "x": -0.13646666705608368,
+            "y": 0.01058996096253395,
+            "z": -0.001194771146401763,
+            "w": 0.9905874133110046
+          },
+          "wheelHeights": {
+            "fl": 2.325504779815674,
+            "fr": 2.3352766036987305,
+            "rl": 1.6390267610549927,
+            "rr": 1.648960828781128
+          }
+        },
+        {
+          "i": 85,
+          "y": 1.6415443420410156,
+          "quat": {
+            "x": -0.13634534180164337,
+            "y": 0.010443922132253647,
+            "z": 0.0005477238446474075,
+            "w": 0.9906061887741089
+          },
+          "wheelHeights": {
+            "fl": 2.0352163314819336,
+            "fr": 2.038447380065918,
+            "rl": 1.3495666980743408,
+            "rr": 1.352889060974121
+          }
+        }
+      ],
+      "occBefore": [
+        {
+          "x": 0.41999998688697815,
+          "y": 0.6700000166893005,
+          "z": 0.550000011920929
+        },
+        {
+          "x": -0.41999998688697815,
+          "y": 0.6700000166893005,
+          "z": 0.550000011920929
+        },
+        {
+          "x": 0.41999998688697815,
+          "y": 0.6200000047683716,
+          "z": -1.0499999523162842
+        },
+        {
+          "x": -0.41999998688697815,
+          "y": 0.6200000047683716,
+          "z": -1.0499999523162842
+        }
+      ],
+      "occAfter": [
+        {
+          "x": 0.7980644106864929,
+          "y": 0.49303722381591797,
+          "z": 63.5356559753418
+        },
+        {
+          "x": -0.04329380765557289,
+          "y": 0.4907282590866089,
+          "z": 63.54545211791992
+        },
+        {
+          "x": 1.0227911472320557,
+          "y": 0.16884617507457733,
+          "z": 62.278961181640625
+        },
+        {
+          "x": -0.7099454402923584,
+          "y": 0.1710127294063568,
+          "z": 60.07246780395508
+        }
+      ]
+    },
+    "scenario6": {
+      "newConsoleErrors": 0,
+      "damage": {
+        "panelStates": {
+          "hood": "broken",
+          "doorL": "broken",
+          "doorR": "broken",
+          "hatch": "attached",
+          "roof": "broken"
+        },
+        "stressLevels": {
+          "hood": 141.29306158127636,
+          "doorL": 96.10390527627496,
+          "doorR": 97.8236178985075,
+          "hatch": 26.52081515300825,
+          "roof": 94.06167155424691
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 7593,
+        "glassShattered": []
+      },
+      "ejectedCount": 4,
+      "cardetailDetached": 9,
+      "featureBodyCountDuringChaos": 343,
+      "afterReset": {
+        "featureBodyCount": 343,
+        "maxDestructibleDisplacement": 0.000001869618016728197,
+        "anyStillEjected": false,
+        "cardetailDetachedAfterReset": 0
+      }
+    },
+    "scenario7": {
+      "crateDriveSpeedKmh": 50.33318908738893,
+      "barrelDriveSpeedKmh": 53.931004581721936,
+      "bodiesMovedAfterCrate": 21,
+      "bodiesMovedAfterBarrel": 11,
+      "totalDestructibleBodies": 131
+    },
+    "scenario8": {
+      "qualityBefore": "medium",
+      "qualityAfterCycle": "medium",
+      "telemetryFiniteAfter": true,
+      "newConsoleErrors": 0
+    }
+  },
+  "timestamp": "2026-07-09T15:06:12.714Z"
+}
