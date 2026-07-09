@@ -62,11 +62,21 @@ export interface PanelVisual {
 	 * panel is loosened/broken, since it never changes. */
 	readonly offsetPos: THREE.Vector3;
 	readonly offsetQuat: THREE.Quaternion;
-	/** This panel node's ORIGINAL local position/rotation under carRoot, captured once at creation
-	 * time (before any reparenting) -- used by repairPanelVisual() to put it back exactly where it
-	 * started for the "R = full car repair" reset (main.ts). */
+	/** This panel node's ORIGINAL local position/rotation under its ORIGINAL PARENT (originalParent
+	 * below -- NOT carRoot directly), captured once at creation time (before any reparenting) -- used
+	 * by repairPanelVisual() to put it back exactly where it started for the "R = full car repair"
+	 * reset (main.ts). */
 	readonly originalLocalPos: THREE.Vector3;
 	readonly originalLocalQuat: THREE.Quaternion;
+	/** The panel node's ORIGINAL parent in the loaded GLB scene graph, captured once at creation time.
+	 * Panel nodes are NOT direct children of carRoot -- every panel lives under an intermediate GLB
+	 * group node ('BodyUnderside' for hood/doorL/doorR/roof, 'BodyRearPanelsColor1' for hatch) that
+	 * carries a baked ~-90deg-about-X rotation (car-map.ts's PanelNode.worldQuat doc comment). The
+	 * originalLocal{Pos,Quat} above are expressed relative to THIS parent, so repairPanelVisual() must
+	 * re-attach to it (not to carRoot) or those local values land in the wrong frame -- rendering the
+	 * repaired panel ~90deg mis-posed even though every physics hook reports it pristine/attached (the
+	 * "wrecked hood/doors on a freshly-reset car" blocker: reset-integrity.mjs). */
+	readonly originalParent: THREE.Object3D;
 }
 
 const scratchWorldPos = new THREE.Vector3();
@@ -127,6 +137,12 @@ export function createPanelVisuals(carRoot: THREE.Object3D): Record<PanelKey, Pa
 			offsetQuat,
 			originalLocalPos: object.position.clone(),
 			originalLocalQuat: object.quaternion.clone(),
+			// Captured BEFORE any reparenting (loadCar() just ran, nothing has loosened yet) -- this is
+			// the panel node's authored GLB parent (an intermediate rotated group, NOT carRoot). The GLB
+			// hierarchy above the panels is never rebuilt on reset (only the physics vehicle is), so this
+			// reference stays valid for the lifetime of the scene. Falls back to carRoot only in the
+			// (never-observed) degenerate case of a panel node authored directly at the scene root.
+			originalParent: object.parent ?? carRoot,
 		};
 	}
 	return result;
@@ -149,12 +165,19 @@ export function reparentPanelVisual(visual: PanelVisual, scene: THREE.Scene, pan
 	visual.reparented = true;
 }
 
-/** Undoes reparentPanelVisual(): puts a loosened/broken panel's node back under `carRoot` at its
- * original (pre-damage) local transform, for the "R = full car repair" reset (main.ts). No-op if the
- * panel was never reparented in the first place (still attached, nothing to repair). */
-export function repairPanelVisual(visual: PanelVisual, carRoot: THREE.Object3D): void {
+/** Undoes reparentPanelVisual(): puts a loosened/broken panel's node back under its ORIGINAL GLB
+ * parent (visual.originalParent -- NOT carRoot; see that field's doc comment) at its original
+ * (pre-damage) local transform, for the "R = full car repair" reset (main.ts). Re-attaching to the
+ * original parent is required because originalLocal{Pos,Quat} are expressed in THAT parent's frame,
+ * which is rotated ~90deg relative to carRoot -- restoring them under carRoot mis-poses the panel by
+ * exactly that rotation (the "wrecked hood/doors on a freshly-reset car" blocker). No-op if the panel
+ * was never reparented in the first place (still attached, nothing to repair). */
+export function repairPanelVisual(visual: PanelVisual, _carRootUnused?: THREE.Object3D): void {
+	// `_carRootUnused` is retained ONLY so the existing two-arg call sites (main.ts + the verify/diag
+	// harness) still type-check unchanged: re-parenting now targets visual.originalParent, so carRoot
+	// is no longer needed or read here.
 	if (!visual.reparented) return;
-	carRoot.add(visual.object); // plain re-parent (does NOT preserve world transform, unlike .attach())
+	visual.originalParent.add(visual.object); // plain re-parent (does NOT preserve world transform, unlike .attach())
 	visual.object.position.copy(visual.originalLocalPos);
 	visual.object.quaternion.copy(visual.originalLocalQuat);
 	visual.reparented = false;
