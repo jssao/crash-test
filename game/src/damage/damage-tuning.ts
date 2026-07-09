@@ -164,6 +164,58 @@ export const STRESS_LOOSEN_S1 = 28;
 export const STRESS_BREAK_S2 = 90;
 
 // ---------------------------------------------------------------------------------------------
+// Weld stress model -- DIRECTION-AWARE panel vulnerability (crash-deformation-reference.md).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Per-panel directional vulnerability: the accumulated-stress each panel absorbs from a hit is now
+ * scaled by how well the impact DIRECTION (chassis-local unit vector from the chassis origin to the
+ * impact point) aligns with the axis that panel is physically weak against -- see welds.ts's
+ * panelDirectionalFactor(). This is the reference-driven fix for the user playtest finding "doors fly
+ * off in frontal impacts": a door's hinge+latch+B-pillar carry LONGITUDINAL (fore-aft) crash load
+ * well and only tear from LATERAL push-in (a side impact) or rollover -- so a frontal (nose) impact,
+ * whose chassis-local direction is dominated by +Z, must contribute ~zero breaking stress to a door,
+ * no matter how close the old distance-only radius let it reach. FMVSS-206's own rulemaking record:
+ * "offset frontals, near side impacts, and especially rollovers ... cause doors to open" -- i.e. door
+ * separation is a lateral/complex-loading event, never a clean frontal. See crash-deformation-
+ * reference.md for the full sourcing.
+ *
+ *   axis   : the chassis-local axis whose |component| (or signed component, if `signed`) of the
+ *            impact direction gates this panel's stress.
+ *   signed : when true, only impacts coming FROM that axis's positive-or-negative sense count
+ *            (e.g. the rear hatch is only vulnerable to impacts from behind, dir.z < 0).
+ *   sharpness : exponent applied to the alignment fraction -- >1 sharpens the gate so a mostly-
+ *            frontal hit with a little incidental yaw (small non-zero lateral component) still gives a
+ *            door almost nothing, while a true side impact (|dir.x|~1) gives it ~full stress.
+ *   floor  : a minimum multiplier that always applies regardless of direction (the hood is frontal-
+ *            weak by design, so it keeps floor=1 = today's exact behaviour; doors get floor=0 so a
+ *            pure frontal contributes literally nothing toward breaking them).
+ */
+export interface PanelVulnerability {
+	axis: 'x' | 'y' | 'z';
+	signed: 1 | -1 | 0; // 0 = both senses (|component|); +/-1 = only that sense
+	sharpness: number;
+	floor: number;
+}
+
+export const PANEL_VULNERABILITY: Record<PanelKey, PanelVulnerability> = {
+	// Hood is frontal/top-weak BY DESIGN (it buckles and, at high speed, tears loose). Kept at floor=1
+	// so its stress -- and therefore every existing hood loosen/break threshold calibrated in the tests
+	// above -- is byte-for-byte unchanged; the directional model only ever REMOVES stress from the
+	// panels that were wrongly breaking (doors/hatch/roof) in a frontal.
+	hood: { axis: 'z', signed: 1, sharpness: 1, floor: 1 },
+	// Doors: lateral push-in only. floor 0 + sharpness 3 => a frontal or offset-frontal (small
+	// incidental dir.x from post-impact yaw) gives ~0 -- the struck door stays fully ATTACHED, not even
+	// loosened; a genuine side impact (dir.x~+/-1) gives ~full stress, so it still tears off.
+	doorL: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
+	doorR: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
+	// Rear hatch: only vulnerable to a rear impact (dir.z < 0). A frontal (dir.z > 0) gives nothing.
+	hatch: { axis: 'z', signed: -1, sharpness: 3, floor: 0 },
+	// Roof: vertical / rollover loading (|dir.y|). A level frontal gives ~0.
+	roof: { axis: 'y', signed: 0, sharpness: 3, floor: 0 },
+};
+
+// ---------------------------------------------------------------------------------------------
 // Loosen behavior -- runtime weld-param setters ARE wired (src/wasm-shim/binding.c's
 // b3js_WeldJoint_SetLinearDampingRatio/SetAngularDampingRatio, added for this feature -- see
 // src/ts/joint.ts's WeldJoint class), so LOOSEN uses the "soften in place" path, not destroy+recreate.
@@ -216,23 +268,56 @@ export const PANEL_DESPAWN_DISTANCE_M = 100;
 // Plastic crumple
 // ---------------------------------------------------------------------------------------------
 
-/** Impact radius (meters): R = CRUMPLE_RADIUS0_M + CRUMPLE_RADIUS_SPEED_COEF_M * min(approachSpeed, cap). */
-export const CRUMPLE_RADIUS0_M = 0.45;
-export const CRUMPLE_RADIUS_SPEED_COEF_M = 0.05;
-export const CRUMPLE_RADIUS_SPEED_CAP_MS = 12;
+/**
+ * Impact radius (meters): R = CRUMPLE_RADIUS0_M + CRUMPLE_RADIUS_SPEED_COEF_M * min(approachSpeed, cap).
+ *
+ * REALISM DELTA (crash-deformation-reference.md "localised crease, not a global cloth-wrinkle"):
+ * RADIUS0 tightened 0.45 -> 0.34 and the speed coefficient/cap trimmed, so the deformation
+ * concentrates as a sharp fold AT the impact site instead of smearing a shallow ripple across the
+ * whole front shell. Combined with CRUMPLE_FALLOFF_POWER below (a steeper-than-smoothstep center
+ * concentration) this reads as struck sheet metal creasing rather than a soft dent.
+ */
+export const CRUMPLE_RADIUS0_M = 0.34;
+export const CRUMPLE_RADIUS_SPEED_COEF_M = 0.03;
+export const CRUMPLE_RADIUS_SPEED_CAP_MS = 16;
+
+/** Extra exponent applied to crumple.ts's smoothFalloff(t) (1 = the old plain smoothstep). >1
+ * concentrates displacement toward the impact center -> a sharper crease, less broad wrinkle. */
+export const CRUMPLE_FALLOFF_POWER = 1.6;
 
 /** Displacement magnitude (meters) at the impact center (before falloff/jitter):
- * mag = CRUMPLE_MAG_COEF_M_PER_MS * min(approachSpeed, cap). */
-export const CRUMPLE_MAG_COEF_M_PER_MS = 0.012;
-export const CRUMPLE_MAG_SPEED_CAP_MS = 18;
+ * mag = CRUMPLE_MAG_COEF_M_PER_MS * min(approachSpeed, cap).
+ * REALISM DELTA: coefficient/cap raised so a single high-speed contact drives the nose in fast enough
+ * to reach the speed-scaled crush cap below within the crash's few high-energy substeps. */
+export const CRUMPLE_MAG_COEF_M_PER_MS = 0.03;
+export const CRUMPLE_MAG_SPEED_CAP_MS = 26;
 
 /** Per-vertex crease-noise jitter fraction (deterministic hash of vertex index, NOT Math.random -- see
  * crumple.ts's hash32()/deterministicJitter01()). */
 export const CRUMPLE_JITTER_FRACTION = 0.25;
 
-/** Max accumulated per-vertex displacement magnitude (meters), persistent/never-healing. */
-export const CRUMPLE_CLAMP_CHASSIS_M = 0.25;
+/**
+ * Max accumulated per-vertex displacement magnitude (meters), persistent/never-healing -- the ABSOLUTE
+ * ceiling. REALISM DELTA: chassis raised 0.25 -> 0.58 so a genuinely severe crash can cave the nose in
+ * deeply (crash-deformation-reference.md's per-class crush bands). The actual crush a given crash
+ * reaches is gated below this by the SPEED-SCALED cap (CRUMPLE_CRUSH_*), so a light tap no longer
+ * saturates to the same depth as a highway hit -- see crumple.ts's applyImpactToMesh().
+ */
+export const CRUMPLE_CLAMP_CHASSIS_M = 0.58;
 export const CRUMPLE_CLAMP_PANEL_GLASS_M = 0.12;
+
+/**
+ * SPEED-SCALED crush cap: the deepest a vertex is allowed to cave in FROM A GIVEN HIT is
+ *   min(clampM, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * min(approachSpeed, cap)),
+ * but never below what already accumulated (monotonic / never-heals -- crumple.ts enforces this). This
+ * is what makes final crush depth scale with closing speed instead of every crash saturating to the
+ * absolute clamp: ~0.30 m at 40 km/h (11.1 m/s), ~0.47 m at 64 km/h (17.8), ~0.55 m at 80 km/h (22.2),
+ * saturating to the 0.58 m clamp only for the most extreme hits. Calibrated against
+ * game/sim/crash-realism.test.mjs's measured per-speed crush.
+ */
+export const CRUMPLE_CRUSH_FLOOR_M = 0.09;
+export const CRUMPLE_CRUSH_SPEED_COEF_M = 0.021;
+export const CRUMPLE_CRUSH_SPEED_CAP_MS = 24;
 
 /** A vertex counts as "dented" (telemetry.dentedVertexCount) once its accumulated displacement
  * magnitude exceeds this (meters) -- small enough to catch real denting, large enough to ignore

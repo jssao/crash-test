@@ -1,0 +1,117 @@
+{
+  "runs": [
+    {
+      "speed": 40,
+      "damage": {
+        "panelStates": {
+          "hood": "loosened",
+          "doorL": "attached",
+          "doorR": "attached",
+          "hatch": "attached",
+          "roof": "attached"
+        },
+        "stressLevels": {
+          "hood": 45.64640718494164,
+          "doorL": 1.4454447743156842,
+          "doorR": 1.476644989231717,
+          "hatch": 0,
+          "roof": 0.0017645181367184452
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 1654,
+        "glassShattered": []
+      }
+    },
+    {
+      "speed": 64,
+      "damage": {
+        "panelStates": {
+          "hood": "broken",
+          "doorL": "attached",
+          "doorR": "attached",
+          "hatch": "attached",
+          "roof": "attached"
+        },
+        "stressLevels": {
+          "hood": 102.66536977195206,
+          "doorL": 3.2477954653198773,
+          "doorR": 4.214425023615974,
+          "hatch": 0,
+          "roof": 0.002613861930316653
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 3553,
+        "glassShattered": []
+      }
+    },
+    {
+      "speed": 80,
+      "damage": {
+        "panelStates": {
+          "hood": "broken",
+          "doorL": "attached",
+          "doorR": "attached",
+          "hatch": "attached",
+          "roof": "attached"
+        },
+        "stressLevels": {
+          "hood": 127.8581920238771,
+          "doorL": 6.867375629774593,
+          "doorR": 3.1274137533887494,
+          "hatch": 0,
+          "roof": 0.006644370141241953
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 3601,
+        "glassShattered": []
+      }
+    },
+    {
+      "speed": 120,
+      "damage": {
+        "panelStates": {
+          "hood": "broken",
+          "doorL": "attached",
+          "doorR": "attached",
+          "hatch": "attached",
+          "roof": "attached"
+        },
+        "stressLevels": {
+          "hood": 110.82120480817468,
+          "doorL": 15.01598463723995,
+          "doorR": 15.31100818183641,
+          "hatch": 0,
+          "roof": 0.023224480040799775
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 7009,
+        "glassShattered": []
+      }
+    }
+  ],
+  "doorFailures": [],
+  "noDamage": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T21:57:25.325Z"
+}

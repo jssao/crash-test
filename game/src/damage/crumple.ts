@@ -15,7 +15,11 @@ import type { V3 } from '../vehicle/mathUtil';
 import {
 	CRUMPLE_CLAMP_CHASSIS_M,
 	CRUMPLE_CLAMP_PANEL_GLASS_M,
+	CRUMPLE_CRUSH_FLOOR_M,
+	CRUMPLE_CRUSH_SPEED_CAP_MS,
+	CRUMPLE_CRUSH_SPEED_COEF_M,
 	CRUMPLE_DENT_EPSILON_M,
+	CRUMPLE_FALLOFF_POWER,
 	CRUMPLE_JITTER_FRACTION,
 	CRUMPLE_MAG_COEF_M_PER_MS,
 	CRUMPLE_MAG_SPEED_CAP_MS,
@@ -177,6 +181,11 @@ export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, lo
 
 	const seed = stringSeed(mesh.id);
 	const magBase = CRUMPLE_MAG_COEF_M_PER_MS * Math.min(approachSpeedMs, CRUMPLE_MAG_SPEED_CAP_MS);
+	// Speed-scaled crush cap for THIS hit: how deep this single (this-speed) contact is allowed to cave
+	// a vertex, never above the absolute per-mesh clamp. Applied per-vertex below against the vertex's
+	// PRE-hit magnitude so it only ever LIMITS new growth, never shrinks an already-deeper dent (that
+	// would "heal" the crumple, violating the never-heals invariant) -- see crush cap logic below.
+	const speedCrushCap = Math.min(mesh.clampM, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_CRUSH_SPEED_CAP_MS));
 	const base = mesh.basePositions;
 	const pos = mesh.positions;
 	const off = mesh.offsets;
@@ -194,17 +203,30 @@ export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, lo
 		touched++;
 
 		const t = dist / radius;
-		const falloff = smoothFalloff(t);
+		const falloff = Math.pow(smoothFalloff(t), CRUMPLE_FALLOFF_POWER);
 		const jitterSigned = deterministicJitter01(i, seed) * 2 - 1; // [-1,1)
 		const mag = magBase * falloff * (1 + CRUMPLE_JITTER_FRACTION * jitterSigned);
 		if (mag <= 0) continue;
 
-		let ox = off[i * 3] - localNormal.x * mag;
-		let oy = off[i * 3 + 1] - localNormal.y * mag;
-		let oz = off[i * 3 + 2] - localNormal.z * mag;
+		const px = off[i * 3];
+		const py = off[i * 3 + 1];
+		const pz = off[i * 3 + 2];
+		const prevMag = Math.sqrt(px * px + py * py + pz * pz);
+		// Displace ALONG the contact normal (+normal), which for box3d's convention (the normal points
+		// from the struck obstacle back toward the car body) caves the surface INWARD -- a real crush.
+		// (The prior `- normal` pushed nose vertices toward the wall, i.e. bulged the front OUTWARD on a
+		// frontal hit -- geometrically inverted; every damage test only checked displacement MAGNITUDE,
+		// never direction, so it went unnoticed. Verified against measured hit normals: a frontal wall
+		// reports (0,0,-1), so +normal = -Z = rearward into the car. See crash-deformation-reference.md.)
+		let ox = px + localNormal.x * mag;
+		let oy = py + localNormal.y * mag;
+		let oz = pz + localNormal.z * mag;
 		const offMag = Math.sqrt(ox * ox + oy * oy + oz * oz);
-		if (offMag > mesh.clampM && offMag > 1e-12) {
-			const s = mesh.clampM / offMag;
+		// Effective cap = the greater of what already accumulated and this hit's speed cap (both under
+		// the absolute clamp) -- monotonic: a later slow contact can't undo a deep fast dent.
+		const effClamp = Math.max(prevMag, speedCrushCap);
+		if (offMag > effClamp && offMag > 1e-12) {
+			const s = effClamp / offMag;
 			ox *= s;
 			oy *= s;
 			oz *= s;

@@ -6,12 +6,13 @@
 // whichever trigger fires first, and (3) poll each intact wheel joint's constraint force, detaching a
 // wheel outright on a big enough spike. Renderer-free (no three/DOM import).
 
-import { length, sub, type V3 } from '../vehicle/mathUtil';
+import { length, sub, type Q4, type V3 } from '../vehicle/mathUtil';
 import { GRAVITY_MAG } from '../vehicle/tuning';
 import { CAR_ENTITY_ID, type Vehicle, type WheelKey } from '../vehicle/vehicle';
 import {
 	PANEL_BREAK_FORCE_MULT,
 	PANEL_LOOSEN_FORCE_MULT,
+	PANEL_VULNERABILITY,
 	LOOSEN_DAMPING_RATIO,
 	LOOSEN_HERTZ,
 	STRESS_BREAK_S2,
@@ -22,6 +23,7 @@ import {
 	STRESS_RADIUS_M,
 	WHEEL_DETACH_DEBOUNCE_STEPS,
 	WHEEL_DETACH_FORCE_MULT,
+	type PanelVulnerability,
 } from './damage-tuning';
 import { breakPanelWeld, loosenPanelWeld, PANEL_ENTITY_ID, PANEL_KEYS, type PanelHandle, type PanelKey } from './panels';
 import type { DamageEvent } from './events';
@@ -43,6 +45,38 @@ function stressFalloff(t: number): number {
 	const c = t < 0 ? 0 : t > 1 ? 1 : t;
 	const inv = 1 - c;
 	return inv * inv;
+}
+
+/** Inverse-rotates a world-space vector into a body's local frame given the body's rotation (rotate by
+ * the conjugate quaternion) -- used to express a hit's direction in CHASSIS-LOCAL axes so the
+ * direction-aware panel vulnerability model can tell a frontal (+Z) from a side (+/-X) impact. Kept
+ * local here rather than importing (same pattern as system.ts's private rotate()). */
+function rotateByConjugate(q: Q4, v: V3): V3 {
+	const cx = -q.x;
+	const cy = -q.y;
+	const cz = -q.z;
+	const cw = q.w;
+	const t = { x: 2 * (cy * v.z - cz * v.y), y: 2 * (cz * v.x - cx * v.z), z: 2 * (cx * v.y - cy * v.x) };
+	return {
+		x: v.x + cw * t.x + (cy * t.z - cz * t.y),
+		y: v.y + cw * t.y + (cz * t.x - cx * t.z),
+		z: v.z + cw * t.z + (cx * t.y - cy * t.x),
+	};
+}
+
+/**
+ * Directional stress multiplier in [floor, 1] for one panel given the impact's CHASSIS-LOCAL unit
+ * direction (chassis origin -> impact point). Alignment = how much the impact comes from the axis the
+ * panel is weak against (|component|, or the signed sense for a one-sided panel like the rear hatch),
+ * sharpened by the panel's exponent; `floor` guarantees a minimum (1 for the frontal-weak hood =
+ * unchanged behaviour, 0 for doors so a pure frontal contributes nothing toward tearing them off).
+ * See damage-tuning.ts's PANEL_VULNERABILITY + crash-deformation-reference.md.
+ */
+export function panelDirectionalFactor(vuln: PanelVulnerability, dirLocal: V3): number {
+	const component = dirLocal[vuln.axis];
+	const aligned = vuln.signed === 0 ? Math.abs(component) : Math.max(0, vuln.signed * component);
+	const sharpened = Math.pow(aligned < 0 ? 0 : aligned > 1 ? 1 : aligned, vuln.sharpness);
+	return vuln.floor + (1 - vuln.floor) * sharpened;
 }
 
 export interface HitEventLike {
@@ -119,7 +153,8 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		escalatePanel(panel, forceMag > PANEL_BREAK_FORCE_MULT * weightN, forceMag > PANEL_LOOSEN_FORCE_MULT * weightN, timeSec, emit);
 	}
 
-	// ---- 2) Accumulated event-driven stress (nearby qualifying hits) ----
+	// ---- 2) Accumulated event-driven stress (nearby qualifying hits), now DIRECTION-AWARE ----
+	const chassisTransform = vehicle.chassis.getTransform();
 	for (const hit of hits) {
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
 		// Ground-plane contacts (the car settling, bouncing, or briefly scraping flat ground -- NOT a
@@ -128,13 +163,21 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		// STRESS_MAX_NORMAL_UP_COMPONENT doc comment for the diagnosis behind this exclusion.
 		if (Math.abs(hit.normal.y) > STRESS_MAX_NORMAL_UP_COMPONENT) continue;
 		if (!hitTouchesCar(hit, panels)) continue;
+		// Which direction did this impact come from, in CHASSIS-LOCAL axes? (+Z frontal, +/-X lateral,
+		// +/-Y vertical.) This is what lets a door ignore a nose impact but tear off in a side impact --
+		// the reference-driven fix for "doors fly off in frontal impacts". See panelDirectionalFactor().
+		const relLocal = rotateByConjugate(chassisTransform.rotation, sub(hit.point, chassisTransform.position));
+		const relLen = length(relLocal);
+		const dirLocal: V3 = relLen > 1e-9 ? { x: relLocal.x / relLen, y: relLocal.y / relLen, z: relLocal.z / relLen } : { x: 0, y: 0, z: 0 };
 		for (const key of PANEL_KEYS) {
 			const panel = panels[key];
 			if (panel.state === 'broken') continue;
 			const centroid = panel.body.getPosition();
 			const dist = length(sub(hit.point, centroid));
 			if (dist > STRESS_RADIUS_M) continue;
-			panel.stress += STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M);
+			const dirFactor = panelDirectionalFactor(PANEL_VULNERABILITY[key], dirLocal);
+			if (dirFactor <= 0) continue;
+			panel.stress += STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor;
 		}
 	}
 	for (const key of PANEL_KEYS) {
