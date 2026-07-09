@@ -1,0 +1,26 @@
+{
+  "note": "Soak was intentionally cut short at 17 cycles (of the planned 45 / 12 minutes sim time) -- the wasm 'memory access out of bounds' trap (see repro-oob-result.json, battery-results.json) recurred so consistently (10 of the first 16 complete cycles = 62.5%, across every action type: crash-wall, free-drive, full-reset all triggered it; only crash-ramp-lane never did in this run) that continuing to the full 45 cycles would mostly have re-demonstrated the same already-conclusive pattern at a high wall-clock cost (each recurrence requires a full browser+preview relaunch). Raw per-cycle data is in soak.csv. This file is reconstructed from the run's console log (verify/playtest -- the script's own JSON writer never ran since the process was stopped deliberately, not crashed) rather than emitted by soak.mjs itself.",
+  "summary": {
+    "cyclesCompleted": 16,
+    "cyclesPlanned": 45,
+    "stepsPerCycle": 960,
+    "simSecondsCovered": 256,
+    "simMinutesCovered": 4.27,
+    "simMinutesPlanned": 12,
+    "wasmOobRecurrences": 10,
+    "wasmOobRecurrenceRate": 0.625,
+    "wasmOobRecurredDuringSoak": true,
+    "otherUncaughtExceptions": false,
+    "anyNaNDetected": false,
+    "heapMB_min": 55.84,
+    "heapMB_max": 56.17,
+    "heapMB_range": 0.33,
+    "heapTrend": "flat/bounded across all 16 cycles -- but this is a WEAK leak signal: 10 of 16 cycles ended in a full browser relaunch (fresh process, heap resets to ~56MB baseline), so there was never an uninterrupted stretch long enough to properly stress-test for a slow multi-minute leak. The longest unbroken same-process run was 3 consecutive cycles (7,8 -> only 2 in a row before a relaunch); across those, heap moved 56.02 -> 56.17MB, a small, unremarkable increase.",
+    "liveHandleCount_min": 294,
+    "liveHandleCount_max": 299,
+    "liveHandleCountFlat": true,
+    "harnessRelaunches": 10,
+    "verdict": "FAIL",
+    "verdictReason": "wasm OOB trap recurred repeatedly (10/16 cycles) -- this alone fails the soak's stated condition ('FAIL if: any uncaught exception'). No other distinct exception types, no NaN, no heap-leak evidence found (though heap-leak testing was undermined by the trap itself preventing any long uninterrupted run)."
+  }
+}

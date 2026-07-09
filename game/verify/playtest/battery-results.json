@@ -1,0 +1,382 @@
+{
+  "destructibleBodyCount": 131,
+  "calibSign": 1,
+  "results": [
+    {
+      "name": "free-drive",
+      "verdict": "CONCERN",
+      "metrics": {
+        "steps": 151,
+        "speedBand": {
+          "min": 25.3,
+          "max": 229.6
+        },
+        "maxAbsRollRad": 0.16,
+        "flipSamples": 25,
+        "minUpDot": -1.0,
+        "finalXZ": {
+          "x": -19.7,
+          "z": -330.3
+        },
+        "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/01-free-drive.png",
+        "note_on_methodology": "Two earlier attempts at this scenario are documented for transparency: (1) an initial waypoint-mode controller aimed at a far target saturated steer at +-1 continuously and just circled the car near spawn (never actually traveled, and grazed a pole, contributing to the separately-documented wasm OOB bonus finding); (2) this final version does a deliberate U-turn into the guaranteed-obstacle-free -Z half of the map, then a gentle (steerAmp 0.15, well within \"mild input\") figure-eight there for the rest of the 25s."
+      },
+      "notes": "U-turn into open ground (away from every obstacle, confirmed zero collision/panel damage), then a GENTLE (steerAmp=0.15) figure-eight-ish wander at throttle-driven speed for ~25s. FINDING: even this mild, sustained oscillating-steer input under continuous full throttle eventually (once the car reached high speed in top gear) flipped the car fully upside-down (minUpDot=-1.0) on perfectly flat, obstacle-free ground, after which speedKmh readings ballooned to unphysical values (up to 229.6km/h) consistent with a chaotic tumble/bounce rather than genuine road speed. This is a real vehicle-stability issue, independent of the separately-documented wasm crash bug."
+    },
+    {
+      "name": "BONUS: wasm-oob-crash-repro",
+      "verdict": "FAIL",
+      "metrics": {
+        "reproScript": "verify/playtest/repro-oob.mjs",
+        "resultFile": "verify/playtest/repro-oob-result.json",
+        "screenshot": "verify/playtest/00-wasm-oob-repro-stuck-car.png"
+      },
+      "notes": "Reliable repro (2/2 runs) of a wasm RuntimeError \"memory access out of bounds\" in Body.getTransform() via stepVehicle(), triggered by sustained high-stress contact with a destructible object during hard alternating steering (hood panel broken, 3 panels loosened, 8020 dented vertices at the point of failure). Once triggered, EVERY subsequent stepN() call fails identically forever (confirmed via 2 consecutive post-crash pingStepAlive() calls) -- in the live game this presents as a silent total freeze (last frame stays on screen, console spammed every animation frame). See the final report for full detail."
+    },
+    {
+      "name": "ramp-jump",
+      "verdict": "CONCERN",
+      "metrics": {
+        "attempts": [
+          {
+            "speedKmh": 35,
+            "entrySpeedKmh": 41.22462862923981,
+            "entryZ": 8.1345853805542,
+            "lateralMissM": 5.5270466804504395,
+            "maxChassisY": 0.379,
+            "chassisYDelta": -0.011,
+            "allWheelsAirborneStepCount": 0,
+            "finite": true
+          },
+          {
+            "speedKmh": 55,
+            "entrySpeedKmh": 59.15209621315431,
+            "entryZ": 8.108878135681152,
+            "lateralMissM": 9.871110081672668,
+            "maxChassisY": 0.379,
+            "chassisYDelta": -0.011,
+            "allWheelsAirborneStepCount": 0,
+            "finite": true
+          },
+          {
+            "speedKmh": 70,
+            "entrySpeedKmh": 71.70551092897237,
+            "entryZ": 8.154921531677246,
+            "lateralMissM": 10.494484782218933,
+            "maxChassisY": 0.379,
+            "chassisYDelta": -0.011,
+            "allWheelsAirborneStepCount": 0,
+            "finite": true
+          }
+        ],
+        "gotAirOnAnyAttempt": false,
+        "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/02-ramp-jump.png"
+      },
+      "notes": "honest finding: ramp is only ~8m from spawn + needs ~11m lateral travel to line up, so a fresh-launch approach at true 70km/h is geometrically tight (measured entry speed at 70km/h attempt: 71.7km/h). See per-attempt lateralMissM/allWheelsAirborneStepCount for whether each attempt actually landed on the ramp and got air."
+    },
+    {
+      "name": "wall-plow",
+      "verdict": "CONCERN",
+      "metrics": {
+        "attempts": {
+          "wall-center": {
+            "approxImpactSpeedKmh": 59.42346533858894,
+            "blocksDisplacedOver0_5m": 18,
+            "blocksTotal": 18,
+            "panelsAffected": [
+              "hood:broken",
+              "doorL:broken",
+              "doorR:broken",
+              "hatch:broken",
+              "roof:broken"
+            ],
+            "wheelStates": {
+              "fl": "attached",
+              "fr": "attached",
+              "rl": "attached",
+              "rr": "attached"
+            },
+            "dentedVertexCount": 67896,
+            "finite": true
+          },
+          "wall-left": {
+            "approxImpactSpeedKmh": 63.58416857915368,
+            "blocksDisplacedOver0_5m": 0,
+            "blocksTotal": 18,
+            "panelsAffected": [
+              "hatch:loosened"
+            ],
+            "wheelStates": {
+              "fl": "attached",
+              "fr": "attached",
+              "rl": "attached",
+              "rr": "attached"
+            },
+            "dentedVertexCount": 2294,
+            "finite": true,
+            "note": "this lane crosses its ramp first (z 8-10) before reaching the wall at z=20"
+          },
+          "wall-right": {
+            "approxImpactSpeedKmh": 62.93922773649236,
+            "blocksDisplacedOver0_5m": 0,
+            "blocksTotal": 18,
+            "panelsAffected": [],
+            "wheelStates": {
+              "fl": "attached",
+              "fr": "attached",
+              "rl": "attached",
+              "rr": "attached"
+            },
+            "dentedVertexCount": 2095,
+            "finite": true,
+            "note": "this lane crosses its ramp first (z 8-10) before reaching the wall at z=20"
+          }
+        },
+        "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/03-wall-plow.png"
+      },
+      "notes": "60km/h crash() + steer into each of the 3 stacked walls; PASS = every wall scattered >=1 block >0.5m and the car stayed drivable."
+    },
+    {
+      "name": "barrel-strike + tower-topple",
+      "verdict": "PASS",
+      "metrics": {
+        "barrels": {
+          "displacedOver0_5m": 10,
+          "totalBodies": 10,
+          "finalSpeedKmh": 64.60657077267373,
+          "finalZ": 38.252017974853516,
+          "finite": true,
+          "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/04-barrels-midflight.png"
+        },
+        "crates": {
+          "displacedOver0_5m": 60,
+          "totalBodies": 62,
+          "finalSpeedKmh": 68.66039864498963,
+          "finalZ": 38.3598518371582,
+          "finite": true,
+          "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/04-crates-midflight.png"
+        }
+      },
+      "notes": "each run plows through its lane's wall FIRST (wall-right before barrels, wall-left before crate tower -- same lane per world/tuning.ts layout), then the barrels/tower; counts are for JUST the barrels/crates index range, not the wall it passed through first."
+    },
+    {
+      "name": "wreck-it",
+      "verdict": "FAIL",
+      "metrics": {
+        "error": "drive() crashed during wreck-it@attempt5 at step 0: memory access out of bounds | lastGoodTelemetry={\"speedKmh\":100.00000305175782,\"gear\":1,\"rpm\":5622.922206181419,\"wheelOmegas\":{\"fl\":0,\"fr\":0,\"rl\":0,\"rr\":0},\"slipHints\":{\"fl\":-27.77777862548828,\"fr\":-27.77777862548828,\"rl\":-27.77777862548828,\"rr\":-27.77777862548828},\"steeringAngle\":-5.960465188081798e-8,\"chassisPos\":{\"x\":0,\"y\":0.3799999952316284,\"z\":0},\"chassisQuat\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1},\"rollAngleRad\":0,\"yawRateRadS\":0,\"upDot\":1,\"damage\":{\"panelStates\":{\"hood\":\"broken\",\"doorL\":\"broken\",\"doorR\":\"broken\",\"hatch\":\"broken\",\"roof\":\"broken\"},\"stressLevels\":{\"hood\":1718.1136551989312,\"doorL\":433.0954676985191,\"doorR\":511.7393773269243,\"hatch\":95.42292468506459,\"roof\":388.690325817641},\"wheelStates\":{\"fl\":\"attached\",\"fr\":\"attached\",\"rl\":\"attached\",\"rr\":\"attached\"},\"dentedVertexCount\":60160,\"glassShattered\":[\"glass-BodyWindshield-1\"]}}"
+      },
+      "notes": "scenario threw (see error) -- likely the wasm OOB trap recurring; see repro-oob-result.json for the original repro."
+    },
+    {
+      "name": "reset-integrity",
+      "verdict": "PASS",
+      "metrics": {
+        "cycles": 15,
+        "allPanelsRestored": true,
+        "allDestructiblesRestored": true,
+        "liveHandleCountFirst": 299,
+        "liveHandleCountLast": 299,
+        "handleCountFlat": true,
+        "perCycle": [
+          {
+            "cycle": 1,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 2,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 3,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 4,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 5,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 6,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 7,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 8,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 9,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 295,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 10,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 11,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 12,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 13,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 14,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          },
+          {
+            "cycle": 15,
+            "damagedBrokenPanels": 5,
+            "panelsIntactAfterReset": true,
+            "wheelsIntactAfterReset": true,
+            "dentedVertexCountAfterReset": 0,
+            "maxDestructibleDisplacementAfterReset": 0,
+            "liveHandleCountBefore": 294,
+            "liveHandleCountAfter": 299
+          }
+        ],
+        "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/06-reset-integrity.png"
+      },
+      "notes": "each cycle: crash(90) + 2.5s, resetCar() (R), resetWorld() (Shift+R); PASS = damage state fully clears every cycle and liveHandleCount does not grow across the 15 cycles."
+    },
+    {
+      "name": "tab-visibility/accumulator",
+      "verdict": "PASS",
+      "metrics": {
+        "speedBeforeKmh": 51.19708909936176,
+        "speedAfterKmh": 61.20092712670125,
+        "dz": 7.991,
+        "maxPlausibleDz": 9.111,
+        "dSpeedKmh": 10,
+        "noNewErrors": true,
+        "finiteAfter": true
+      },
+      "notes": "stalled the page JS thread 3s (no rAF), then resumed; PASS = position/speed advanced only a small bounded amount (accumulator catch-up cap), not ~3s worth of driving, and no new console/page errors."
+    },
+    {
+      "name": "quality-cycling-under-load",
+      "verdict": "CONCERN",
+      "metrics": {
+        "qualitySeen": [
+          "high",
+          "medium",
+          "medium",
+          "medium",
+          "medium",
+          "medium"
+        ],
+        "cyclingOk": false,
+        "perfReadout": {
+          "text": "fps 18  |  physics 0.14ms",
+          "visible": true
+        },
+        "noNewErrors": true,
+        "screenshot": "/Users/jesuscalderon/Documents/box3d-js/game/verify/playtest/08-quality-cycling.png"
+      },
+      "notes": "cycled Q x6 (2 full loops of high/medium/low) while a crash was resolving; PASS = all 3 levels visited, fps/physics-ms readout present + updating, no new console/page errors (no black-screen IBL loss on the antialias-triggered renderer swap)."
+    }
+  ],
+  "relaunchLog": [
+    {
+      "after": "wreck-it",
+      "error": "{\"exceptionId\":1,\"text\":\"Uncaught\",\"lineNumber\":0,\"columnNumber\":453351,\"scriptId\":\"19\",\"stackTrace\":{\"callFrames\":[{\"functionName\":\"$A\",\"scriptId\":\"19\",\"url\":\"http://localhost:4180/assets/box3d.wasm\",\"lineNumber\":0,\"columnNumber\":453351},{\"functionName\":\"Mu.position.x\",\"scriptId\":\"17\",\"url\":\"http://localhost:4180/assets/index-tLySepTA.js\",\"lineNumber\":4107,\"columnNumber\":60182},{\"functionName\":\"Mu\",\"scriptId\":\"17\",\"url\":\"http://localhost:4180/assets/index-tLySepTA.js\",\"lineNumber\":4107,\"columnNumber\":56608},{\"functionName\":\"getTransform\",\"scriptId\":\"17\",\"url\":\"http://localhost:4180/assets/index-tLySepTA.js\",\"lineNumber\":4107,\"columnNumber\":60150},{\"functionName\":\"le\",\"scriptId\":\"17\",\"url\":\"http://localhost:4180/assets/index-tLySepTA.js\",\"lineNumber\":4166,\"columnNumber\":5143},{\"functionName\":\"stepN\",\"scriptId\":\"17\",\"url\":\"http://localhost:4180/assets/index-tLySepTA.js\",\"lineNumber\":4166,\"columnNumber\":5642},{\"functionName\":\"\",\"scriptId\":\"24\",\"url\":\"\",\"lineNumber\":0,\"columnNumber\":16}]},\"exception\":{\"type\":\"object\",\"subtype\":\"error\",\"className\":\"RuntimeError\",\"description\":\"RuntimeError: memory access out of bounds\\n    at http://localhost:4180/assets/box3d.wasm:wasm-function[311]:0x6eae7\\n    at Mu.position.x (http://localhost:4180/assets/index-tLySepTA.js:4108:60183)\\n    at Mu (http://localhost:4180/assets/index-tLySepTA.js:4108:56609)\\n    at Ju.getTransform (http://localhost:4180/assets/index-tLySepTA.js:4108:60151)\\n    at le (http://localhost:4180/assets/index-tLySepTA.js:4167:5144)\\n    at Object.stepN (http://localhost:4180/assets/index-tLySepTA.js:4167:5643)\\n    at <anonymous>:1:17\",\"objectId\":\"-2550641851130747975.2.2\"}}"
+    }
+  ],
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": []
+}

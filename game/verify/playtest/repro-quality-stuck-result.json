@@ -1,0 +1,55 @@
+{
+  "seen": [
+    {
+      "press": 1,
+      "level": "high",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": true
+      }
+    },
+    {
+      "press": 2,
+      "level": "high",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": true
+      }
+    },
+    {
+      "press": 3,
+      "level": "high",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": true
+      }
+    },
+    {
+      "press": 4,
+      "level": "high",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": true
+      }
+    },
+    {
+      "press": 5,
+      "level": "medium",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": true
+      }
+    },
+    {
+      "press": 6,
+      "level": "low",
+      "rendererInfo": {
+        "contextLost": false,
+        "antialias": false
+      }
+    }
+  ],
+  "stillAlive": "still alive",
+  "consoleErrors": [],
+  "pageErrors": []
+}

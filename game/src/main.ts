@@ -69,6 +69,14 @@ declare global {
       crash: (speedKmh: number) => void;
       liveHandleCount: () => number;
       destructibleBodyCount: number;
+      /** PLAYTEST HOOK (read-only): world-Y position of each wheel body -- lets a scripted playtest
+       * measure ramp airtime (a wheel well above its resting height indicates the car left the
+       * ground) without needing a three.js/DOM inspection. */
+      wheelHeights: () => Record<WheelKey, number>;
+      /** PLAYTEST HOOK (read-only): distance (meters) each destructible-world body has moved from its
+       * spawn pose right now -- lets a scripted playtest count "blocks displaced > 0.5m" after a wall/
+       * tower/barrel hit without re-deriving DestructibleWorld internals itself. */
+      destructibleDisplacements: () => number[];
     };
   }
 }
@@ -384,6 +392,18 @@ async function main() {
     },
     liveHandleCount: () => liveHandleCount(),
     destructibleBodyCount: destructibleWorld.bodies.length,
+    wheelHeights: () => {
+      const out = {} as Record<WheelKey, number>;
+      for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
+        out[key] = vehicle.wheels[key].body.getPosition().y;
+      }
+      return out;
+    },
+    destructibleDisplacements: () =>
+      destructibleWorld.bodies.map((b) => {
+        const p = b.body.getPosition();
+        return Math.hypot(p.x - b.spawnPos.x, p.y - b.spawnPos.y, p.z - b.spawnPos.z);
+      }),
   };
 
   resize();
