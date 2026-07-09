@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Synced by vite.config.ts's syncWasmBinaryPlugin from ../build/wasm/box3d.wasm -- not source.
+public/assets/box3d.wasm
