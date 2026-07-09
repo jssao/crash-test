@@ -1,0 +1,61 @@
+{
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "[panelVisuals] \"hood\" precomputed offset disagrees with the live capture at reparent time (posErr=5.128m, angleErr=2.41deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorR\" precomputed offset disagrees with the live capture at reparent time (posErr=5.465m, angleErr=1.45deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"roof\" precomputed offset disagrees with the live capture at reparent time (posErr=5.489m, angleErr=1.45deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorL\" precomputed offset disagrees with the live capture at reparent time (posErr=5.369m, angleErr=1.77deg) -- car-map.ts may be stale for this GLB."
+  ],
+  "pageErrors": [],
+  "hooksBefore": {
+    "detachedCount": 0
+  },
+  "hooksAfter": {
+    "detachedCount": 5,
+    "states": {
+      "engineBlock": "attached",
+      "turboDownpipe": "broken",
+      "intercooler": "broken",
+      "radiatorFan": "broken",
+      "upperHose": "attached",
+      "lowerHose": "attached",
+      "intakeAssembly": "broken",
+      "battery": "broken",
+      "brakeBoosterMC": "attached",
+      "strutBrace": "attached",
+      "alternator": "attached",
+      "coolantReservoir": "attached",
+      "fuseBox": "attached",
+      "driverSeat": "attached",
+      "passengerSeat": "attached",
+      "rearBench": "attached",
+      "dashboard": "attached",
+      "steeringColumn": "attached",
+      "centerConsole": "attached",
+      "pedalCluster": "attached",
+      "rearviewMirror": "attached",
+      "catConverter": "attached",
+      "mufflerTailpipe": "attached",
+      "fuelTank": "attached",
+      "frontSubframe": "attached",
+      "rearSubframe": "attached",
+      "driveshaft": "attached",
+      "flControlArm": "attached",
+      "frControlArm": "attached",
+      "rlControlArm": "attached",
+      "rrControlArm": "attached",
+      "frontBumperBeam": "attached",
+      "rearBumperBeam": "attached",
+      "headlightL": "attached",
+      "headlightR": "attached",
+      "taillightL": "attached",
+      "taillightR": "attached",
+      "mirrorL": "attached",
+      "mirrorR": "attached"
+    },
+    "hoodState": "broken"
+  },
+  "detachedEnough": true,
+  "hoodOpen": true,
+  "timestamp": "2026-07-09T12:54:38.867Z"
+}
