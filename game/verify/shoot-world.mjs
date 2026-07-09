@@ -7,7 +7,8 @@
 // as verify/shoot-crash.mjs.
 //
 // AIMING: the barrel triangle / crate tower sit off-center (game/src/world/tuning.ts's
-// BARREL_TRIANGLE_APEX / CRATE_TOWER_CENTER, at x=+-11), so a plain straight-ahead scripted drive
+// BARREL_TRIANGLE_APEX at x=16 / CRATE_TOWER_CENTER at x=-16 -- see that file's LAYOUT doc comment),
+// so a plain straight-ahead scripted drive
 // (like shoot-crash.mjs's) won't reach them. A small proportional steering controller
 // (driveToward()) runs INSIDE the page (injected once via Runtime.evaluate) -- computes the current
 // heading (rotating the chassis quaternion's local +Z by its own math, no three.js needed) vs. the
@@ -158,6 +159,8 @@ async function main() {
   let telemetryHero = null;
   let telemetryBarrels = null;
   let telemetryCrate = null;
+  let displacedCount = 0;
+  let displacements = [];
 
   try {
     const c = cdp(await getWsUrl(CDP_PORT));
@@ -213,9 +216,9 @@ async function main() {
     console.log('[verify-world] wrote screenshot-world-a.png (hero)');
 
     // ---- (b) mid-destruction: scripted drive through the barrel bowling triangle (right lane,
-    // BARREL_TRIANGLE_APEX at x=11,z=34). ----
+    // BARREL_TRIANGLE_APEX at x=16,z=34). ----
     await evalExpr('window.__GAME__.setFixedAngle(null); "ok"');
-    await evalExpr('window.__driveToward(11, 30, 400, 15); "ok"'); // approach the triangle
+    await evalExpr('window.__driveToward(16, 30, 400, 15); "ok"'); // approach the triangle
     await evalExpr('window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0.03, handbrake: false }); "ok"');
     await evalExpr('window.__GAME__.stepN(45); "ok"'); // plow straight into it, screenshot while debris is still flying
     telemetryBarrels = await evalExpr('window.__GAME__.telemetry');
@@ -226,14 +229,23 @@ async function main() {
     writeFileSync(path.join(OUT_DIR, 'screenshot-world-b.png'), Buffer.from(shot.data, 'base64'));
     console.log('[verify-world] wrote screenshot-world-b.png (mid-destruction: barrel triangle)');
 
-    // ---- (c) post-jump/crash into the crate tower (left lane, past the kicker ramp, CRATE_TOWER_CENTER
-    // at x=-11,z=34) -- fresh world state first (Shift+R equivalent) so this crash is easy to read. ----
+    // ---- (c) post-jump/crash into the crate tower (left lane, CRATE_TOWER_CENTER at x=-16,z=34,
+    // its own clear approach -- see world/tuning.ts's LAYOUT doc comment) -- fresh world state first
+    // (Shift+R equivalent) so this crash is easy to read. ----
     await evalExpr('window.__GAME__.setFixedAngle(null); "ok"');
     await evalExpr('window.__GAME__.resetWorld(); "ok"');
     await sleep(50);
-    await evalExpr('window.__driveToward(-11, 32, 420, 15); "ok"'); // drive the whole lane in one pass (past the kicker ramp) straight into the tower
+    await evalExpr('window.__driveToward(-16, 32, 420, 15); "ok"'); // drive the whole lane in one pass straight into the tower
     telemetryCrate = await evalExpr('window.__GAME__.telemetry');
     console.log('[verify-world] telemetry post-crate-tower-crash:', JSON.stringify({ pos: telemetryCrate.chassisPos, speedKmh: telemetryCrate.speedKmh, damage: telemetryCrate.damage.panelStates }));
+
+    // GATE FIX (adversarial-verifier gap): assert on ACTUAL destructible-world displacement, not just
+    // the car's own damage flags -- a car could show damage without the world itself having moved
+    // convincingly. window.__GAME__.destructibleDisplacements() (main.ts) returns each destructible
+    // body's distance (meters) from its spawn pose right now.
+    displacements = await evalExpr('window.__GAME__.destructibleDisplacements()');
+    displacedCount = displacements.filter((d) => d > 0.5).length;
+    console.log(`[verify-world] destructible bodies displaced >0.5m after crate-tower crash: ${displacedCount} / ${displacements.length}`);
     await evalExpr(`window.__GAME__.setFixedAngle(${Math.PI / 4}); 'ok'`);
     await sleep(500);
     shot = await c.send('Page.captureScreenshot', { format: 'png' });
@@ -269,16 +281,36 @@ async function main() {
     telemetryCrate && (Object.values(telemetryCrate.damage.panelStates).some((s) => s === 'loosened' || s === 'broken') || telemetryCrate.damage.dentedVertexCount > 0);
   console.log(`[verify-world] crate-tower crash produced damage: ${crateDamageOccurred}`);
 
+  const REQUIRED_DISPLACED_COUNT = 10;
+  const worldDisplacementOccurred = displacedCount >= REQUIRED_DISPLACED_COUNT;
+  console.log(
+    `[verify-world] REQUIRED >=${REQUIRED_DISPLACED_COUNT} destructible bodies displaced >0.5m: ${worldDisplacementOccurred ? 'PASS' : 'FAIL'} (${displacedCount})`,
+  );
+
   writeFileSync(
     path.join(OUT_DIR, 'console-report-world.json'),
     JSON.stringify(
-      { consoleErrors, consoleWarnings, pageErrors, telemetryHero, telemetryBarrels, telemetryCrate, crateDamageOccurred, timestamp: new Date().toISOString() },
+      {
+        consoleErrors,
+        consoleWarnings,
+        pageErrors,
+        telemetryHero,
+        telemetryBarrels,
+        telemetryCrate,
+        crateDamageOccurred,
+        displacedCount,
+        displacements,
+        worldDisplacementOccurred,
+        timestamp: new Date().toISOString(),
+      },
       null,
       2,
     ),
   );
 
-  if (consoleErrors.length > 0 || pageErrors.length > 0 || !crateDamageOccurred) exitCode = 1;
+  // HARD ASSERT (adversarial-verifier gate fix): a car-damage flag alone doesn't prove the destructible
+  // WORLD itself moved convincingly -- require actual body displacement too, exit 1 if it doesn't hold.
+  if (consoleErrors.length > 0 || pageErrors.length > 0 || !crateDamageOccurred || !worldDisplacementOccurred) exitCode = 1;
   process.exit(exitCode);
 }
 

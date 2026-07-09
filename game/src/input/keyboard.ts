@@ -12,7 +12,10 @@ const held = new Set<string>();
 let carResetRequested = false;
 let worldResetRequested = false;
 let cameraToggleRequested = false;
-let qualityCycleRequested = false;
+/** Count of Q presses since the last consumeQualityCycleRequested() call (not a boolean -- see that
+ * function's doc comment: a plain flag coalesces multiple rapid presses within one fixed step into a
+ * single cycle, silently dropping the rest). */
+let qualityCycleCount = 0;
 let fpsToggleRequested = false;
 let helpToggleRequested = false;
 
@@ -30,7 +33,10 @@ export function installKeyboardInput(target: EventTarget = window): () => void {
 			else carResetRequested = true;
 		}
 		if (key === 'KeyC') cameraToggleRequested = true;
-		if (key === 'KeyQ') qualityCycleRequested = true;
+		// !ke.repeat: count distinct presses, not the browser's OS-level key-repeat auto-fire while
+		// held (which would otherwise inflate the counter into cycling through many quality presets
+		// from one long press).
+		if (key === 'KeyQ' && !ke.repeat) qualityCycleCount++;
 		if (key === 'KeyF') fpsToggleRequested = true;
 		if (ke.key === '?') helpToggleRequested = true;
 		if (key === 'Space') e.preventDefault(); // avoid scrolling the page
@@ -81,11 +87,13 @@ export function consumeCameraToggleRequested(): boolean {
 	return true;
 }
 
-/** One-shot edge-triggered "was Q pressed since last check" -- clears on read. */
-export function consumeQualityCycleRequested(): boolean {
-	if (!qualityCycleRequested) return false;
-	qualityCycleRequested = false;
-	return true;
+/** Number of Q presses since the last call (0 if none) -- a COUNTER, not a one-shot boolean, so
+ * rapid presses within a single fixed step each still get their own quality-preset cycle instead
+ * of coalescing into (at most) one (see qualityCycleCount's doc comment). Clears on read. */
+export function consumeQualityCycleRequested(): number {
+	const n = qualityCycleCount;
+	qualityCycleCount = 0;
+	return n;
 }
 
 /** One-shot edge-triggered "was F pressed since last check" -- clears on read. */

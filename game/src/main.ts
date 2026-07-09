@@ -445,7 +445,10 @@ async function main() {
     if (consumeCarResetRequested()) doCarRepair();
     if (consumeWorldResetRequested()) doWorldRepair();
     if (consumeCameraToggleRequested()) cameraMode = cameraMode === 'chase' ? 'orbit' : 'chase';
-    if (consumeQualityCycleRequested()) applyQuality(nextQualityLevel(qualityLevel), true);
+    // Counter, not a boolean (see keyboard.ts's doc comment): apply one cycle per Q press recorded
+    // since the last frame, so rapid presses aren't silently coalesced into a single cycle.
+    const qualityCyclePresses = consumeQualityCycleRequested();
+    for (let i = 0; i < qualityCyclePresses; i++) applyQuality(nextQualityLevel(qualityLevel), true);
     if (consumeFpsToggleRequested()) {
       showPerf = !showPerf;
       hud.setPerfVisible(showPerf);

@@ -115,6 +115,8 @@ async function main() {
   let exitCode = 0;
   let telemetryBefore = null;
   let telemetryAfter = null;
+  let yawBeforeSteer = null;
+  let yawAfterSteer = null;
 
   try {
     const c = cdp(await getWsUrl(CDP_PORT));
@@ -167,6 +169,29 @@ async function main() {
     telemetryAfter = await evalExpr('window.__GAME__.telemetry');
     console.log('[verify-driving] telemetry after 3s full throttle:', JSON.stringify(telemetryAfter));
 
+    // GATE FIX (adversarial-verifier gap): the throttle-only assertions above never actually drove the
+    // car in a curve -- add a steering segment and assert yaw genuinely changed, not just speed.
+    // yawOf() derives a heading angle from chassisQuat (rotate local +Z by the quaternion, same
+    // formula as verify/shoot-world.mjs's driveToward()/lib.mjs's forwardOf()) rather than reading
+    // yawRateRadS (an instantaneous rate, not a cumulative turn amount).
+    const yawOfSnippet = `
+      window.__yawOf = function (q) {
+        const t = { x: 2 * (q.y * 1 - q.z * 0), y: 2 * (q.z * 0 - q.x * 1), z: 2 * (q.x * 0 - q.y * 0) };
+        const fwd = { x: 0 + q.w * t.x + (q.y * t.z - q.z * t.y), y: 0 + q.w * t.y + (q.z * t.x - q.x * t.z), z: 1 + q.w * t.z + (q.x * t.y - q.y * t.x) };
+        return Math.atan2(fwd.x, fwd.z);
+      };
+      'ok';
+    `;
+    await evalExpr(yawOfSnippet);
+    yawBeforeSteer = await evalExpr('window.__yawOf(window.__GAME__.telemetry.chassisQuat)');
+
+    // Steer 0.25 for ~2s (120 steps @ 60Hz), still under throttle so the car keeps enough speed to
+    // actually turn (not just scrub in place).
+    await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0.25, handbrake: false }); 'ok'");
+    await evalExpr('window.__GAME__.stepN(120); "ok"');
+    yawAfterSteer = await evalExpr('window.__yawOf(window.__GAME__.telemetry.chassisQuat)');
+    console.log(`[verify-driving] yaw before steer=${yawBeforeSteer.toFixed(4)} after steer=${yawAfterSteer.toFixed(4)}`);
+
     // Render a few real frames at the now-advanced physics state before screenshotting.
     await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }); 'ok'");
     await sleep(800);
@@ -197,12 +222,27 @@ async function main() {
   const droveForward = speedAfter > speedBefore + 5;
   console.log(`[verify-driving] speed before=${speedBefore?.toFixed?.(1)} after=${speedAfter?.toFixed?.(1)} droveForward=${droveForward}`);
 
-  writeFileSync(
-    path.join(OUT_DIR, 'console-report-driving.json'),
-    JSON.stringify({ consoleErrors, consoleWarnings, pageErrors, telemetryBefore, telemetryAfter, droveForward, timestamp: new Date().toISOString() }, null, 2),
+  // Wrap to (-pi, pi] before taking the delta, so a turn that happens to straddle the atan2 branch cut
+  // doesn't read as a near-2*pi jump.
+  let yawDelta = (yawAfterSteer ?? 0) - (yawBeforeSteer ?? 0);
+  while (yawDelta > Math.PI) yawDelta -= 2 * Math.PI;
+  while (yawDelta < -Math.PI) yawDelta += 2 * Math.PI;
+  const REQUIRED_YAW_DELTA_RAD = 0.15;
+  const yawChanged = Math.abs(yawDelta) > REQUIRED_YAW_DELTA_RAD;
+  console.log(
+    `[verify-driving] yaw delta after 2s steer=0.25 turn: ${yawDelta.toFixed(4)} rad (REQUIRED >${REQUIRED_YAW_DELTA_RAD}): ${yawChanged ? 'PASS' : 'FAIL'}`,
   );
 
-  if (consoleErrors.length > 0 || pageErrors.length > 0 || !droveForward) exitCode = 1;
+  writeFileSync(
+    path.join(OUT_DIR, 'console-report-driving.json'),
+    JSON.stringify(
+      { consoleErrors, consoleWarnings, pageErrors, telemetryBefore, telemetryAfter, droveForward, yawBeforeSteer, yawAfterSteer, yawDelta, yawChanged, timestamp: new Date().toISOString() },
+      null,
+      2,
+    ),
+  );
+
+  if (consoleErrors.length > 0 || pageErrors.length > 0 || !droveForward || !yawChanged) exitCode = 1;
   process.exit(exitCode);
 }
 
