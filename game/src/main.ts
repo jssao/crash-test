@@ -20,15 +20,16 @@ import {
 import { detachWheelVisuals, applyWheelVisual, type WheelVisual } from './scene/wheels';
 import {
   createVehicle,
-  createGroundBody,
   destroyVehicle,
   stepVehicle,
   getTelemetry,
+  getSuspensionDeflection,
   type Vehicle,
   type VehicleInput,
   type WheelKey,
   type Telemetry,
 } from './vehicle/vehicle';
+import { createTerrainGroundBody } from './world/terrain/terrainBody';
 import { CHASSIS_ORIGIN_HEIGHT_M, FIXED_DT, FIXED_SUBSTEPS } from './vehicle/tuning';
 import { FixedStepAccumulator, InterpolatedTransform } from './core/loop';
 import {
@@ -80,6 +81,10 @@ declare global {
        * measure ramp airtime (a wheel well above its resting height indicates the car left the
        * ground) without needing a three.js/DOM inspection. */
       wheelHeights: () => Record<WheelKey, number>;
+      /** VERIFY HOOK (read-only): per-wheel suspension deflection (meters), the SAME signal
+       * game/sim/heightfield-drive.test.mjs measures -- lets verify/terrain.mjs quantify how much more
+       * the dirt road exercises the suspension than the flat apron without a lossy body-motion proxy. */
+      suspensionDeflections: () => Record<WheelKey, number>;
       /** PLAYTEST HOOK (read-only): distance (meters) each destructible-world body has moved from its
        * spawn pose right now -- lets a scripted playtest count "blocks displaced > 0.5m" after a wall/
        * tower/barrel hit without re-deriving DestructibleWorld internals itself. */
@@ -170,7 +175,10 @@ async function main() {
   // ---- Physics world + vehicle (renderer-free core, see vehicle/vehicle.ts's module doc) ----
   const native = await init();
   const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-  createGroundBody(world);
+  // GAME ground: the real terrain height-field (world/terrain). The headless vehicle harness keeps its
+  // flat createGroundBody default, so the 95 sim tests are untouched. The apron under spawn + the
+  // legacy destructibles is hard-flat (h=0), so chassis/destructible/feature spawn heights are unchanged.
+  createTerrainGroundBody(world);
   let vehicle: Vehicle = createVehicle(world);
   const SPAWN_POS = vehicle.spawnPosition;
   const SPAWN_ROT = vehicle.spawnRotation;
@@ -185,7 +193,7 @@ async function main() {
   hud.setLoadingProgress(0.15, 'loading scene…');
 
   // ---- Visual scene ----
-  const { scene, car, carFocus, updateSunQuality, rebakeEnvironment } = await buildScene(renderer, quality);
+  const { scene, car, carFocus, updateSunQuality, updateSunFollow, rebakeEnvironment } = await buildScene(renderer, quality);
   const wheelVisuals: Record<WheelKey, WheelVisual> = detachWheelVisuals(car.root, scene);
   const IDENTITY_QUAT = new THREE.Quaternion();
 
@@ -229,6 +237,24 @@ async function main() {
 
   function findDeformableMesh(meshId: string) {
     return carDeformables.bindings.find((b) => b.handle.id === meshId)?.mesh ?? null;
+  }
+
+  // OCCUPANTS glass-shatter hook (additive): the occupants feature (world/features/occupants) detects
+  // an ejecting passenger's head/torso trajectory crossing a cabin-glass plane and calls this sink with
+  // the car-map glass NODE name; translate that to the matching registered glass deformable's mesh id
+  // and fire the SAME glassShattered event the crumple pipeline uses, so the existing material-swap
+  // (applyGlassShatterMaterial via handleDamageEvent) runs identically. `damageSystem` is captured by
+  // reference so it stays correct across car repairs (it's reassigned in doCarRepair). Kept here (not a
+  // FeatureContext field) so the only shared-file touch is this one additive block.
+  {
+    const occHooks = features.hooks['occupants'] as { setGlassShatterSink?: (fn: (node: string) => void) => void } | undefined;
+    occHooks?.setGlassShatterSink?.((node) => {
+      for (const b of carDeformables.bindings) {
+        if (b.handle.kind === 'glass' && (b.mesh.name === node || b.mesh.parent?.name === node)) {
+          damageSystem.emitter.emit({ type: 'glassShattered', mesh: b.handle.id });
+        }
+      }
+    });
   }
 
   /** GLASS: accumulated glass displacement > threshold -> swap to a 'shattered' variant, once (see
@@ -504,6 +530,11 @@ async function main() {
       }
       return out;
     },
+    suspensionDeflections: () => {
+      const out = {} as Record<WheelKey, number>;
+      for (const key of Object.keys(vehicle.wheels) as WheelKey[]) out[key] = getSuspensionDeflection(vehicle, key);
+      return out;
+    },
     destructibleDisplacements: () =>
       destructibleWorld.bodies.map((b) => {
         const p = b.body.getPosition();
@@ -672,6 +703,12 @@ async function main() {
       chassisTransform.lerpQuaternion(carQuat, alpha);
       const vel = vehicle.chassis.getLinearVelocity();
       chaseCamera.update(camera, carPos, carQuat, new THREE.Vector3(vel.x, vel.y, vel.z), dt);
+    }
+
+    // Keep the sun's tight shadow frustum centred on the car wherever it drives in the 400m world.
+    {
+      const cp = vehicle.chassis.getPosition();
+      updateSunFollow(cp.x, cp.z);
     }
 
     renderer.render(scene, camera);

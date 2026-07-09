@@ -1,0 +1,73 @@
+{
+  "screenshots": {
+    "apron": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-apron.png",
+    "dirtSouth": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-dirt-south.png",
+    "dirtNorth": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-dirt-north.png",
+    "forest": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-forest.png",
+    "overview-a": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-overview-a.png",
+    "overview-b": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-overview-b.png",
+    "overview-c": "/Users/jesuscalderon/Documents/crash test/game/verify/terrain-overview-c.png"
+  },
+  "variance": {
+    "windowSizes": {
+      "apron": 95,
+      "dirt": 446
+    },
+    "windowSpeeds": {
+      "apron": 57.426302676665955,
+      "dirt": 18.851216478465904
+    },
+    "fl": {
+      "apron": 0.0014310358238710074,
+      "dirt": 0.0020337093365667435,
+      "ratio": 1.421144951539704
+    },
+    "fr": {
+      "apron": 0.0015027913980004014,
+      "dirt": 0.0015472290690324445,
+      "ratio": 1.0295700861018844
+    },
+    "rl": {
+      "apron": 0.0013960328151935689,
+      "dirt": 0.0012467189522834608,
+      "ratio": 0.8930441596464874
+    },
+    "rr": {
+      "apron": 0.0014436585933948482,
+      "dirt": 0.0010144294647183973,
+      "ratio": 0.7026796150833049
+    },
+    "minRatio": 0.7026796150833049,
+    "maxRatio": 1.421144951539704,
+    "maxDirtVar": 0.0020337093365667435
+  },
+  "notes": [
+    "forest heading probe fwdX=-0.80 -> westSteer 0.7"
+  ],
+  "dirtSouthPos": {
+    "x": 9.714706420898438,
+    "y": 0.03666669875383377,
+    "z": 78.92597961425781
+  },
+  "forestPos": {
+    "x": -69.34276580810547,
+    "y": 0.22680877149105072,
+    "z": 26.620399475097656
+  },
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T20:21:05.655Z",
+  "gate": {
+    "windowsOk": true,
+    "dirtSubstantial": true,
+    "traversed": true,
+    "maxDirtVar": 0.0020337093365667435,
+    "ratioReported": {
+      "min": 0.7026796150833049,
+      "max": 1.421144951539704
+    },
+    "consoleErrors": 0,
+    "pass": true
+  }
+}

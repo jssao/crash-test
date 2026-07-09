@@ -4,15 +4,13 @@
 // Renderer-free (no three/DOM import) -- shared verbatim by the browser feature (./index.ts) and the
 // headless sim test (game/sim/features-trees.test.mjs), same convention as world/tuning.ts.
 //
-// ZONE (orchestrator contract): west side x < -30, plus a sparse far line at x > 60. Every position
-// below keeps >=15m clearance (edge-to-edge, conservatively measured on x alone since that's the
-// tightest axis) from the nearest existing body: wall-left's block extent is x in [-23.5,-20.5]
-// (world/tuning.ts's WALL_CONFIGS 'wall-left' center x=-22, WALL_COLS=6 blocks * ~0.51m step ~= 3.06m
-// wide) and the west-most pole sits at x=-19 (world/tuning.ts's POLE_POSITIONS) -- so -23.5 is the
-// true nearest edge. The closest tree x used below is -42 (sapling slalom), giving -42-(-23.5) =
-// 18.5m clearance. Large/mid trees sit further out (x<=-55) for extra margin. The far line (x>=64)
-// clears wall-right/barrel-triangle (nearest edge ~23.5m) by 40+m. Nothing here touches |x|<20 (the
-// main drive corridor) or the kicker approach lane (x=0, z up to ~45).
+// ZONE (terrain overhaul): a real FOREST on the west side, inside the terrain's hard-flat FOREST zone
+// (world/terrain/heightfield.ts's FOREST rect, x in [-186,-46]) so every trunk -- which spawns at y=0
+// (bodies.ts) -- sits exactly on the flat forest floor. Sites are a DETERMINISTIC Poisson-disc scatter
+// (fixed seed, min-spacing rejection) across x in [-172,-58], z in [-58,118], split first-N into the
+// three size classes, plus a sparse far treeline at x ~ -180 for backdrop depth. Min spacing 6.5m keeps
+// trunks from overlapping while leaving weave-through gaps. Nothing here touches the apron (|x|<36), the
+// dirt-road loop (centred x=0,z=125), or the east buildings zone -- so drive corridors stay sane.
 
 import { IDENTITY_Q, type Q4, type V3 } from '../../../vehicle/mathUtil';
 
@@ -23,6 +21,49 @@ export interface TreeSiteXZ {
 	readonly x: number;
 	readonly z: number;
 }
+
+// --------------------------------------------------------------------------------------------------
+// Deterministic forest scatter. Uses its own local mulberry32 (same algorithm as the exported
+// mulberry32 below / world/materials.ts -- small-helper duplication, the established convention here)
+// so the generated sites are byte-stable across every run (feature contract warning #3: creation order
+// must be deterministic). Body creation order = array order = accepted order = fixed.
+// --------------------------------------------------------------------------------------------------
+
+function scatterRng(seed: number): () => number {
+	let a = seed;
+	return () => {
+		a |= 0;
+		a = (a + 0x6d2b79f5) | 0;
+		let t = Math.imul(a ^ (a >>> 15), 1 | a);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+function scatterForest(count: number): TreeSiteXZ[] {
+	const rng = scatterRng(0xf0e57); // 'FOREST'
+	const xMin = -172, xMax = -58, zMin = -58, zMax = 118;
+	const minDist2 = 6.5 * 6.5;
+	const pts: TreeSiteXZ[] = [];
+	let attempts = 0;
+	while (pts.length < count && attempts < 40000) {
+		attempts++;
+		const x = xMin + rng() * (xMax - xMin);
+		const z = zMin + rng() * (zMax - zMin);
+		let ok = true;
+		for (const p of pts) {
+			if ((p.x - x) ** 2 + (p.z - z) ** 2 < minDist2) { ok = false; break; }
+		}
+		if (ok) pts.push({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100 });
+	}
+	return pts;
+}
+
+// 44 scattered forest trees, split by size class (larges are the immovable anchors, so keep them
+// fewest; saplings are the cheap dense filler that makes it read as a forest).
+const FOREST_SCATTER = scatterForest(44);
+const LARGE_COUNT = 7;
+const MID_COUNT = 13;
 
 // ---------------------------------------------------------------------------------------------
 // Sapling: 1 dynamic capsule trunk body, root pinned to a static anchor by a spherical joint
@@ -47,14 +88,7 @@ export const SAPLING_SPRING_DAMPING_RATIO = 0.6;
 export const SAPLING_FORCE_THRESHOLD_N = 6000;
 export const SAPLING_TORQUE_THRESHOLD_NM = 2500;
 
-export const SAPLING_SITES: readonly TreeSiteXZ[] = [
-	{ x: -42, z: 6 },
-	{ x: -48, z: 14 },
-	{ x: -42, z: 22 },
-	{ x: -48, z: 30 },
-	{ x: -42, z: 38 },
-	{ x: -48, z: 46 },
-];
+export const SAPLING_SITES: readonly TreeSiteXZ[] = FOREST_SCATTER.slice(LARGE_COUNT + MID_COUNT);
 
 // ---------------------------------------------------------------------------------------------
 // Mid tree: single heavy dynamic trunk (200-400kg), root WELD joint with a HIGH break threshold --
@@ -86,12 +120,7 @@ export const MID_WELD_DAMPING_RATIO = 0.7;
 export const MID_FORCE_THRESHOLD_N = 550_000;
 export const MID_TORQUE_THRESHOLD_NM = 140_000;
 
-export const MID_SITES: readonly TreeSiteXZ[] = [
-	{ x: -55, z: 20 },
-	{ x: -60, z: 35 },
-	{ x: -55, z: 50 },
-	{ x: -60, z: 65 },
-];
+export const MID_SITES: readonly TreeSiteXZ[] = FOREST_SCATTER.slice(LARGE_COUNT, LARGE_COUNT + MID_COUNT);
 
 // ---------------------------------------------------------------------------------------------
 // Large tree: STATIC trunk (the deliberately-immovable anchor -- stops the car dead) + 2-3 welded
@@ -137,20 +166,25 @@ export const LARGE_WELD_DAMPING_RATIO = 0.6;
 export const LARGE_BRANCH_FORCE_THRESHOLD_N = 30_000;
 export const LARGE_BRANCH_TORQUE_THRESHOLD_NM = 12_000;
 
-export const LARGE_SITES: readonly TreeSiteXZ[] = [
-	{ x: -66, z: 12 },
-	{ x: -70, z: 40 },
-	{ x: -66, z: 68 },
-];
+export const LARGE_SITES: readonly TreeSiteXZ[] = FOREST_SCATTER.slice(0, LARGE_COUNT);
 
 // ---------------------------------------------------------------------------------------------
 // Far line (x > 60), sparse, one of each class -- per the orchestrator's "optionally a sparse far
 // line at x > 60".
 // ---------------------------------------------------------------------------------------------
 
-export const FAR_SAPLING_SITES: readonly TreeSiteXZ[] = [{ x: 64, z: 20 }];
-export const FAR_MID_SITES: readonly TreeSiteXZ[] = [{ x: 72, z: 45 }];
-export const FAR_LARGE_SITES: readonly TreeSiteXZ[] = [{ x: 80, z: 70 }];
+// Sparse far treeline along the west boundary (x ~ -180, still inside the flat FOREST mask so h=0) --
+// pure backdrop depth behind the main scatter, seen through the fog.
+export const FAR_SAPLING_SITES: readonly TreeSiteXZ[] = [
+	{ x: -178, z: -50 },
+	{ x: -180, z: 30 },
+	{ x: -178, z: 110 },
+];
+export const FAR_MID_SITES: readonly TreeSiteXZ[] = [
+	{ x: -182, z: -10 },
+	{ x: -182, z: 70 },
+];
+export const FAR_LARGE_SITES: readonly TreeSiteXZ[] = [{ x: -184, z: 40 }];
 
 // ---------------------------------------------------------------------------------------------
 // Seeded RNG for purely cosmetic jitter (canopy color/scale/yaw) -- deterministic, no Math.random
