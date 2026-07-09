@@ -84,6 +84,9 @@ declare global {
       /** PLAYTEST HOOK (read-only): per-feature hooks published by each WorldFeature (see
        * world/features/feature.ts). */
       features: Record<string, Record<string, unknown>>;
+      /** VERIFY HOOK: reconfigure the orbit camera (close-ups for screenshots -- verify scripts
+       * pair this with setFixedAngle()). Omitted fields keep the current value. */
+      setOrbitView: (opts: { radius?: number; height?: number; targetHeight?: number }) => void;
     };
   }
 }
@@ -245,12 +248,13 @@ async function main() {
   let cameraMode: 'chase' | 'orbit' = 'chase';
   let fixedAngle: number | null = null;
   const chaseCamera = new ChaseCamera();
-  const updateOrbit = createOrbitUpdater(camera, {
+  let orbitOpts = {
     radius: 9,
     height: 3.2,
     angularSpeed: 0.12,
     targetHeight: 0.6,
-  });
+  };
+  let updateOrbit = createOrbitUpdater(camera, orbitOpts);
 
   // ---- Quality (G5): pixelRatio + shadow map size are live-updatable; antialias is a WebGL context-
   // creation-time flag, so changing it recreates the renderer (forceContextLoss + a fresh
@@ -432,6 +436,10 @@ async function main() {
       }),
     featureBodyCount: () => features.totalBodyCount(),
     features: features.hooks,
+    setOrbitView: (opts) => {
+      orbitOpts = { ...orbitOpts, ...opts };
+      updateOrbit = createOrbitUpdater(camera, orbitOpts);
+    },
   };
 
   resize();

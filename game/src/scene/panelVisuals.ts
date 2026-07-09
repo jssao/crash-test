@@ -91,6 +91,19 @@ export function createPanelVisuals(carRoot: THREE.Object3D): Record<PanelKey, Pa
 		object.updateWorldMatrix(true, false);
 		object.matrixWorld.decompose(scratchWorldPos, scratchWorldQuat, scratchWorldScale);
 
+		// STALENESS CHECK (car-map vs loaded GLB): done HERE, at pristine identity transform, where the
+		// live scene-graph read is guaranteed frame-fresh -- NOT at reparent time (the old check there
+		// compared against the mesh's last-RENDERED world pose, which under scripted stepN() batches
+		// (verify/soak scripts run many fixed steps between renders) is arbitrarily stale, producing
+		// spurious posErr warnings that scale with distance driven since the last render).
+		const recordedQuat = new THREE.Quaternion(node.worldQuat[0], node.worldQuat[1], node.worldQuat[2], node.worldQuat[3]);
+		const staleAngleDeg = (2 * Math.acos(Math.min(1, Math.abs(scratchWorldQuat.dot(recordedQuat)))) * 180) / Math.PI;
+		if (staleAngleDeg > 5) {
+			console.warn(
+				`[panelVisuals] "${nodeName}" loaded-GLB world rotation disagrees with car-map.ts by ${staleAngleDeg.toFixed(2)}deg -- car-map.ts is stale for this GLB (regenerate via scripts/analyze-car.mjs).`,
+			);
+		}
+
 		// Rotation offset: always identity (see doc comment) -- no computation needed.
 		const offsetQuat = new THREE.Quaternion();
 
@@ -119,47 +132,20 @@ export function createPanelVisuals(carRoot: THREE.Object3D): Record<PanelKey, Pa
 	return result;
 }
 
-/** Loud but non-fatal: a LARGE disagreement between the precomputed offset and the live-captured pose
- * at the exact reparent instant would mean car-map.ts's data and the loaded scene have drifted apart
- * (e.g. a stale car-map.ts after a GLB update) -- surfaced once per panel so a real regression doesn't
- * silently reproduce the original ~90deg/~3m stale-offset bug this module's doc comment describes.
- * Deliberately generous (NOT a tight sub-degree check): the live capture this compares against is
- * exactly the fragile, one-physics-step-stale read this module's fix replaces (see doc comment above)
- * -- during a genuinely violent single-step impact (chassis rotating several degrees in one fixed
- * step) that live read can legitimately disagree with the correct precomputed offset by a few degrees/
- * tens of centimeters even with NO bug at all (measured up to ~4deg/~0.3m during a 90 km/h test crash).
- * Thresholds sit well above that legitimate noise floor but well below the original bug's signature
- * (~90deg/~3m), so this only fires on an actual car-map/GLB mismatch, not routine hard-crash physics. */
-const SANITY_ANGLE_DEG = 20;
-const SANITY_POS_M = 0.6;
-
-/** Reparents one panel's visual to `scene` (preserving its current world transform) -- the panel's
- * driving offset was already fixed at createPanelVisuals() time, so this now ONLY performs the
- * scene-graph move. `panelBodyPos`/`panelBodyQuat` (the panel body's current physics transform) are
- * kept as call-site-compatible parameters and used purely as a sanity check against the precomputed
- * offset (see SANITY_ANGLE_DEG/SANITY_POS_M doc comment) -- not to (re)derive it. Call once, the first
- * time a panel's damage state leaves 'attached' (loosened or broken -- see main.ts's event
- * subscription). */
+/** Reparents one panel's visual to `scene` and places it directly at its body-derived pose (the
+ * precomputed offset applied to the panel body's CURRENT physics transform). The mesh's own rendered
+ * world pose is deliberately NOT used: under scripted stepN() batches (verify/soak scripts run many
+ * fixed steps between renders) the rendered pose is arbitrarily stale -- capturing it here produced
+ * both a spurious "stale car-map" warning (posErr scaling with distance driven since the last render)
+ * and a one-frame teleport-through-stale-pose flicker. The car-map-vs-GLB staleness check this
+ * replaces lives in createPanelVisuals() now, where the scene-graph read is guaranteed fresh. Call
+ * once, the first time a panel's damage state leaves 'attached' (loosened or broken -- see main.ts's
+ * event subscription). */
 export function reparentPanelVisual(visual: PanelVisual, scene: THREE.Scene, panelBodyPos: THREE.Vector3, panelBodyQuat: THREE.Quaternion): void {
 	if (visual.reparented) return;
-	visual.object.updateWorldMatrix(true, false);
-	visual.object.matrixWorld.decompose(scratchWorldPos, scratchWorldQuat, scratchWorldScale);
-
-	const expectedWorldPos = panelBodyPos.clone().add(visual.offsetPos.clone().applyQuaternion(panelBodyQuat));
-	const expectedWorldQuat = panelBodyQuat.clone().multiply(visual.offsetQuat);
-	const posErr = scratchWorldPos.distanceTo(expectedWorldPos);
-	const angleErr = (2 * Math.acos(Math.min(1, Math.abs(scratchWorldQuat.dot(expectedWorldQuat)))) * 180) / Math.PI;
-	if (posErr > SANITY_POS_M || angleErr > SANITY_ANGLE_DEG) {
-		console.warn(
-			`[panelVisuals] "${visual.key}" precomputed offset disagrees with the live capture at reparent time ` +
-				`(posErr=${posErr.toFixed(3)}m, angleErr=${angleErr.toFixed(2)}deg) -- car-map.ts may be stale for this GLB.`,
-		);
-	}
-
-	scene.attach(visual.object); // re-parents while preserving world transform
-	visual.object.position.copy(scratchWorldPos);
-	visual.object.quaternion.copy(scratchWorldQuat);
-	visual.object.scale.copy(scratchWorldScale);
+	scene.attach(visual.object); // re-parents (preserves world transform; overwritten just below)
+	visual.object.position.copy(panelBodyPos).add(visual.offsetPos.clone().applyQuaternion(panelBodyQuat));
+	visual.object.quaternion.copy(panelBodyQuat).multiply(visual.offsetQuat);
 	visual.reparented = true;
 }
 
