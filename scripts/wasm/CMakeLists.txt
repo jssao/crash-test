@@ -86,6 +86,15 @@ target_link_options(box3d_core PRIVATE
 	-sEXPORT_ES6=1
 	-sEXPORT_NAME=Box3D
 	-sALLOW_MEMORY_GROWTH=1
+	# Mitigation (not a fix -- growth itself is handled correctly by src/ts re-deriving HEAPF32/HEAPU32/
+	# etc. from the live Module object on every call, verified by tests/memory-growth.test.ts): bump the
+	# starting heap so a typical game session (car + 5 panels + destructible world's ~dozens of bodies/
+	# shapes) rarely needs to grow at all, minimizing how often the classical (non-resizable-ArrayBuffer)
+	# grow path -- which detaches every stale TypedArray view built over the old buffer -- gets exercised
+	# in the first place. Default INITIAL_MEMORY (~16-17MB with our STACK_SIZE) was already observed to
+	# be exceeded during ordinary scene construction (car + destructible world), forcing at least one
+	# grow() per session even before any driving happened.
+	-sINITIAL_MEMORY=67108864
 	-sENVIRONMENT=web,node
 	# WASM_BIGINT: our shim's b3js_* functions pass/return uint64_t handles (bit-cast id structs, see
 	# src/wasm-shim/binding.c); this makes Emscripten marshal i64 params/returns as JS BigInt instead

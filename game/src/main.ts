@@ -342,7 +342,13 @@ async function main() {
     }
     for (const key of PANEL_KEYS) {
       const visual = panelVisuals[key];
-      if (!visual) continue;
+      // BLOCKER FIX: stepDamageSystem() above can despawn (destroy) a broken panel's body THIS SAME
+      // step (system.ts's despawn-timer logic, ~PANEL_DESPAWN_AFTER_S after it broke). Body.getTransform()
+      // on an already-destroyed body is a wasm "memory access out of bounds" trap, not a catchable JS
+      // error -- it poisons the whole module permanently (every subsequent call fails identically, see
+      // repro-oob.mjs). Must skip despawned panels here exactly like damage/system.ts's own
+      // transformFor() already does.
+      if (!visual || vehicle.panels[key].despawned) continue;
       const pt = vehicle.panels[key].body.getTransform();
       visual.transform.sample(pt.position, pt.rotation);
     }
