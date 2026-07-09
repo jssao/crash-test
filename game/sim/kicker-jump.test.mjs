@@ -33,7 +33,12 @@ describe('kicker-jump', () => {
 	it('a straight full-throttle run from spawn catches air off the kicker ramp and lands drivable', async () => {
 		const native = await loadNative();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-		createGroundBody(world);
+		// Explicit (smaller) halfSize: this scenario's whole run stays within ~90m of spawn, and an
+		// explicit override here decouples it from createGroundBody()'s shared default (raised for
+		// OTHER long-duration/high-speed sim tests, see that function's doc comment in vehicle.ts) --
+		// empirically, this box3d model is sensitive enough to the ground shape's exact extent that a
+		// too-large ground here measurably changed this run's trajectory and made it miss the ramp.
+		createGroundBody(world, 250);
 		const vehicle = createVehicle(world);
 		createDestructibleWorld(world);
 

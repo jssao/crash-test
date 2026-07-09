@@ -10,19 +10,21 @@
 // Wheel-joint frame derivation (why the frame rotations below are what they are) is documented in
 // mathUtil.ts's WHEEL_FRAME_A_ROTATION / WHEEL_FRAME_B_ROTATION doc comments.
 
+// DIAG-MODIFIED PATHS (this copy lives one directory deeper, under game/sim/diag/, than the
+// original game/src/vehicle/vehicle.ts -- every relative import below has one extra '../' vs.
+// the original to compensate). See bottom of file for the ONLY functional change (anti-roll/
+// yaw-damping/anti-pitch torques commented out of stepVehicle for the A/B comparison).
 import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
-import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
-import { buildChassisHullPoints, solveChassisDensities } from './geometry';
+import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../../src/damage/panels';
+import { buildChassisHullPoints, solveChassisDensities } from '../../src/vehicle/geometry';
 import {
 	add,
 	clamp,
 	dot,
 	IDENTITY_Q,
-	length,
 	LOCAL_FORWARD,
 	LOCAL_RIGHT,
 	LOCAL_UP,
-	normalize,
 	rotateVector,
 	scale,
 	sub,
@@ -30,12 +32,9 @@ import {
 	WHEEL_FRAME_B_ROTATION,
 	type Q4,
 	type V3,
-} from './mathUtil';
-import { coastServoTarget, createGearboxState, driveServoTarget, engineTorqueAt, stepGearbox, type GearboxState } from './powertrain';
+} from '../../src/vehicle/mathUtil';
+import { coastServoTarget, createGearboxState, driveServoTarget, engineTorqueAt, stepGearbox, type GearboxState } from '../../src/vehicle/powertrain';
 import {
-	AERO_DRAG_COEFF_AREA_M2,
-	AIRBORNE_DRIVE_TORQUE_CAP_NM,
-	AIR_DENSITY_KG_M3,
 	ANTI_PITCH_ENABLED,
 	ANTI_PITCH_GAIN_ANGLE,
 	ANTI_PITCH_GAIN_RATE,
@@ -44,28 +43,17 @@ import {
 	ANTI_ROLL_GAIN_ANGLE,
 	ANTI_ROLL_GAIN_RATE,
 	ANTI_ROLL_TORQUE_CAP_NM,
-	ASSIST_AUTHORITY_RAMP_TIME_S,
 	BALLAST_LOCAL_Y_M,
 	BALLAST_RADIUS_M,
 	BRAKE_TORQUE_FRONT_NM,
 	BRAKE_TORQUE_REAR_NM,
-	BRAKE_TORQUE_RAMP_TIME_S,
 	CAR_GROUP_INDEX,
 	CHASSIS_IS_BULLET,
 	CHASSIS_ORIGIN_HEIGHT_M,
 	ENGINE_BRAKE_TORQUE_NM,
 	FRONT_PASSIVE_DRAG_NM,
-	GRAVITY_MAG,
-	GROUND_CONTACT_DEFLECTION_ENTER_M,
-	GROUND_CONTACT_DEFLECTION_EXIT_M,
 	GROUND_FRICTION,
 	HANDBRAKE_TORQUE_NM,
-	LATERAL_GRIP_ASSIST_GAIN_NM_PER_MS2,
-	LATERAL_GRIP_ASSIST_TORQUE_CAP_NM,
-	LATERAL_GRIP_MIN_SPEED_MS,
-	LATERAL_GRIP_PEAK_G,
-	LATERAL_GRIP_RAMP_EXPONENT,
-	PARTIAL_AUTHORITY_FLOOR,
 	REVERSE_ENGAGE_SPEED_MS,
 	REVERSE_MAX_SPEED_MS,
 	STEER_CLAMP_MAX_RAD,
@@ -81,9 +69,7 @@ import {
 	SUSPENSION_HERTZ_FRONT,
 	SUSPENSION_HERTZ_REAR,
 	SUSPENSION_LOWER_LIMIT_M,
-	SUSPENSION_SETTLE_GRACE_STEPS,
 	SUSPENSION_UPPER_LIMIT_M,
-	SUSTAINED_AIRBORNE_STEPS,
 	TRACTION_SLIP_ALLOWANCE_RAD_S,
 	TRACTION_SLIP_CUTOFF_RAD_S,
 	WHEEL_FRICTION,
@@ -93,11 +79,10 @@ import {
 	WHEEL_RESTITUTION,
 	WHEEL_ROLLING_RESISTANCE,
 	WHEEL_SPAWN_SETTLE_MARGIN_M,
-	YAW_DAMPING_ENABLED,
 	YAW_DAMPING_GAIN_NM_PER_RAD_S,
 	YAW_DAMPING_TORQUE_CAP_NM,
-} from './tuning';
-import { CAR_MAP, type Vec3Mm } from '../assets/car-map';
+} from '../../src/vehicle/tuning';
+import { CAR_MAP, type Vec3Mm } from '../../src/assets/car-map';
 
 export type WheelKey = 'fl' | 'fr' | 'rl' | 'rr';
 
@@ -130,36 +115,11 @@ function mmToLocalMount(centerMm: Vec3Mm): V3 {
 	};
 }
 
-/**
- * Symmetrized per-axle mount (x mirrored +/-, y/z averaged across the L/R pair) built from the raw
- * (asymmetric) scanned car-map centers -- FIX for diagnostic B ("straight-line drift"): the raw
- * scanned wheel mounts are asymmetric (measured: FL x=975mm vs FR x=-977mm; RL x=985mm vs RR
- * x=-984mm -- 1-2mm, small in isolation, but each wheel's own traction-taper feedback loop
- * (tractionLimitedTorque()) amplified that per-wheel asymmetry into a chaotic yaw runaway: -157deg
- * at t=10s, then ~50m-radius circling). Symmetrizing eliminates the seed: measured post-fix yaw
- * converges to 4.14deg at t=10s with yaw rate -> 0.0000. Averaging (not picking one side) keeps the
- * effective track width equal to the measured value (975+977 == 2*avg(975,977)), so this does not
- * change TRACK_FRONT_M/TRACK_REAR_M's derivation from car-map.ts. Done here (not in car-map.ts,
- * which is owned by another worker in this pass) per this task's explicit ownership split.
- */
-function symmetrizedAxleMounts(left: Vec3Mm, right: Vec3Mm): { left: V3; right: V3 } {
-	const x = (Math.abs(left[0]) + Math.abs(right[0])) / 2;
-	const y = (left[1] + right[1]) / 2;
-	const z = (left[2] + right[2]) / 2;
-	return {
-		left: mmToLocalMount([x, y, z] as unknown as Vec3Mm),
-		right: mmToLocalMount([-x, y, z] as unknown as Vec3Mm),
-	};
-}
-
-const FRONT_AXLE_MOUNTS = symmetrizedAxleMounts(CAR_MAP.wheels.frontLeft.centerMm, CAR_MAP.wheels.frontRight.centerMm);
-const REAR_AXLE_MOUNTS = symmetrizedAxleMounts(CAR_MAP.wheels.rearLeft.centerMm, CAR_MAP.wheels.rearRight.centerMm);
-
 const WHEEL_DEFS: readonly WheelDef[] = [
-	{ key: 'fl', localMount: FRONT_AXLE_MOUNTS.left, radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
-	{ key: 'fr', localMount: FRONT_AXLE_MOUNTS.right, radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
-	{ key: 'rl', localMount: REAR_AXLE_MOUNTS.left, radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
-	{ key: 'rr', localMount: REAR_AXLE_MOUNTS.right, radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
+	{ key: 'fl', localMount: mmToLocalMount(CAR_MAP.wheels.frontLeft.centerMm), radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
+	{ key: 'fr', localMount: mmToLocalMount(CAR_MAP.wheels.frontRight.centerMm), radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
+	{ key: 'rl', localMount: mmToLocalMount(CAR_MAP.wheels.rearLeft.centerMm), radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
+	{ key: 'rr', localMount: mmToLocalMount(CAR_MAP.wheels.rearRight.centerMm), radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
 ];
 
 export interface WheelHandle {
@@ -193,36 +153,6 @@ export interface Vehicle {
 	commandedSteerRad: number;
 	spawnPosition: V3;
 	spawnRotation: Q4;
-	/**
-	 * Per-wheel ground-contact state (hysteresis latch, see updateWheelGroundContact()) -- FIXROUND-2
-	 * addition (diagnostic A). `groundAuthority` is the rate-limited 0..1 scalar the ground-only
-	 * assists (anti-roll/yaw-damping/anti-pitch/lateral-grip) are scaled by; `brakeRamp` is the
-	 * analogous 0..1 ramp for commanded brake torque (diagnostic D3).
-	 */
-	wheelGrounded: Record<WheelKey, boolean>;
-	groundAuthority: number;
-	brakeRamp: number;
-	/**
-	 * Consecutive steps with <=1 wheel grounded -- see tuning.ts's SUSTAINED_AIRBORNE_STEPS doc comment
-	 * (diagnostic-A-regression fix: distinguishes a real off-a-ramp jump from a brief multi-wheel
-	 * unloading event during hard oscillating-steer weight transfer, which must NOT fully zero the
-	 * anti-roll/anti-pitch assists the way a genuine sustained jump correctly does).
-	 */
-	lowContactStreak: number;
-	/**
-	 * Steps remaining in the post-spawn/post-reset suspension-SETTLE grace window, during which every
-	 * wheel is forced "grounded" regardless of the raw deflection reading. FIX (found while validating
-	 * diagnostic A's gating against the straight-line launch test): getSuspensionDeflection() is
-	 * reconstructed from body positions, so right after spawn/reset the spring hasn't yet compressed
-	 * up to its loaded equilibrium (~0.15s of settling, see WHEEL_SPAWN_SETTLE_MARGIN_M's doc comment)
-	 * -- during that window deflection reads near 0, which the hysteresis latch (initialized
-	 * "grounded") reads as "left the ground" on literally the first step, even though the wheel is
-	 * physically in contact throughout (a real normal force is present; only the SPRING's dynamic
-	 * response lags). Without this grace window, every launch spent its first ~0.15s with drivetrain
-	 * torque wrongly capped to AIRBORNE_DRIVE_TORQUE_CAP_NM, costing measurable straight-line
-	 * acceleration for no physical reason.
-	 */
-	settleStepsRemaining: number;
 }
 
 export interface VehicleInput {
@@ -237,23 +167,8 @@ export interface VehicleInput {
 
 export const NEUTRAL_INPUT: Readonly<VehicleInput> = Object.freeze({ throttle: 0, brake: 0, steer: 0, handbrake: false });
 
-/**
- * Creates the ground static body (huge box, asphalt-ish friction) shared by the sim harness and the
- * game scene.
- *
- * TUNING DELTA (FIXROUND-2): default halfSize raised from 250 to 1000. ROOT-CAUSED while chasing
- * diagnostic C's "hidden top-speed runaway" and a sustained-oscillation.test.mjs regression: what
- * looked like an unbounded speed/rollover runaway in both cases was actually the car driving straight
- * off the finite 250m ground plane's edge (easily reached within a 30s full-throttle or hard-cornering
- * run once diagnostic B's drift bug no longer bleeds off speed/distance) into permanent freefall --
- * gravity alone adds ~10m/s of speed every second falling (accounting for the previously-reported
- * huge speed figures) and, once diagnostic A correctly stops artificially leveling a genuinely
- * airborne car, an existing small rotation rate integrates into a large one over that much
- * uncontested fall time (accounting for the reported rollover). 1000m half-size comfortably contains
- * a 30s run at this vehicle's actual achievable speeds (verified empirically) while remaining a tiny,
- * single static shape (negligible broad-phase cost).
- */
-export function createGroundBody(world: World, halfSize = 1000): Body {
+/** Creates the ground static body (huge box, asphalt-ish friction) shared by the sim harness and the game scene. */
+export function createGroundBody(world: World, halfSize = 250): Body {
 	const ground = world.createBody({ type: BodyType.Static, position: { x: 0, y: -0.5, z: 0 } });
 	ground.createBoxShape({ halfExtents: { x: halfSize, y: 0.5, z: halfSize }, friction: GROUND_FRICTION, density: 1 });
 	return ground;
@@ -364,14 +279,6 @@ export function createVehicle(
 		commandedSteerRad: 0,
 		spawnPosition,
 		spawnRotation,
-		// Spawns with the deliberate small ground penetration (WHEEL_SPAWN_SETTLE_MARGIN_M), so treat
-		// every wheel as grounded from the first step rather than waiting for the hysteresis latch to
-		// catch up (avoids a spurious one-step "airborne" authority dip right at spawn).
-		wheelGrounded: { fl: true, fr: true, rl: true, rr: true },
-		groundAuthority: 1,
-		brakeRamp: 0,
-		lowContactStreak: 0,
-		settleStepsRemaining: SUSPENSION_SETTLE_GRACE_STEPS,
 	};
 }
 
@@ -431,13 +338,6 @@ export function resetVehicle(vehicle: Vehicle): void {
 	vehicle.gearbox.gear = 0;
 	vehicle.gearbox.shiftCutMs = 0;
 	vehicle.commandedSteerRad = 0;
-	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
-		vehicle.wheelGrounded[key] = true;
-	}
-	vehicle.groundAuthority = 1;
-	vehicle.brakeRamp = 0;
-	vehicle.lowContactStreak = 0;
-	vehicle.settleStepsRemaining = SUSPENSION_SETTLE_GRACE_STEPS;
 }
 
 export function speedSensitiveSteerClamp(speedKmh: number): number {
@@ -454,55 +354,23 @@ function chassisUp(rotation: Q4): V3 {
 }
 
 /**
- * Per-wheel angular speed IMPLIED by chassis motion (v/r), INCLUDING a yaw-rate term for the wheel's
- * lateral offset from the chassis centerline (v_wheel = forwardSpeed +/- yawRate*halfTrack) -- FIX for
- * diagnostic B ("straight-line drift"): the previous single shared scalar (chassis forward speed
- * only, no yaw term) fed the SAME implied-omega value to both left and right driven wheels, so any
- * yaw rate at all (even the small residual kind a real car has mid-correction) made one wheel's real
- * omega look like genuine wheelspin relative to that shared estimate and the other look like
- * under-rotation -- an artificial per-wheel asymmetry in tractionLimitedTorque() layered on top of
- * (and, before the mount-symmetrization fix above, amplifying) the mount-asymmetry bug. Using each
- * wheel's OWN implied omega (accounting for its own lateral offset) removes that artificial asymmetry.
- */
-function chassisImpliedWheelOmega(vehicle: Vehicle, wheelDef: WheelDef): number {
-	const rotation = vehicle.chassis.getRotation();
-	const forward = chassisForward(rotation);
-	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forward);
-	const up = chassisUp(rotation);
-	const yawRate = dot(vehicle.chassis.getAngularVelocity(), up);
-	// Tangential forward-direction contribution of yaw rotation at this wheel's lateral offset (see
-	// mathUtil.ts's LOCAL_RIGHT convention -- localMount.x is signed per side, so this needs no
-	// separate "which side" lookup): v = cross(angularVelocity, offset), forward component = -yawRate*x.
-	const wheelForwardSpeed = forwardSpeed - yawRate * wheelDef.localMount.x;
-	return Math.abs(wheelForwardSpeed) / wheelDef.radius;
-}
-
-/**
- * Driven-wheel angular speed IMPLIED by chassis forward speed alone (no per-wheel yaw term) -- used
- * ONLY for the gearbox's rpm estimation, which wants a single no-slip engine-to-wheel-hub estimate
- * regardless of what the tire contact patch (or yaw rate) is doing. Equal to the average of the two
- * rear wheels' chassisImpliedWheelOmega() (their yaw-rate terms are equal and opposite about the
- * centerline, so they cancel in the average) -- kept as an explicit average rather than re-deriving
- * the forward-speed formula so this stays obviously consistent with the per-wheel version above.
+ * Driven-wheel angular speed IMPLIED by chassis forward speed (v/r), not read from the wheel joint
+ * itself. Used for the gearbox's rpm estimation, which wants a no-slip engine-to-wheel-hub estimate
+ * regardless of what the tire contact patch is doing.
  */
 function chassisImpliedRearOmega(vehicle: Vehicle): number {
-	const rl = vehicle.wheels.rl.def;
-	const rr = vehicle.wheels.rr.def;
-	return (chassisImpliedWheelOmega(vehicle, rl) + chassisImpliedWheelOmega(vehicle, rr)) / 2;
+	const forward = chassisForward(vehicle.chassis.getRotation());
+	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forward);
+	return Math.abs(forwardSpeed) / WHEEL_RADIUS_REAR_M;
 }
 
 /**
  * Traction-control-style torque taper: cuts a driven wheel's commanded max torque once its REAL
  * angular speed (`realOmega`, from joint.getSpinSpeed() -- meaningful now that allowFastRotation
  * lifts box3d's per-body rotation clamp, see the doc comment on TRACTION_SLIP_ALLOWANCE_RAD_S in
- * tuning.ts) runs measurably ahead of `impliedOmega` (chassisImpliedWheelOmega() -- what THIS wheel's
- * own chassis motion implies), i.e. genuine wheelspin rather than normal rolling. Full torque below
+ * tuning.ts) runs measurably ahead of `impliedOmega` (chassisImpliedRearOmega() -- what the chassis's
+ * own forward progress implies), i.e. genuine wheelspin rather than normal rolling. Full torque below
  * TRACTION_SLIP_ALLOWANCE_RAD_S of slip, linearly cut to zero by TRACTION_SLIP_CUTOFF_RAD_S.
- *
- * NOTE: deliberately reads realOmega RAW (unfiltered) -- see tuning.ts's TRACTION_SLIP_ALLOWANCE_RAD_S
- * doc comment for why a low-pass filter here was tried and reverted (it measurably crushed
- * straight-line acceleration; the per-wheel yaw-aware impliedOmega below already resolves diagnostic
- * B's drift on its own).
  */
 function tractionLimitedTorque(realOmega: number, impliedOmega: number, maxTorqueNm: number): number {
 	const slip = Math.abs(realOmega) - impliedOmega;
@@ -512,105 +380,6 @@ function tractionLimitedTorque(realOmega: number, impliedOmega: number, maxTorqu
 		1
 	);
 	return maxTorqueNm * (1 - t);
-}
-
-/**
- * Updates (and returns) this wheel's ground-contact latch for this step, from getSuspensionDeflection()
- * -- FIX for diagnostic A ("airborne auto-leveling"). Hysteresis (ENTER lower than EXIT is higher,
- * see tuning.ts's doc comment) avoids chatter right at the boundary: once grounded, deflection has to
- * drop further (below EXIT) to count as airborne again, and vice versa.
- */
-function updateWheelGroundContact(vehicle: Vehicle, key: WheelKey): boolean {
-	// Post-spawn/post-reset settle grace window (see Vehicle.settleStepsRemaining's doc comment):
-	// the suspension spring hasn't caught up to its loaded equilibrium yet, so the deflection-based
-	// heuristic below isn't trustworthy -- assume grounded unconditionally until it elapses.
-	if (vehicle.settleStepsRemaining > 0) {
-		vehicle.wheelGrounded[key] = true;
-		return true;
-	}
-	const deflection = getSuspensionDeflection(vehicle, key);
-	const wasGrounded = vehicle.wheelGrounded[key];
-	const grounded = wasGrounded ? deflection > GROUND_CONTACT_DEFLECTION_EXIT_M : deflection > GROUND_CONTACT_DEFLECTION_ENTER_M;
-	vehicle.wheelGrounded[key] = grounded;
-	return grounded;
-}
-
-/**
- * Rate-limits the ground-only assists' (anti-roll/yaw-damping/anti-pitch/lateral-grip) authority
- * toward a target derived from how many of the 4 wheels are currently grounded: full authority (1) at
- * >=2 grounded, 0.5 at exactly 1, zero (0) only once ALL 4 wheels have been continuously ungrounded
- * for SUSTAINED_AIRBORNE_STEPS (see that constant's doc comment for why 2-grounded doesn't reduce
- * authority at all, and why the drop to 0 needs a genuine sustained streak, not just an instantaneous
- * 0-grounded reading). See tuning.ts's ASSIST_AUTHORITY_RAMP_TIME_S doc comment for why this ramps
- * rather than snaps (so a landing doesn't instantly reintroduce full-strength leveling torque against
- * whatever attitude the car landed at).
- */
-function updateGroundAuthority(vehicle: Vehicle, groundedCount: number, dt: number): number {
-	// rawTarget: FULL authority at >=2 grounded (ordinary hard-cornering weight transfer routinely
-	// lifts one wheel, or one diagonal pair briefly -- that's still real suspension feedback, not
-	// flight, and reducing authority for it was found to trigger real, previously-masked rollovers in
-	// sustained-oscillation.test.mjs's hard-oscillating-steer scenario: fixing diagnostic B's drift bug
-	// made the car track commanded steer more faithfully/sharply than the gains were ever validated
-	// against, and even a modest, brief authority reduction right as a roll begins turned out to be
-	// enough to tip an otherwise-recoverable disturbance past the point where any amount of anti-roll
-	// torque can pull it back). Only 0-1 grounded (see tuning.ts's SUSTAINED_AIRBORNE_STEPS doc comment)
-	// counts toward genuinely losing contact.
-	vehicle.lowContactStreak = groundedCount === 0 ? vehicle.lowContactStreak + 1 : 0;
-	const rawTarget = groundedCount >= 2 ? 1 : groundedCount === 1 ? 0.5 : 0;
-	const target = vehicle.lowContactStreak >= SUSTAINED_AIRBORNE_STEPS ? rawTarget : Math.max(rawTarget, PARTIAL_AUTHORITY_FLOOR);
-	const maxDelta = dt / ASSIST_AUTHORITY_RAMP_TIME_S;
-	vehicle.groundAuthority = clamp(vehicle.groundAuthority + clamp(target - vehicle.groundAuthority, -maxDelta, maxDelta), 0, 1);
-	return vehicle.groundAuthority;
-}
-
-/** Rate-limits the commanded brake torque's 0..1 ramp fraction -- see tuning.ts's
- * BRAKE_TORQUE_RAMP_TIME_S doc comment (diagnostic D3, braking transient spike). */
-function updateBrakeRamp(vehicle: Vehicle, braking: boolean, dt: number): number {
-	const target = braking ? 1 : 0;
-	const maxDelta = dt / BRAKE_TORQUE_RAMP_TIME_S;
-	vehicle.brakeRamp = clamp(vehicle.brakeRamp + clamp(target - vehicle.brakeRamp, -maxDelta, maxDelta), 0, 1);
-	return vehicle.brakeRamp;
-}
-
-/**
- * Aerodynamic drag force opposing the chassis's full velocity vector -- FIX for diagnostic C ("hidden
- * top-speed runaway"). See tuning.ts's AERO_DRAG_COEFF_AREA_M2 doc comment.
- */
-export function computeAeroDragForce(velocity: V3): V3 {
-	const speed = length(velocity);
-	if (speed < 1e-3) return { x: 0, y: 0, z: 0 };
-	const dragMagnitude = 0.5 * AIR_DENSITY_KG_M3 * AERO_DRAG_COEFF_AREA_M2 * speed * speed;
-	return scale(normalize(velocity), -dragMagnitude);
-}
-
-/**
- * Game-side progressive lateral-grip governor -- FIX for diagnostic D2. See tuning.ts's
- * LATERAL_GRIP_PEAK_G doc comment for the full rationale (box3d's isotropic Coulomb friction
- * saturates near-instantly regardless of slip angle; this shapes a progressive commanded-steer ->
- * lateral-g curve on top of it, without damping power-oversteer that happens with the wheel centered).
- */
-export function computeLateralGripAssistTorque(
-	rotation: Q4,
-	angularVelocity: V3,
-	forwardSpeed: number,
-	commandedSteerRad: number,
-	speedKmh: number
-): V3 {
-	if (Math.abs(forwardSpeed) < LATERAL_GRIP_MIN_SPEED_MS) return { x: 0, y: 0, z: 0 };
-	const up = chassisUp(rotation);
-	const yawRate = dot(angularVelocity, up);
-	// Steady-state circular-motion proxy for realized lateral acceleration (m/s^2), signed to match
-	// yawRate's turn direction -- same proxy used by the friction-feel diagnostic.
-	const actualLatAccel = yawRate * forwardSpeed;
-	const maxSteerAngle = speedSensitiveSteerClamp(speedKmh);
-	const steerFraction = maxSteerAngle > 1e-6 ? clamp(Math.abs(commandedSteerRad) / maxSteerAngle, 0, 1) : 0;
-	const rampFraction = Math.pow(steerFraction, LATERAL_GRIP_RAMP_EXPONENT);
-	const allowedLatAccel = LATERAL_GRIP_PEAK_G * GRAVITY_MAG * rampFraction;
-	const excess = Math.abs(actualLatAccel) - allowedLatAccel;
-	if (excess <= 0) return { x: 0, y: 0, z: 0 };
-	const magnitude = clamp(LATERAL_GRIP_ASSIST_GAIN_NM_PER_MS2 * excess, 0, LATERAL_GRIP_ASSIST_TORQUE_CAP_NM);
-	const direction = actualLatAccel >= 0 ? -1 : 1;
-	return scale(up, magnitude * direction);
 }
 
 /** Active anti-roll torque about the chassis's world forward axis, proportional to roll angle & rate, capped. */
@@ -632,7 +401,6 @@ export function computeAntiRollTorque(rotation: Q4, angularVelocity: V3): V3 {
  * pre-existing anti-roll assist above.
  */
 function computeYawDampingTorque(rotation: Q4, angularVelocity: V3): V3 {
-	if (!YAW_DAMPING_ENABLED) return { x: 0, y: 0, z: 0 };
 	const up = chassisUp(rotation);
 	const yawRate = dot(angularVelocity, up);
 	const magnitude = clamp(-YAW_DAMPING_GAIN_NM_PER_RAD_S * yawRate, -YAW_DAMPING_TORQUE_CAP_NM, YAW_DAMPING_TORQUE_CAP_NM);
@@ -672,12 +440,6 @@ export interface Telemetry {
 	rollAngleRad: number;
 	yawRateRadS: number;
 	upDot: number;
-	/** Number of the 4 wheels currently latched as grounded (see updateWheelGroundContact()), and the
-	 * rate-limited 0..1 authority scalar the ground-only assists are scaled by (see
-	 * updateGroundAuthority()) -- both as of the most recent stepVehicle() call. FIXROUND-2 addition
-	 * (diagnostic A), useful for regression tests asserting the airborne/grounded gating itself. */
-	groundedWheelCount: number;
-	assistAuthority: number;
 }
 
 export function getTelemetry(vehicle: Vehicle): Telemetry {
@@ -713,8 +475,6 @@ export function getTelemetry(vehicle: Vehicle): Telemetry {
 		rollAngleRad: Math.asin(clamp(dot(right, { x: 0, y: 1, z: 0 }), -1, 1)),
 		yawRateRadS: dot(angularVel, up),
 		upDot: dot(up, { x: 0, y: 1, z: 0 }),
-		groundedWheelCount: (Object.keys(vehicle.wheels) as WheelKey[]).filter((key) => vehicle.wheelGrounded[key]).length,
-		assistAuthority: vehicle.groundAuthority,
 	};
 }
 
@@ -755,16 +515,6 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const throttle = clamp(input.throttle, 0, 1);
 	const brake = clamp(input.brake, 0, 1);
 
-	// ---- Ground contact (diagnostic A: airborne auto-leveling) ----
-	// Updated once per step, before anything below reads grounded state, so the drivetrain's per-wheel
-	// airborne torque cap and the end-of-step assist-authority gating both see the SAME snapshot.
-	if (vehicle.settleStepsRemaining > 0) vehicle.settleStepsRemaining--;
-	let groundedCount = 0;
-	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
-		if (updateWheelGroundContact(vehicle, key)) groundedCount++;
-	}
-	const groundAuthority = updateGroundAuthority(vehicle, groundedCount, dt);
-
 	// Signed road speed along the chassis's own forward axis (+ = forward, - = backward). The brake
 	// pedal (S) doubles as reverse: it foot-brakes while rolling forward, but once the car is at rest
 	// or already rolling backward it drives the rear wheels in reverse instead.
@@ -772,18 +522,6 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forwardAxis);
 	const wantReverse = brake > 1e-3 && forwardSpeed <= REVERSE_ENGAGE_SPEED_MS;
 	const footBraking = brake > 1e-3 && !wantReverse;
-	// FIX (diagnostic D3, braking transient spike): commanded brake torque ramps in over
-	// BRAKE_TORQUE_RAMP_TIME_S rather than snapping to full magnitude the instant the pedal is pressed.
-	const brakeRamp = updateBrakeRamp(vehicle, footBraking, dt);
-
-	/** Caps a driven wheel's commanded torque to a small value while it's off the ground (diagnostic A,
-	 * "free-spin look without chassis reaction windup" -- see tuning.ts's AIRBORNE_DRIVE_TORQUE_CAP_NM
-	 * doc comment: the wheel joint's spin motor reacts on the chassis too, so an airborne wheel
-	 * chasing an unreachable servo target at full torque would otherwise pitch/yaw-kick the chassis
-	 * with nothing countering it (the ground-only assists are themselves gated off while airborne). */
-	function airborneCappedTorque(key: WheelKey, torqueNm: number): number {
-		return vehicle.wheelGrounded[key] ? torqueNm : Math.min(torqueNm, AIRBORNE_DRIVE_TORQUE_CAP_NM);
-	}
 
 	// ---- Drivetrain (rear/driven wheels) ----
 	// Every joint call below is guarded against a detached wheel (WheelHandle.joint === null, see its
@@ -791,7 +529,7 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	// simulating/responding to input on its remaining wheels afterward (spec: "drivetrain skips
 	// missing wheels").
 	if (footBraking) {
-		const torque = BRAKE_TORQUE_REAR_NM * brake * brakeRamp;
+		const torque = BRAKE_TORQUE_REAR_NM * brake;
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(0);
@@ -808,19 +546,15 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 		const target = driveServoTarget(gearStep, brake, -1);
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
-			const wheelImplied = chassisImpliedWheelOmega(vehicle, w.def);
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
-			const torque = atReverseCap ? 0 : tractionLimitedTorque(w.joint.getSpinSpeed(), wheelImplied, target.maxSpinTorqueNm);
-			w.joint.setMaxSpinTorque(airborneCappedTorque(w.def.key, torque));
+			w.joint.setMaxSpinTorque(atReverseCap ? 0 : tractionLimitedTorque(w.joint.getSpinSpeed(), impliedOmega, target.maxSpinTorqueNm));
 		}
 	} else if (throttle > 1e-3) {
 		const target = driveServoTarget(gearStep, throttle, 1);
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
-			const wheelImplied = chassisImpliedWheelOmega(vehicle, w.def);
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
-			const torque = tractionLimitedTorque(w.joint.getSpinSpeed(), wheelImplied, target.maxSpinTorqueNm);
-			w.joint.setMaxSpinTorque(airborneCappedTorque(w.def.key, torque));
+			w.joint.setMaxSpinTorque(tractionLimitedTorque(w.joint.getSpinSpeed(), impliedOmega, target.maxSpinTorqueNm));
 		}
 	} else {
 		const target = coastServoTarget(ENGINE_BRAKE_TORQUE_NM);
@@ -848,7 +582,7 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 		// footBraking (not just brake>0): while reversing, the fronts must freewheel, not lock.
 		if (footBraking) {
 			w.joint.setSpinMotorSpeed(0);
-			w.joint.setMaxSpinTorque(BRAKE_TORQUE_FRONT_NM * brake * brakeRamp);
+			w.joint.setMaxSpinTorque(BRAKE_TORQUE_FRONT_NM * brake);
 		} else {
 			w.joint.setSpinMotorSpeed(w.joint.getSpinSpeed());
 			w.joint.setMaxSpinTorque(FRONT_PASSIVE_DRAG_NM);
@@ -869,31 +603,19 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	if (fl.joint) fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 	if (fr.joint) fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 
-	// ---- Anti-roll + yaw-damping + anti-pitch + lateral-grip assists, gated by ground authority ----
-	// FIX (diagnostic A): these 4 terms only make physical sense while the car is meaningfully in
-	// contact with the ground -- summed, then scaled by groundAuthority (1 at >=3 wheels grounded, 0
-	// at 0-1, ramped smoothly on transitions, see updateGroundAuthority()) rather than applied
-	// unconditionally every step regardless of airborne state.
+	// ---- Anti-roll assist + yaw damping + anti-pitch assist ----
+	// DIAG A/B (2nd pass): keep anti-roll + yaw-damping ON (removing them destabilized the ground
+	// approach entirely -- 0 airborne samples in the first A/B pass below), disable ONLY the
+	// anti-pitch term, to isolate it as the specific source of the airborne pitch-rate collapse.
+	// Original (game/src/vehicle/vehicle.ts) is untouched.
 	const transform = vehicle.chassis.getTransform();
 	const angularVel = vehicle.chassis.getAngularVelocity();
-	const assistTorque = add(
-		add(
-			add(computeAntiRollTorque(transform.rotation, angularVel), computeYawDampingTorque(transform.rotation, angularVel)),
-			computeAntiPitchTorque(transform.rotation, angularVel)
-		),
-		computeLateralGripAssistTorque(transform.rotation, angularVel, forwardSpeed, vehicle.commandedSteerRad, speedKmh)
+	const torque = add(
+		computeAntiRollTorque(transform.rotation, angularVel),
+		computeYawDampingTorque(transform.rotation, angularVel)
 	);
-	const gatedTorque = scale(assistTorque, groundAuthority);
-	if (dot(gatedTorque, gatedTorque) > 0) {
-		vehicle.chassis.applyTorque(gatedTorque, true);
-	}
-
-	// ---- Aerodynamic drag (diagnostic C: unbounded top speed) ----
-	// Unlike the assists above, drag applies regardless of ground contact (a real car's aero drag
-	// doesn't care whether the wheels are loaded).
-	const dragForce = computeAeroDragForce(vehicle.chassis.getLinearVelocity());
-	if (dot(dragForce, dragForce) > 0) {
-		vehicle.chassis.applyForceToCenter(dragForce, true);
+	if (dot(torque, torque) > 0) {
+		vehicle.chassis.applyTorque(torque, true);
 	}
 }
 
