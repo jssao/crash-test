@@ -58,14 +58,14 @@ deformation feeds back into physics.
 | P2 | Vitest tests: gravity, rest, memory stability | sonnet | **done** | (merged P1) | 6/6 pass incl. zero heap growth over 220 cycles; weld force ordering sane |
 | P3 | Three.js boxes example + headless render verify | sonnet | **done** | 189,868 (w/ P4) | 50/50 boxes rest, 0 console errors, moveEvents-only sync (main.ts:171-192), full-puppeteer fallback (no Chrome on machine); commit 8b21508. Orchestrator re-ran verify: PASSED |
 | P4 | npm packaging + README | sonnet | **done** | (merged P3) | dist/ exports+types, verify-dist green (orchestrator re-ran), honest README w/ unexercised list; known wrinkle: zero-arg init() path in-repo only (documented); no root LICENSE file yet; commit 909a2e2 |
-| GATE-PORT | Verify BRIEF items 1–6 | loom:verifier | pending | — | |
+| GATE-PORT | Verify BRIEF items 1–6 | loom:verifier | **PASS** | 55,530 | 2026-07-08: all 6 items + 3 constraints YES w/ file:line evidence; orchestrator had re-run all deterministic checks fresh (build 0, vitest 6/6, verify-dist 0, example verify PASSED) |
 | G1 | Game scaffold (vite+TS) + renderer (PBR/HDRI/tonemap/shadows) | sonnet (threejs-rendering agent) | **done** | 193,687 | AgX tonemap, PMREM HDRI (derelict airfield), sun from HDRI brightest texel, 0 console errors via Brave CDP harness (santiago-wrath pattern; no Chrome on machine — SwiftShader software GL, FPS numbers not representative), trademark textures stripped (license plate + tiresides, NOT the variants), car-map.ts measured (wheelbase 2800mm, track 1952/1969, wheel r≈390/384mm), commit 81ac297 |
 | G1b | Asset sourcing: car GLB w/ separable panels + HDRI + licenses | sonnet | **done** | 126,602 | Khronos CarConcept.glb CC-BY 4.0, 11MB, 213k tris, wheels+hood+doors+hatch+roof all separate nodes; 2 Poly Haven CC0 HDRIs; committed dc1b6ca. Caveat: avoid Khronos-logo material variant (trademark); decimate if perf demands |
 | G2 | Vehicle: chassis+wheel joints+powertrain+steering (design fable, impl sonnet) | fable+sonnet | pending | — | |
 | G3 | Damage: weld panels + break thresholds + crumple | fable+sonnet | pending | — | |
 | G4 | World: terrain, destructibles, ramps, spawn/reset | sonnet | pending | — | |
 | G5 | HUD, chase camera, input polish | sonnet | pending | — | |
-| G6 | Pages deploy workflow + perf gate | sonnet | pending | — | |
+| G6 | Pages deploy workflow + perf gate | sonnet | pending | — | BLOCKER (user-input): no GitHub credentials on machine (no gh, no SSH, no stored HTTPS) → build deploy-READY (workflow + base path + verified prod build); user runs repo-create+push in the morning (handoff commands in final report). Item 11 verified as far as locally possible |
 | GATE-GAME | Verify items 7–12 | loom:verifier | pending | — | |
 
 ## Pass log
