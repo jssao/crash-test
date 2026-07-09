@@ -824,6 +824,27 @@ function stepGearboxPeek(state: GearboxState, wheelOmegaAbs: number) {
  * physics step. Call this immediately before world.step(dt, ...). Does not itself call world.step().
  */
 export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): void {
+	// FIX (suspension-feel pass, found via game/sim/damage-moderate-impact.test.mjs regression):
+	// box3d puts a body to sleep after it's held near-zero velocity for its own internal time
+	// threshold (vendor/box3d), and NEITHER WheelJoint.setSpinMotorSpeed()/setMaxSpinTorque() NOR
+	// Body.setTargetSteeringAngle() wake a sleeping body as a side effect (confirmed: neither
+	// b3WheelJoint_SetSpinMotorSpeed nor _SetMaxSpinTorque in vendor/box3d/src/wheel_joint.c calls
+	// any wake function) -- so a car that has settled to a genuine full stop and fallen asleep
+	// previously stayed asleep FOREVER even under full throttle, since every joint command below was
+	// silently a no-op on a sleeping body. This was a LATENT, pre-existing gap (nothing here is
+	// suspension-specific), but the properly-sprung suspension this pass adds settles to true rest
+	// measurably FASTER than the old bump-stop-pinned one (that's the point of fixing it) -- which
+	// finally gave a stationary post-crash car enough uninterrupted low-velocity time within this
+	// test's fixed settle window to actually cross box3d's sleep threshold, exposing the gap (a
+	// same-class bug: a player parking, waiting, then mashing the throttle again would hit this too).
+	// Any meaningful input wakes the chassis + every wheel body before the drivetrain/brake/steering
+	// commands below are issued, same as resetVehicle()'s explicit setAwake(true) calls.
+	const hasActiveInput = input.throttle > 1e-3 || input.brake > 1e-3 || input.handbrake || Math.abs(input.steer) > 1e-3;
+	if (hasActiveInput && !vehicle.chassis.isAwake()) {
+		vehicle.chassis.setAwake(true);
+		for (const w of Object.values(vehicle.wheels)) w.body.setAwake(true);
+	}
+
 	const dtMs = dt * 1000;
 	const rl = vehicle.wheels.rl;
 	const rr = vehicle.wheels.rr;

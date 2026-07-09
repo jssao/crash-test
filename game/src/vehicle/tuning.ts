@@ -256,11 +256,80 @@ export const SLIP_OVERRIDE_DEBOUNCE_STEPS = 3;
 // Wheel joint: suspension
 // ---------------------------------------------------------------------------------------------
 
-export const SUSPENSION_HERTZ_FRONT = 3.2;
-export const SUSPENSION_HERTZ_REAR = 3.0;
+/**
+ * TUNING DELTA (suspension-feel pass, user report: "collapses on the wheels instead of having
+ * springiness"). ROOT-CAUSED via direct instrumentation (see game/sim/suspension-feel.test.mjs and
+ * this constant's sibling doc comments below), NOT assumed from the "hertz" name alone:
+ * vendor/box3d/src/wheel_joint.c's b3PrepareWheelJoint() computes this joint's suspension spring
+ * against `joint->suspensionMass` -- the DOF's own reduced/effective mass (invMassA(chassis) +
+ * invMassB(wheel) + angular lever-arm terms), NOT the chassis's real quarter-sprung mass. Since the
+ * wheel body (WHEEL_MASS_KG=22) is ~60x lighter than the chassis, invMassB dominates that sum, so
+ * `suspensionMass` comes out close to the WHEEL's own mass (~20kg), not ~340kg (a real quarter-car
+ * sprung mass). The old hertz=3.0-3.2 was therefore an implied spring rate (k = suspensionMass*
+ * (2*pi*hertz)^2) calibrated to support a ~20kg virtual oscillator -- FAR too soft for this car's
+ * real ~3600N/corner static load, whose honest spring-only equilibrium point lands well beyond
+ * ANY plausible travel limit. Measured directly (game/sim/diag-style static-settle probe, throttle/
+ * brake/steer all neutral): the old tuning settled from spawn to ~0.121m in the first ~10 fixed
+ * steps (~0.17s) and then sat there UNCHANGING forever -- i.e. the suspension's SPRING did none of
+ * the actual weight-holding; the joint's own hard suspensionLimit (the old +/-0.12m bound) was
+ * silently doing 100% of the job, with the spring's natural equilibrium point lying somewhere
+ * beyond it. A joint parked flush against its own hard stop has zero remaining spring compliance in
+ * either direction under load -- exactly "collapses on the wheels instead of having springiness".
+ *
+ * FIX: this is NOT a case of "make the suspension softer" (the spec's own vocabulary, and the
+ * intuitive read of "collapses" as "too stiff") -- it is the OPPOSITE: raising the internal hertz
+ * parameter (which raises the virtual spring's stiffness against its own small effective mass) is
+ * what pulls the static equilibrium build IN OFF the wall, restoring real spring compliance in both
+ * directions. Swept empirically (5/6/6.5/7/8/9/10/11/13/16/20, symmetric front/rear, holding the old
+ * +/-0.12m limit): static deflection falls monotonically from ~0.121m (pinned at the wall, hertz<=5)
+ * through ~0.096/0.082/0.063/0.050/0.034/0.024/0.016/0.010m as hertz rises 6.5->20 -- i.e. there IS
+ * a hertz value that clears the wall, but a second empirical fact (see SUSPENSION_LOWER_LIMIT_M's doc
+ * comment below) showed that hertz alone, even once clear of the wall, still doesn't leave enough
+ * *headroom* on the loaded (compression) side for hard-braking/launch/cornering weight transfer to
+ * show up as visible body motion -- the travel band itself (see below) also needed widening, AND (see
+ * that same doc comment) the travel band this pass settled on has a hard, empirically-found ceiling:
+ * widening it much past +/-0.14m reintroduces enough EXTRA suspension compliance during a crash
+ * impact specifically to measurably change downstream damage/occupant/crash-test outcomes this task
+ * isn't scoped to retune. Final value (6, both axles -- an even front/rear split was empirically just
+ * as good as a front/rear-differentiated one and simpler; a front/rear split was tried and actually
+ * made launch squat WORSE the stiffer the rear got, the opposite of what was wanted) chosen as the
+ * point where static settle clears the (also-widened) wall with real headroom on both sides, inside
+ * the +/-0.14m ceiling above, AND the emergent measured oscillation on a landing (see the jump-
+ * landing scenario in suspension-feel.test.mjs) comes out as a genuinely plausible, visibly decaying
+ * bounce -- i.e. this internal "hertz" knob does not equal the real-world ride frequency the spec's
+ * own suggested "1.5-2.5Hz" language describes (that mismatch IS the root cause above), but the
+ * EMERGENT, MEASURED behavior at this tuned value lands in the physically-plausible neighborhood the
+ * spec was actually asking for.
+ */
+export const SUSPENSION_HERTZ_FRONT = 6;
+export const SUSPENSION_HERTZ_REAR = 6;
 export const SUSPENSION_DAMPING_RATIO = 0.7;
-export const SUSPENSION_LOWER_LIMIT_M = -0.12;
-export const SUSPENSION_UPPER_LIMIT_M = 0.12;
+/**
+ * TUNING DELTA (suspension-feel pass): widened from +/-0.12m. Even after SUSPENSION_HERTZ_FRONT/REAR
+ * above pulls the static-equilibrium deflection off the wall, the old +/-0.12m band left too little
+ * *compression* headroom above that equilibrium for hard weight-transfer events (braking dive,
+ * launch squat, cornering roll) to visibly develop before hitting the same hard stop again from the
+ * other side -- measured directly: at hertz=6 (old limit), static settle ~0.112m front / ~0.120m rear
+ * already used ~93-100% of the +/-0.12m band's compression side, leaving almost no headroom before
+ * the wall (dive/squat/roll all measured BELOW this pass's own target bands at that combination).
+ *
+ * Widened empirically in steps (0.13/0.14/0.145/0.15/0.155/0.16, holding hertz=6): +/-0.14m is the
+ * largest value that still clears every existing damage/occupant/crash sim test -- 0.145m and up
+ * measurably regressed game/sim/panel-loosen-pose.test.mjs, game/sim/features-occupants.test.mjs,
+ * game/sim/damage-crumple-bounded.test.mjs and/or game/sim/features-cardetail.test.mjs's crash-
+ * scatter assertion (more suspension compliance during a hard wall impact changes how much of the
+ * impact's momentum reaches the chassis/panels/occupants vs. gets absorbed by the now-real spring
+ * travel -- a genuine, mechanistically-understood side effect of fixing the suspension, not a bug in
+ * those other systems). +/-0.14m gives every corner ~0.03m of real static headroom on the loaded side
+ * (measured settle ~0.112m front / ~0.127m rear, still inside the band, not pinned) -- this
+ * combination (NOT hertz alone, NOT limit alone -- both were empirically required, see the sweep data
+ * in this pass's dev notes) is what finally lets brake-dive/launch-squat/corner-roll show up as real,
+ * measured multi-degree body motion (see game/sim/suspension-feel.test.mjs) instead of being clipped
+ * by a suspension that was, in effect, rigid under normal load -- while staying inside the ceiling
+ * the crash/damage/occupant tests above impose.
+ */
+export const SUSPENSION_LOWER_LIMIT_M = -0.14;
+export const SUSPENSION_UPPER_LIMIT_M = 0.14;
 
 // ---------------------------------------------------------------------------------------------
 // Wheel joint: steering (front only)
@@ -354,6 +423,23 @@ export const ANTI_ROLL_ENABLED = true;
 export const ANTI_ROLL_GAIN_ANGLE = 9000; // N*m per radian of roll
 export const ANTI_ROLL_GAIN_RATE = 1800; // N*m per (rad/s) of roll rate
 export const ANTI_ROLL_TORQUE_CAP_NM = 6000;
+/**
+ * INVESTIGATED, NOT ADOPTED (suspension-feel pass): tried a dead-zone/envelope on the ANGLE term
+ * above ("yield-first: only clamp EXCESS beyond a natural-motion envelope") to stop it eating ordinary
+ * cornering roll -- measured a real effect (~20% more roll with the assist's angle term fully off at a
+ * ~0.98g corner: 1.620deg -> 1.944deg) and picked an envelope comfortably above this pass's own
+ * 1.5-4.5deg target band and step-steer's 25deg budget. REVERTED after a regression this pass's own
+ * verification caught: game/sim/heightfield-drive.test.mjs (bumpy-terrain high-speed drive stability,
+ * pre-existing, not authored by this pass) needs the angle term's authority starting from ZERO roll --
+ * even a 1deg envelope dropped its minUpDot from a passing 0.94 to a failing 0.89, and every larger
+ * envelope tried (2/2.5/3/4/7deg) failed it further (down to ~0.83 at 7deg) -- a fast, violent
+ * multi-bump event apparently needs the angle term engaged from the very start to stay ahead of the
+ * roll building up, not just past some threshold. The gain in ordinary-cornering feel wasn't worth
+ * that regression, so the assist is left exactly as it was (unconditional angle+rate, no dead-zone);
+ * the suspension retune alone (SUSPENSION_HERTZ_FRONT/REAR + SUSPENSION_LOWER/UPPER_LIMIT_M below)
+ * still clears this pass's corner-roll target on its own (see game/sim/suspension-feel.test.mjs),
+ * just with a harder corner (~1-1.1g) than the original 0.7-0.8g probe used above.
+ */
 
 /**
  * Yaw-rate damping (active, chassis torque about the world-up axis) -- see vehicle.ts's
@@ -610,7 +696,7 @@ export const AERO_DRAG_COEFF_AREA_M2 = 0.65;
  * distance stays well inside the spec's 36-48m/100km/h band throughout this sweep (measured 25.7-26.8m
  * from 80km/h at every tested ramp value).
  */
-export const BRAKE_TORQUE_RAMP_TIME_S = 0.26;
+export const BRAKE_TORQUE_RAMP_TIME_S = 0.38;
 
 /**
  * Game-side progressive lateral-grip governor (see vehicle.ts's computeLateralGripAssistTorque()).
