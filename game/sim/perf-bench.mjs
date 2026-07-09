@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Headless perf gate (G4/G5 spec): full world (car + all destructibles), a scripted 5s full-throttle
-// run straight into wall-center (the perf-bench's "wall #1 mid-pile" target -- see
-// game/src/world/tuning.ts's WALL_CONFIGS doc comment: it sits directly ahead of spawn), with EVERY
-// destructible body force-woken up front (defeating the sleep optimization on purpose, so this
-// measures the genuine worst case rather than the best case where most bodies are still asleep).
+// run straight down the kicker ramp's lane (x=0 -- see game/src/world/tuning.ts's RAMP_CONFIGS/LAYOUT
+// doc comments: the kicker sits directly ahead of spawn), with EVERY destructible body force-woken up
+// front (defeating the sleep optimization on purpose, so this measures the genuine worst case rather
+// than the best case where most bodies are still asleep).
 // Measures world.step() wall-clock time per fixed step over >=300 steps, reports avg/p95/max ms.
 //
 // REQUIRED: avg < 8ms on this machine. Run via `npm run bench` (wired to `vite-node`, same TS-aware
@@ -66,7 +66,7 @@ async function main() {
 	const finalSpeedKmh = Math.sqrt(
 		vehicle.chassis.getLinearVelocity().x ** 2 + vehicle.chassis.getLinearVelocity().y ** 2 + vehicle.chassis.getLinearVelocity().z ** 2,
 	) * 3.6;
-	console.log(`[perf-bench] final chassis Z=${finalPos.z.toFixed(1)}m (wall-center is at z=18) speed=${finalSpeedKmh.toFixed(0)}km/h`);
+	console.log(`[perf-bench] final chassis Z=${finalPos.z.toFixed(1)}m (kicker ramp is directly ahead at x=0, z=43) speed=${finalSpeedKmh.toFixed(0)}km/h`);
 
 	const sorted = [...stepTimesMs].sort((a, b) => a - b);
 	const avg = stepTimesMs.reduce((s, v) => s + v, 0) / stepTimesMs.length;
