@@ -1,0 +1,356 @@
+{
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "[panelVisuals] \"hood\" precomputed offset disagrees with the live capture at reparent time (posErr=0.746m, angleErr=1.24deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorL\" precomputed offset disagrees with the live capture at reparent time (posErr=18.230m, angleErr=50.99deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorR\" precomputed offset disagrees with the live capture at reparent time (posErr=20.029m, angleErr=50.99deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"hatch\" precomputed offset disagrees with the live capture at reparent time (posErr=18.979m, angleErr=51.15deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"roof\" precomputed offset disagrees with the live capture at reparent time (posErr=18.980m, angleErr=51.15deg) -- car-map.ts may be stale for this GLB."
+  ],
+  "pageErrors": [],
+  "driveResult1": {
+    "steps": 260,
+    "finalPos": {
+      "x": -27.831497192382812,
+      "y": 0.24851803481578827,
+      "z": 6.213715553283691
+    },
+    "speedKmh": 54.93711019432342,
+    "samples": [
+      {
+        "i": 0,
+        "x": 0.0000021031873984611593,
+        "z": 0.0002529621124267578,
+        "steer": 1,
+        "speedKmh": 0.8212787692997615,
+        "yaw": 0.000003549178639970201
+      },
+      {
+        "i": 20,
+        "x": -0.028585296124219894,
+        "z": 0.11641158163547516,
+        "steer": 1,
+        "speedKmh": 3.4107781762293947,
+        "yaw": -0.01931060360330443
+      },
+      {
+        "i": 40,
+        "x": -0.17335551977157593,
+        "z": 0.6056415438652039,
+        "steer": 1,
+        "speedKmh": 7.56506548447179,
+        "yaw": -0.10605677366884429
+      },
+      {
+        "i": 60,
+        "x": -0.5197165608406067,
+        "z": 1.4306981563568115,
+        "steer": 1,
+        "speedKmh": 11.705050251959126,
+        "yaw": -0.2525865404720276
+      },
+      {
+        "i": 80,
+        "x": -1.1969306468963623,
+        "z": 2.5180933475494385,
+        "steer": 1,
+        "speedKmh": 15.941933195558049,
+        "yaw": -0.4542465919011104
+      },
+      {
+        "i": 100,
+        "x": -2.325974702835083,
+        "z": 3.7101964950561523,
+        "steer": 1,
+        "speedKmh": 19.11063829668946,
+        "yaw": -0.7151364103860215
+      },
+      {
+        "i": 120,
+        "x": -3.9248368740081787,
+        "z": 4.711932182312012,
+        "steer": 0.7858271341088778,
+        "speedKmh": 21.70111182674375,
+        "yaw": -1.013094859879912
+      },
+      {
+        "i": 140,
+        "x": -5.968753337860107,
+        "z": 5.429068088531494,
+        "steer": 0.46405401523644485,
+        "speedKmh": 25.12797248707327,
+        "yaw": -1.2455828427708364
+      },
+      {
+        "i": 160,
+        "x": -8.439909934997559,
+        "z": 5.899746894836426,
+        "steer": 0.25329618757668204,
+        "speedKmh": 29.22808957730096,
+        "yaw": -1.3989449389933364
+      },
+      {
+        "i": 180,
+        "x": -11.354435920715332,
+        "z": 6.175910949707031,
+        "steer": 0.11962196454802321,
+        "speedKmh": 34.162963260330244,
+        "yaw": -1.4967884639814921
+      },
+      {
+        "i": 200,
+        "x": -14.751559257507324,
+        "z": 6.299245834350586,
+        "steer": 0.04048067034047653,
+        "speedKmh": 39.05856504452158,
+        "yaw": -1.5547908986696115
+      },
+      {
+        "i": 220,
+        "x": -18.618471145629883,
+        "z": 6.3142523765563965,
+        "steer": 0.007699692889454157,
+        "speedKmh": 44.267922652722085,
+        "yaw": -1.5791025869815931
+      },
+      {
+        "i": 240,
+        "x": -22.97563934326172,
+        "z": 6.268041133880615,
+        "steer": 0.0068389787041216454,
+        "speedKmh": 49.644578961162814,
+        "yaw": -1.580325439040674
+      }
+    ]
+  },
+  "driveResult2": {
+    "steps": 159,
+    "finalPos": {
+      "x": -53.84619903564453,
+      "y": 0.2666507661342621,
+      "z": 18.384458541870117
+    },
+    "speedKmh": 5.256437552926265,
+    "samples": [
+      {
+        "i": 0,
+        "x": -38.95824432373047,
+        "z": 6.162477016448975,
+        "steer": -1,
+        "speedKmh": 17.78658258002219,
+        "yaw": -1.571227286573277
+      },
+      {
+        "i": 20,
+        "x": -40.660579681396484,
+        "z": 6.3999104499816895,
+        "steer": -0.8958391469868734,
+        "speedKmh": 19.437989805065058,
+        "yaw": -1.409079924985422
+      },
+      {
+        "i": 40,
+        "x": -42.447147369384766,
+        "z": 7.18199348449707,
+        "steer": -0.5798606869459935,
+        "speedKmh": 22.679259051829888,
+        "yaw": -1.161521215517893
+      },
+      {
+        "i": 60,
+        "x": -44.34184646606445,
+        "z": 8.418532371520996,
+        "steer": -0.35492131743811794,
+        "speedKmh": 26.158987188927522,
+        "yaw": -0.9805195747792806
+      },
+      {
+        "i": 80,
+        "x": -46.342472076416016,
+        "z": 10.097333908081055,
+        "steer": -0.20185046028090747,
+        "speedKmh": 30.18095834950422,
+        "yaw": -0.8529790245694275
+      },
+      {
+        "i": 100,
+        "x": -48.468910217285156,
+        "z": 12.207745552062988,
+        "steer": -0.10216701404067174,
+        "speedKmh": 34.621141184855595,
+        "yaw": -0.7656863996275999
+      },
+      {
+        "i": 120,
+        "x": -50.76908874511719,
+        "z": 14.767223358154297,
+        "steer": -0.04534402179520797,
+        "speedKmh": 39.61920260683446,
+        "yaw": -0.71015619220516
+      },
+      {
+        "i": 140,
+        "x": -53.27825164794922,
+        "z": 17.779991149902344,
+        "steer": -0.03541664428988195,
+        "speedKmh": 44.801577715473094,
+        "yaw": -0.6832704515536807
+      }
+    ]
+  },
+  "treesSnapshotAfterSlalom": {
+    "saplings": [
+      {
+        "id": "sapling-0",
+        "broken": false
+      },
+      {
+        "id": "sapling-1",
+        "broken": false
+      },
+      {
+        "id": "sapling-2",
+        "broken": false
+      },
+      {
+        "id": "sapling-3",
+        "broken": false
+      },
+      {
+        "id": "sapling-4",
+        "broken": false
+      },
+      {
+        "id": "sapling-5",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-0",
+        "broken": false
+      }
+    ],
+    "mids": [
+      {
+        "id": "mid-0",
+        "broken": false
+      },
+      {
+        "id": "mid-1",
+        "broken": false
+      },
+      {
+        "id": "mid-2",
+        "broken": false
+      },
+      {
+        "id": "mid-3",
+        "broken": false
+      },
+      {
+        "id": "far-mid-0",
+        "broken": false
+      }
+    ],
+    "larges": [
+      {
+        "id": "large-0",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-1",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-2",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "far-large-0",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      }
+    ]
+  },
+  "treesSnapshotAfterMid": {
+    "saplings": [
+      {
+        "id": "sapling-0",
+        "broken": true
+      },
+      {
+        "id": "sapling-1",
+        "broken": false
+      },
+      {
+        "id": "sapling-2",
+        "broken": false
+      },
+      {
+        "id": "sapling-3",
+        "broken": false
+      },
+      {
+        "id": "sapling-4",
+        "broken": false
+      },
+      {
+        "id": "sapling-5",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-0",
+        "broken": false
+      }
+    ],
+    "mids": [
+      {
+        "id": "mid-0",
+        "broken": true
+      },
+      {
+        "id": "mid-1",
+        "broken": false
+      },
+      {
+        "id": "mid-2",
+        "broken": false
+      },
+      {
+        "id": "mid-3",
+        "broken": false
+      },
+      {
+        "id": "far-mid-0",
+        "broken": false
+      }
+    ],
+    "larges": [
+      {
+        "id": "large-0",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-1",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-2",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "far-large-0",
+        "branchesBroken": 0,
+        "branchesTotal": 3
+      }
+    ]
+  },
+  "anySaplingBroken": true,
+  "anyMidBroken": true,
+  "timestamp": "2026-07-09T12:33:53.908Z"
+}
