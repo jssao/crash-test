@@ -1,0 +1,32 @@
+{
+  "headed": true,
+  "render": {
+    "drawCalls": 1041,
+    "triangles": 595844
+  },
+  "bodies": {
+    "destructibles": 132,
+    "features": 759,
+    "liveHandles": 2416
+  },
+  "trees": {
+    "saplings": 98,
+    "mids": 38,
+    "larges": 22
+  },
+  "spawnChase": "/Users/jesuscalderon/Documents/crash test/game/verify/compound-spawn-chase.png",
+  "gateTelemetry": {
+    "z": 19.328020095825195
+  },
+  "gateDriveway": "/Users/jesuscalderon/Documents/crash test/game/verify/compound-gate-driveway.png",
+  "roadTelemetry": {
+    "z": 50.40518569946289,
+    "x": 0.033225513994693756
+  },
+  "roadForest": "/Users/jesuscalderon/Documents/crash test/game/verify/compound-road-forest.png",
+  "aerial": "/Users/jesuscalderon/Documents/crash test/game/verify/compound-aerial.png",
+  "yardOrbit": "/Users/jesuscalderon/Documents/crash test/game/verify/compound-yard-orbit.png",
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T23:19:27.904Z"
+}

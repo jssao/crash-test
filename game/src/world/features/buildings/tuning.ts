@@ -3,12 +3,16 @@
 // 'buildings' WorldFeature tuning: material presets (mass/friction/weld-break thresholds) + structure
 // layout. Renderer-free (no three/DOM import), same convention as world/tuning.ts.
 //
-// ZONE: x > +30 (east side), >=15m clearance from the nearest existing body (wall-right, centered
-// x=22, right edge ~23.5 -- see world/tuning.ts's WALL_CONFIGS/RAMP_CONFIGS/POLE_POSITIONS, all of
-// which stay at x<=23.5). Every structure below starts no closer than x=40.2 (16.7m clearance) and
-// stays under x=90 (well inside the physics ground's half-size and comfortably inside the visual
-// ground plane too -- see scene/buildScene.ts's buildGround(200, 40)). None of it touches the main
-// z-corridor (|x|<20) or the kicker lane (x=0).
+// ZONE (COMPOUND overhaul): the buildings are PULLED IN to ring the compound yard (the terrain's flat
+// APRON, world/terrain/heightfield.ts). All centres sit inside the yard's hard-flat interior (|x|<=~34,
+// z in [24,44], which is h==0) so every piece spawned at y=0 seats on the ground, and each is still
+// approached head-on from -Z (the crash tests drive +Z into it):
+//   - SHED       NW corner of the yard, just west of the crate tower (crates read as "by the shed").
+//   - HOUSE-CNR  NE corner of the yard.
+//   - BRICK WALL a low garden-wall DIVIDER mid-yard, just south of the barrel triangle ("by the wall").
+//   - FENCES     the north PERIMETER run facing the driveway, split by a central GATE gap (x in
+//                [-8,8]) the driveway spur passes through (see heightfield.ts's DIRT_SPUR).
+// The kicker lane (x=0) and the ramps (world/tuning.ts's RAMP_CONFIGS) are left clear.
 
 import type { Q4, V3 } from '../../../vehicle/mathUtil';
 import { IDENTITY_Q } from '../../../vehicle/mathUtil';
@@ -212,7 +216,7 @@ export const FENCE_PROFILE: YieldProfile = {
 // 1) Garden shed -- wood stud frame + plank walls + light roof panels.
 // ---------------------------------------------------------------------------------------------
 
-export const SHED_CENTER: V3 = { x: 42, y: 0, z: 20 };
+export const SHED_CENTER: V3 = { x: -30, y: 0, z: 34 };
 export const SHED_WIDTH_M = 3.6; // along X
 export const SHED_DEPTH_M = 3.0; // along Z
 export const SHED_WALL_HEIGHT_M = 2.2;
@@ -228,7 +232,7 @@ export const SHED_ROOF_PANEL_SPLITS = 3; // panels per roof slope
 // once the drywall bursts, no weld release needed).
 // ---------------------------------------------------------------------------------------------
 
-export const CORNER_POINT: V3 = { x: 55, y: 0, z: 20 };
+export const CORNER_POINT: V3 = { x: 34, y: 0, z: 40 };
 export const CORNER_SEGMENT_LENGTH_M = 4;
 export const CORNER_WALL_HEIGHT_M = 2.4;
 export const CORNER_STUD_SPACING_M = 0.6;
@@ -242,7 +246,7 @@ export const CORNER_PIPE_COUNT = 3;
 // (vertical, running-bond overlap) + brick-to-footing (bottom row), high per-joint threshold.
 // ---------------------------------------------------------------------------------------------
 
-export const BRICK_WALL_CENTER: V3 = { x: 68, y: 0, z: 20 };
+export const BRICK_WALL_CENTER: V3 = { x: 16, y: 0, z: 24 };
 // Real brick 194 x 92 x 57 mm (laid flat: 194 length along the wall X, 57 course height Y, 92 depth
 // through the wall Z -- single-wythe). A full 6m x 1.6m masonry wall of these is ~850 bricks (past the
 // physics/perf budget), so this is a compact garden wall: 10 cols x 16 courses = 160 bricks,
@@ -255,8 +259,12 @@ export const BRICK_WALL_ROWS = 16; // 16 * 0.057m = 0.912m tall
 export const BRICK_WALL_LENGTH_M = BRICK_WALL_COLUMNS * BRICK_HALF_EXTENTS.x * 2; // 1.94m, keeps footing/columns consistent
 
 // ---------------------------------------------------------------------------------------------
-// 4) Fence lines -- posts + 2 rails per span, low thresholds. Two parallel lines across the same
-// lane (x=80) so a run can smash through the first, then the second.
+// 4) Perimeter fence -- posts + 2 rails per span, low thresholds. The compound's NORTH frontage: six
+// 6m fence runs laid end-to-end along the yard's north edge (z=46, inside the flat interior so each
+// footing seats on h=0), split by a central GATE gap (x in [-8,8]) that the driveway spur passes
+// through. So the run covers x in [-26,-8] and [8,26] with a 16m gate opening on the drive. Each line
+// is built along X (buildFenceLine spans X at fixed z), which is exactly the perimeter orientation
+// here. FENCE_CONFIGS[0] keeps a clear 10m south approach for the fence-smash sim/verify.
 // ---------------------------------------------------------------------------------------------
 
 export interface FenceConfig {
@@ -265,8 +273,12 @@ export interface FenceConfig {
 }
 
 export const FENCE_CONFIGS: readonly FenceConfig[] = [
-	{ id: 'fence-near', center: { x: 80, y: 0, z: 14 } },
-	{ id: 'fence-far', center: { x: 80, y: 0, z: 30 } },
+	{ id: 'fence-w3', center: { x: -23, y: 0, z: 46 } },
+	{ id: 'fence-w2', center: { x: -17, y: 0, z: 46 } },
+	{ id: 'fence-w1', center: { x: -11, y: 0, z: 46 } },
+	{ id: 'fence-e1', center: { x: 11, y: 0, z: 46 } },
+	{ id: 'fence-e2', center: { x: 17, y: 0, z: 46 } },
+	{ id: 'fence-e3', center: { x: 23, y: 0, z: 46 } },
 ];
 
 export const FENCE_SPAN_COUNT = 4; // 5 posts, 4 spans

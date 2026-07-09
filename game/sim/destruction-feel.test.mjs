@@ -25,7 +25,7 @@ import {
 	resetStructure,
 	totalYieldedJointCount,
 } from '../src/world/features/buildings/structures.ts';
-import { BRICK_WALL_CENTER, FENCE_CONFIGS, SHED_CENTER } from '../src/world/features/buildings/tuning.ts';
+import { BRICK_WALL_CENTER, CORNER_POINT, CORNER_SEGMENT_LENGTH_M, FENCE_CONFIGS, SHED_CENTER } from '../src/world/features/buildings/tuning.ts';
 import { createTreesWorld, stepTreesWorld, trunkTiltDeg } from '../src/world/features/trees/bodies.ts';
 import { MID_SITES } from '../src/world/features/trees/tuning.ts';
 
@@ -158,8 +158,12 @@ describe('destruction-feel: buildings bend-then-break + staged debris', () => {
 	it('drywall corner: debris velocity + spread scale with impact energy (bricks vs drywall differ)', async () => {
 		// Drywall is deliberately near-brittle ("punches through easily") so its BREAK count barely
 		// changes with speed -- the staged signature lives in the debris velocity/spread instead.
-		const lo = await impactSignature(buildHouseCorner, 53, 8, 'drywall', 30);
-		const hi = await impactSignature(buildHouseCorner, 53, 8, 'drywall', 120);
+		// Aim at the corner's front-segment midpoint (spans x in [CORNER_POINT.x - len, CORNER_POINT.x]),
+		// 16m short of it -- tracks the compound-relocated CORNER_POINT rather than a hardcoded x.
+		const cornerMidX = CORNER_POINT.x - CORNER_SEGMENT_LENGTH_M / 2;
+		const cornerApproachZ = CORNER_POINT.z - 16;
+		const lo = await impactSignature(buildHouseCorner, cornerMidX, cornerApproachZ, 'drywall', 30);
+		const hi = await impactSignature(buildHouseCorner, cornerMidX, cornerApproachZ, 'drywall', 120);
 		console.log(`[drywall staged] peakDebrisSpd 30=${lo.peakDebrisSpeed.toFixed(1)} 120=${hi.peakDebrisSpeed.toFixed(1)} m/s meanDisp 30=${lo.meanDisp.toFixed(2)} 120=${hi.meanDisp.toFixed(2)} m`);
 		expect(hi.peakDebrisSpeed).toBeGreaterThan(lo.peakDebrisSpeed * 1.5);
 		expect(hi.meanDisp).toBeGreaterThan(lo.meanDisp);

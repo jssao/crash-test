@@ -115,14 +115,16 @@ export const POLE_SHAFT_HALF_EXTENTS_M: V3 = { x: 0.075, y: 1.25, z: 0.075 };
 export const POLE_MASS_KG = 40;
 export const POLE_FRICTION = 0.6;
 
-// Positioned in the GAPS between the 7 lanes above (see this file's LAYOUT doc comment) -- close
-// enough to slalom near, never inside any lane's own clear straight approach.
+// COMPOUND overhaul: the poles now form a "light-row along the drive" -- two neat rows flanking the
+// north driveway line (x=0) at x=+-12, never inside the kicker lane (x=0) or the wide ramp's footprint
+// (x in [7.5,10.5], z in [8,12]). All sit on the yard's hard-flat interior (z<=42).
 export const POLE_POSITIONS: readonly V3[] = [
-	{ x: -19, y: 0, z: 15 }, // between wall-left (-22) and crate tower (-16)
-	{ x: -12.5, y: 0, z: 22 }, // between crate tower (-16) and wall-center (-9)
-	{ x: -4.5, y: 0, z: 12 }, // between wall-center (-9) and kicker (0)
-	{ x: 4.5, y: 0, z: 12 }, // between kicker (0) and wide ramp (+9)
-	{ x: 12.5, y: 0, z: 22 }, // between wide ramp (+9) and barrel triangle (+16)
+	{ x: -12, y: 0, z: 10 },
+	{ x: -12, y: 0, z: 26 },
+	{ x: -12, y: 0, z: 42 },
+	{ x: 12, y: 0, z: 10 },
+	{ x: 12, y: 0, z: 26 },
+	{ x: 12, y: 0, z: 42 },
 ];
 
 // ---------------------------------------------------------------------------------------------

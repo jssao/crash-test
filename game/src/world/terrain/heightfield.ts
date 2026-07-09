@@ -17,24 +17,33 @@
 // terrainHeight() in WORLD (x,z) (i.e. AFTER that centering offset), so world (0,0) is the field
 // center and terrainHeight() is the single source of truth for both physics and visuals.
 //
-// ZONES (world XZ, origin = spawn):
-//   APRON     flat h=0 asphalt pad: spawn + all legacy destructibles + ramps live here. HARD FLAT
-//             (a mask forces h to exactly 0) so every existing sim test/verify scenario keeps working.
-//   DIRT ROAD an elliptical loop north of the apron with potholes / washboard / rolling undulation --
-//             the suspension showcase, reached by driving straight forward (+Z) out of the apron.
-//   FOREST    flat h=0 region to the WEST -- the trees feature is relocated/expanded here (its bodies
-//             spawn at y=0, so the terrain under them must be exactly 0).
-//   BUILDINGS flat h=0 region to the EAST -- the buildings feature sits here (also spawns at y=0).
-//   MEADOW    everything else reachable: gentle long-wavelength grass undulation.
+// ZONES (world XZ, origin = spawn) -- "a rural workshop COMPOUND in the middle of a forest":
+//   COMPOUND  flat h=0 yard (the old APRON, grown to ~90x76m): spawn + all legacy destructibles + the
+//   (APRON)   two ramps + the pulled-in buildings (shed/house-corner/brick divider/perimeter fences)
+//             live here. HARD FLAT (a mask forces h to exactly 0) so every existing sim test/verify
+//             scenario keeps working and every building/destructible spawned at y=0 seats on the ground.
+//   FOREST    a hard-flat RING that ENCLOSES the compound on every side (a big rounded-rect outer
+//             boundary minus an inner clearing minus the road corridors) -- the trees feature is
+//             scattered densely through it (bodies spawn at y=0, so the ring floor is exactly 0). This
+//             is what makes the compound read as sitting in the woods.
+//   DIRT ROAD an elliptical loop that now winds THROUGH the forest ring (trees press to its edges),
+//             plus a straight driveway SPUR out the compound's north gate up to the loop -- potholes /
+//             washboard / rolling undulation, the suspension showcase, reached by driving forward (+Z).
+//   MEADOW    the clearing ring between the yard fence and the treeline, and everything beyond the
+//             forest out to the field edge: gentle long-wavelength grass undulation.
 
 // --------------------------------------------------------------------------------------------------
-// Field dimensions. 400m span (>=4x the old ~100m content radius). count 400 -> ~1.0m cells: fine
-// enough for the pothole/washboard relief to read in physics (validated: 256/400m creates in ~4ms,
-// 400/400m is ~1.0m cells and still a one-time ~10ms create), coarse enough to stay cheap.
+// Field dimensions (terrain GROW, user directive: "grow the terrain A LOT"). 800m span (2x the old
+// 400m, ~8x the old ~100m content radius) so the enclosing forest + winding road have room to read as
+// real distance. count stays 512 (orchestrator-committed "512x512 grid") -> ~1.57m cells: the
+// heightfield build is O(count^2) so its cost is UNCHANGED by the span grow (measured: 512^2 builds in
+// ~37ms one-time, 1.0MiB, whether the span is 400 or 800 -- reported in tests/heightfield-scale +
+// game/sim/terrain.test.mjs). 1.57m cells still resolve the ~4-5m road washboard and the wide compound/
+// forest flats; the finer sub-cell relief is carried by the visual mesh's normal maps as before.
 // --------------------------------------------------------------------------------------------------
 
-export const TERRAIN_SPAN_M = 400;
-export const TERRAIN_COUNT = 512; // grid points per axis (~0.78m cells -- resolves the dirt washboard)
+export const TERRAIN_SPAN_M = 800;
+export const TERRAIN_COUNT = 512; // grid points per axis (~1.57m cells at the grown 800m span)
 export const TERRAIN_HALF_M = TERRAIN_SPAN_M / 2;
 /** Cell size, meters (SCALE.x / SCALE.z for the box3d height-field shape). */
 export const TERRAIN_CELL_M = TERRAIN_SPAN_M / (TERRAIN_COUNT - 1);
@@ -44,26 +53,37 @@ export const TERRAIN_SCALE = { x: TERRAIN_CELL_M, y: 1, z: TERRAIN_CELL_M };
 // Zone geometry (world meters).
 // --------------------------------------------------------------------------------------------------
 
-/** Flat asphalt apron: rounded rectangle. Contains spawn (0,0), the legacy destructibles
- * (x in [-23.5,23.5], z in [8,47]) and both ramps, with margin. */
-export const APRON = { cx: 0, cz: 16, halfX: 36, halfZ: 42, corner: 9, feather: 6 } as const;
+/** Flat COMPOUND yard (the old asphalt apron, grown): rounded rectangle ~90x76m centred on spawn.
+ * Contains spawn (0,0), the legacy destructibles (x in [-23.5,23.5], z up to ~36) BOTH ramps (the
+ * kicker's far edge reaches z~45), and the pulled-in buildings/perimeter fences -- all with margin so
+ * they sit on the hard-flat interior (h==0). Every building/fence centre placed inside this rect at
+ * z <= ~48 (interior, mask==1) seats exactly on the ground. */
+export const APRON = { cx: 0, cz: 16, halfX: 45, halfZ: 38, corner: 10, feather: 6 } as const;
 
-/** Flat forest region (west). Trees are relocated here (see features/trees/tuning.ts). Feathered edge
- * blends into meadow grass; the interior is hard-flat so tree trunks (spawned at y=0) sit on y=0. */
-export const FOREST = { minX: -186, maxX: -46, minZ: -74, maxZ: 132, feather: 10 } as const;
+/** Enclosing FOREST ring: a big rounded-rect OUTER boundary minus an INNER clearing (the compound plus
+ * a meadow buffer) minus the road corridors. The band between them is hard-flat so the densely scattered
+ * trees (features/trees/tuning.ts, all spawned at y=0) seat on y=0, and it wraps the compound on every
+ * side so the yard reads as sitting in the woods. Feathered on both the inner and outer edges so it
+ * blends into the meadow. */
+export const FOREST_OUTER = { cx: 0, cz: 30, halfX: 168, halfZ: 168, corner: 46, feather: 14 } as const;
+export const FOREST_INNER = { cx: 0, cz: 16, halfX: 55, halfZ: 49, corner: 16, feather: 10 } as const;
+/** Radial band (distance from world origin) the tree scatter is confined to -- kept strictly inside the
+ * ring's feathered edges so every trunk lands on hard-flat floor. Exported for the trees tuning + the
+ * terrain determinism/flatness test. */
+export const FOREST_RING = { rMin: 58, rMax: 152 } as const;
 
-/** Flat buildings region (east). The buildings feature sits here (spawns at y=0). */
-export const BUILDINGS = { minX: 36, maxX: 98, minZ: -10, maxZ: 48, feather: 8 } as const;
-
-/** Dirt-road loop: an elliptical annulus north of the apron. Centred slightly EAST (cx=18) so its
- * west arc (min x = cx-rx = -34) clears the forest flat zone (x<=-46) entirely and its south reach
- * (min z = cz-rz = 77) clears both the apron (z<=58) and the east buildings (z<=48). Driving straight
- * north from spawn (x=0) meets the road band at z~80, so it is reachable straight ahead. */
+/** Dirt-road loop: an elliptical annulus that now sits WELL inside the forest ring (its whole span
+ * z in [77,173] falls in the flat forest band, so trees press right to the road edges). Centred
+ * slightly EAST (cx=18). Driving straight north from spawn (x=0) up the driveway spur meets the loop's
+ * south arc at z~80, so it is still reachable straight ahead out of the compound. */
 export const DIRT_LOOP = { cx: 18, cz: 125, rx: 52, rz: 48, halfWidthFrac: 0.13 } as const;
 
-/** Straight dirt SPUR: a washboarded ~9m-wide track running due north out of the apron (x=0) that
- * connects the apron to the loop. This is the drive-straight-ahead suspension SHOWCASE -- a sustained
- * run of transverse washboard + potholes along the exact line the car takes leaving spawn. */
+/** Straight dirt SPUR = the compound's DRIVEWAY: a washboarded ~16m-wide track running due north out
+ * of the yard's north GATE (x=0, the gap in the north perimeter-fence run -- see
+ * features/buildings/tuning.ts's FENCE_CONFIGS) that connects the yard to the loop. zStart 54 == the
+ * compound's north edge (APRON.cz + APRON.halfZ) so the driveway begins exactly at the gate. This is
+ * the drive-straight-ahead suspension SHOWCASE -- a sustained run of transverse washboard + potholes
+ * along the exact line the car takes leaving spawn, out the gate, up to the forest loop. */
 export const DIRT_SPUR = { cx: 0, halfWidth: 8, zStart: 54, zEnd: 100, feather: 5 } as const;
 
 // --------------------------------------------------------------------------------------------------
@@ -97,26 +117,26 @@ function roundedRectMask(
   return 1 - smoothstep(-feather, 0, outside);
 }
 
-/** Axis-aligned rect insideness with a feathered border. */
-function rectMask(x: number, z: number, minX: number, maxX: number, minZ: number, maxZ: number, feather: number): number {
-  const mx = Math.min(smoothstep(minX - feather, minX, x), smoothstep(maxX + feather, maxX, x));
-  const mz = Math.min(smoothstep(minZ - feather, minZ, z), smoothstep(maxZ + feather, maxZ, z));
-  return Math.min(mx, mz);
-}
-
 export function apronMask(x: number, z: number): number {
   return roundedRectMask(x, z, APRON.cx, APRON.cz, APRON.halfX, APRON.halfZ, APRON.corner, APRON.feather);
 }
+
+/** The enclosing forest RING: inside the outer rounded-rect AND outside the inner clearing AND off the
+ * road (roads punch through so their washboard/potholes survive and the forest floor texture yields to
+ * dirt on the track). Feathered on both the outer and inner edges. `rectMask` isn't used for this --
+ * a ring needs the rounded-rect SDF insideness on both boundaries. */
 export function forestMask(x: number, z: number): number {
-  return rectMask(x, z, FOREST.minX, FOREST.maxX, FOREST.minZ, FOREST.maxZ, FOREST.feather);
-}
-export function buildingsMask(x: number, z: number): number {
-  return rectMask(x, z, BUILDINGS.minX, BUILDINGS.maxX, BUILDINGS.minZ, BUILDINGS.maxZ, BUILDINGS.feather);
+  const inOuter = roundedRectMask(x, z, FOREST_OUTER.cx, FOREST_OUTER.cz, FOREST_OUTER.halfX, FOREST_OUTER.halfZ, FOREST_OUTER.corner, FOREST_OUTER.feather);
+  const inInner = roundedRectMask(x, z, FOREST_INNER.cx, FOREST_INNER.cz, FOREST_INNER.halfX, FOREST_INNER.halfZ, FOREST_INNER.corner, FOREST_INNER.feather);
+  const ring = Math.min(inOuter, 1 - inInner);
+  return ring * (1 - dirtRoadWeight(x, z));
 }
 
-/** Union of all HARD-FLAT zones (apron + forest + buildings). Where this is 1, terrainHeight()==0. */
+/** Union of all HARD-FLAT zones (compound yard + forest ring). Where this is 1, terrainHeight()==0.
+ * The buildings no longer get their own flat zone -- they are pulled INTO the compound yard (apron),
+ * whose flat interior already covers them. */
 export function flatMask(x: number, z: number): number {
-  return Math.max(apronMask(x, z), forestMask(x, z), buildingsMask(x, z));
+  return Math.max(apronMask(x, z), forestMask(x, z));
 }
 
 // --------------------------------------------------------------------------------------------------

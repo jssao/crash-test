@@ -22,7 +22,7 @@ import {
 	totalBrokenJointCount,
 	totalPieceCount,
 } from '../src/world/features/buildings/structures.ts';
-import { BRICK_WALL_CENTER, CORNER_POINT, FENCE_CONFIGS } from '../src/world/features/buildings/tuning.ts';
+import { BRICK_WALL_CENTER, CORNER_POINT, CORNER_SEGMENT_LENGTH_M, FENCE_CONFIGS } from '../src/world/features/buildings/tuning.ts';
 
 let cachedNative = null;
 async function loadNative() {
@@ -59,9 +59,9 @@ describe('features/buildings', () => {
 		const world = await makeWorld();
 		try {
 			const corner = buildHouseCorner(world);
-			// Spawn 10m south of the corner's front segment (spans x in [51,55] at z=20), aimed straight
-			// at its midpoint (x=53), driving +Z.
-			const vehicle = createVehicle(world, { x: 53, y: 0.5, z: 8 });
+			// Spawn 16m south of the corner's front segment (spans x in [CORNER_POINT.x - len, CORNER_POINT.x]),
+			// aimed at its midpoint, driving +Z -- tracks the compound-relocated CORNER_POINT.
+			const vehicle = createVehicle(world, { x: CORNER_POINT.x - CORNER_SEGMENT_LENGTH_M / 2, y: 0.5, z: CORNER_POINT.z - 16 });
 			launch(vehicle, 50);
 
 			let sawNaN = false;
@@ -180,8 +180,10 @@ describe('features/buildings', () => {
 		try {
 			const structures = buildAllStructures(world);
 			const pieceCountBefore = totalPieceCount(structures);
-			expect(pieceCountBefore).toBeGreaterThanOrEqual(200);
-			expect(pieceCountBefore).toBeLessThanOrEqual(260);
+			// COMPOUND overhaul: the 2 fence lines became a 6-segment north perimeter (gate-flanked), so
+			// the total grew from ~251 to ~312. Bounds bracket that (tolerant of +-1 fence line).
+			expect(pieceCountBefore).toBeGreaterThanOrEqual(270);
+			expect(pieceCountBefore).toBeLessThanOrEqual(350);
 
 			// Smash the brick wall hard enough to break joints and displace bricks.
 			const brickWall = structures.find((s) => s.id === 'brick-wall');
