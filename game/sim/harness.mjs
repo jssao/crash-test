@@ -25,10 +25,13 @@ function loadNative() {
 
 /** One headless world + vehicle + ground, with a fixed-step drive() helper the tests script against. */
 export class Sim {
-	constructor(native, spawnPosition = { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M, z: 0 }) {
+	constructor(native, spawnPosition = { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M, z: 0 }, sprungBallast = []) {
 		this.world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
 		this.ground = createGroundBody(this.world);
-		this.vehicle = createVehicle(this.world, spawnPosition);
+		// sprungBallast (default none): sim-only chassis ballast emulating the full game's cardetail +
+		// occupant feature load, so ride-height / suspension-feel tests can measure the LADEN operating
+		// point. See createVehicle()'s SprungBallastPoint doc comment.
+		this.vehicle = createVehicle(this.world, spawnPosition, undefined, sprungBallast);
 		this.timeSec = 0;
 	}
 
@@ -63,9 +66,9 @@ export class Sim {
 	}
 }
 
-export async function createSim(spawnPosition) {
+export async function createSim(spawnPosition, sprungBallast = []) {
 	const native = await loadNative();
-	return new Sim(native, spawnPosition);
+	return new Sim(native, spawnPosition, sprungBallast);
 }
 
 export { loadNative };

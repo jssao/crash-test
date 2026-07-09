@@ -331,6 +331,64 @@ export const SUSPENSION_DAMPING_RATIO = 0.7;
 export const SUSPENSION_LOWER_LIMIT_M = -0.14;
 export const SUSPENSION_UPPER_LIMIT_M = 0.14;
 
+/**
+ * Suspension strut REST-LENGTH offset (meters): a PHYSICS ride-height lever. Each wheel's joint frameA
+ * anchor (its zero-deflection point) mounts this much LOWER in the chassis, so at a given spring
+ * deflection the chassis+hull+welded-panels all ride this much HIGHER above the on-ground wheels --
+ * like fitting longer struts (the wheel bodies still spawn at / rest on the ground; see
+ * withRestLengthLift() + the spawnMount in createVehicle()).
+ *
+ * HELD AT 0 -- see VISUAL_RIDE_LIFT_M below, which carries the ride-height correction instead. This
+ * lever is the *physically correct* fix (it keeps the collision hull aligned with the rendered body,
+ * so crashes stay accurate), but suspension round 2 measured it to be boxed in on three fronts and
+ * unusable at the magnitude actually needed:
+ *   1. MAGNITUDE. The wheel-joint spring is calibrated against the DOF's tiny reduced mass (~wheel
+ *      mass, see SUSPENSION_HERTZ_FRONT), so under the full game's ~260kg laden feature load (cardetail
+ *      + 4 occupants; see createVehicle()'s SprungBallastPoint) the car sags to its bump stop and the
+ *      body sits ~10-11cm below the GLB's authored ride height -- measured directly in the real game
+ *      (verify/ride-height.mjs): the front tire renders ~8.5cm THROUGH the fender (tireTop 0.778 vs
+ *      fenderMinY 0.693). Un-slamming needs a ~0.11-0.13m lift.
+ *   2. FEEL COUPLING. Reducing the underlying sag instead (stiffer hertz) is impossible without killing
+ *      feel: box3d's linear wheel spring makes static sag AND dynamic dive/squat/roll amplitude BOTH
+ *      scale as 1/k, so any stiffening that meaningfully cuts sag cuts the suspension-feel targets below
+ *      their floors by the same factor (swept + measured, round 2 dev notes).
+ *   3. CRASH-TEST SENSITIVITY. A physics lift shifts the hull/COM/impact geometry the whole crash /
+ *      destruction / occupant sim suite is (latently) calibrated against, AND it perturbs
+ *      getSuspensionDeflection during pitch (the airborne/ground-contact gating signal). Empirically
+ *      EVERY nonzero value flips a different knife-edge crash assertion (0.01 -> destruction-feel debris
+ *      velocity, 0.02 -> cardetail-containment detach count, 0.03 -> airborne-momentum pitch rate),
+ *      i.e. it cannot be made gate-clean in a vehicle-only wave. Raising it to the ~0.11m actually
+ *      needed breaks crash-realism, occupants-escalation/-active and cardetail crash tests outright.
+ * Enabling this (instead of the visual lift) is a future coordinated pass: bump it AND re-tune the
+ * crash/destruction/occupant thresholds to the corrected ride height together. The mechanism is left
+ * wired (a no-op at 0) so that re-tune only has to change this number.
+ */
+export const SUSPENSION_RESTLENGTH_OFFSET_M = 0;
+
+/**
+ * VISUAL ride-height lift (meters): raises the rendered car body (car.root, in main.ts's render loop)
+ * along the chassis's own up axis, seating the GLB-authored body at its intended ride height over the
+ * physics-correct, on-ground wheels -- WITHOUT touching physics (COM, hull, suspension, crash geometry
+ * all unchanged, so zero sim-test collateral; see SUSPENSION_RESTLENGTH_OFFSET_M above for why the
+ * physics lever can't do this within the gate). Attached body panels are children of car.root (see
+ * scene/panelVisuals.ts) so they lift with the shell; the 4 wheels are re-parented out to the scene and
+ * driven by their own physics bodies, so they stay on the ground -- the net effect is exactly the
+ * intended "body sits up, wheels tuck into the arches" stance.
+ *
+ * Value tuned (verify/ride-height.mjs, rendered front/rear fender-vs-tire AABB gap in the REAL laden
+ * game) so the fender-to-tire gap clears >2cm at rest and stays positive through a 1g brake dive, from
+ * the measured ~-8.5cm (tire through fender) at 0. See game/sim/ride-height.test.mjs, which recomputes
+ * that gap from the laden physics rest state + this constant.
+ *
+ * KNOWN RESIDUAL (honest): because this is a render-only lift, the visible body sits this far ABOVE the
+ * physics collision hull. At rest / while driving that hull is invisible (collision-only) so it never
+ * shows; during a hard crash the body can visually overlap a wall/object by up to this much at the
+ * contact instant before the crumple reads. That brief, crash-only cosmetic offset is the deliberate
+ * trade for fixing the always-visible slammed stance with zero physics/crash-test disruption; closing
+ * it fully is the coordinated physics-lift + crash-retune pass described above.
+ */
+export const VISUAL_RIDE_LIFT_M = 0.13;
+
 // ---------------------------------------------------------------------------------------------
 // Wheel joint: steering (front only)
 // ---------------------------------------------------------------------------------------------

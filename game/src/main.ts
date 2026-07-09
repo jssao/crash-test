@@ -30,7 +30,7 @@ import {
   type Telemetry,
 } from './vehicle/vehicle';
 import { createTerrainGroundBody } from './world/terrain/terrainBody';
-import { CHASSIS_ORIGIN_HEIGHT_M, FIXED_DT, FIXED_SUBSTEPS } from './vehicle/tuning';
+import { CHASSIS_ORIGIN_HEIGHT_M, FIXED_DT, FIXED_SUBSTEPS, VISUAL_RIDE_LIFT_M } from './vehicle/tuning';
 import { FixedStepAccumulator, InterpolatedTransform } from './core/loop';
 import {
   installKeyboardInput,
@@ -681,7 +681,12 @@ async function main() {
     // ground level (car-map.ts's axisConvention note: "wheel bottoms at world Y ~ 0"). Translate the
     // visual root down by that offset along the chassis's OWN (current) up axis so the body doesn't
     // visually float above the wheels.
-    car.root.translateY(-CHASSIS_ORIGIN_HEIGHT_M);
+    // VISUAL_RIDE_LIFT_M (suspension round 2): also seat the body its authored ride-height ABOVE where
+    // the soft/heavily-laden suspension physically rests -- the render-layer half of the "un-slam" fix.
+    // Attached panels are car.root children so they follow; wheels are scene-parented (physics-driven,
+    // on the ground) so they don't. See VISUAL_RIDE_LIFT_M's doc comment for why this is visual, not
+    // a physics rest-length change, and its crash-time residual.
+    car.root.translateY(-CHASSIS_ORIGIN_HEIGHT_M + VISUAL_RIDE_LIFT_M);
 
     if (cameraMode === 'orbit') {
       // Track the car's CURRENT x/z (keeping carFocus's authored half-height y offset) so the orbit

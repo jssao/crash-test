@@ -81,6 +81,7 @@ import {
 	SUSPENSION_HERTZ_FRONT,
 	SUSPENSION_HERTZ_REAR,
 	SUSPENSION_LOWER_LIMIT_M,
+	SUSPENSION_RESTLENGTH_OFFSET_M,
 	SUSPENSION_SETTLE_GRACE_STEPS,
 	SUSPENSION_UPPER_LIMIT_M,
 	SUSTAINED_AIRBORNE_STEPS,
@@ -153,14 +154,24 @@ function symmetrizedAxleMounts(left: Vec3Mm, right: Vec3Mm): { left: V3; right: 
 	};
 }
 
+/** Lowers a symmetrized axle mount by SUSPENSION_RESTLENGTH_OFFSET_M (the strut rest-length lift, see
+ * tuning.ts): the JOINT anchor (frameA / zero-deflection point, and the reference getSuspensionDeflection()
+ * measures against) sits this much lower in the chassis, so the body rides that much higher above the
+ * ground-resting wheels. The wheel BODY still spawns at its true car-map ground-contact height -- the
+ * offset is added back when computing each wheel's spawn worldPos below -- so this changes resting ride
+ * height only, not where the tires touch down. */
+function withRestLengthLift(m: V3): V3 {
+	return { x: m.x, y: m.y - SUSPENSION_RESTLENGTH_OFFSET_M, z: m.z };
+}
+
 const FRONT_AXLE_MOUNTS = symmetrizedAxleMounts(CAR_MAP.wheels.frontLeft.centerMm, CAR_MAP.wheels.frontRight.centerMm);
 const REAR_AXLE_MOUNTS = symmetrizedAxleMounts(CAR_MAP.wheels.rearLeft.centerMm, CAR_MAP.wheels.rearRight.centerMm);
 
 const WHEEL_DEFS: readonly WheelDef[] = [
-	{ key: 'fl', localMount: FRONT_AXLE_MOUNTS.left, radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
-	{ key: 'fr', localMount: FRONT_AXLE_MOUNTS.right, radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
-	{ key: 'rl', localMount: REAR_AXLE_MOUNTS.left, radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
-	{ key: 'rr', localMount: REAR_AXLE_MOUNTS.right, radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
+	{ key: 'fl', localMount: withRestLengthLift(FRONT_AXLE_MOUNTS.left), radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
+	{ key: 'fr', localMount: withRestLengthLift(FRONT_AXLE_MOUNTS.right), radius: WHEEL_RADIUS_FRONT_M, driven: false, steered: true },
+	{ key: 'rl', localMount: withRestLengthLift(REAR_AXLE_MOUNTS.left), radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
+	{ key: 'rr', localMount: withRestLengthLift(REAR_AXLE_MOUNTS.right), radius: WHEEL_RADIUS_REAR_M, driven: true, steered: false },
 ];
 
 export interface WheelHandle {
@@ -182,10 +193,11 @@ export interface WheelHandle {
 export interface Vehicle {
 	world: World;
 	chassis: Body;
-	/** @internal chassis shapes (hull + sensor ballast), kept only so destroyVehicle() can explicitly
-	 * destroy them before destroying the chassis body (see that function's doc comment) -- createVehicle()
-	 * itself never reads these back. */
-	chassisShapes: { hull: Shape; ballast: Shape };
+	/** @internal chassis shapes (hull + COM sensor ballast + any test-only sprung ballast), kept only so
+	 * destroyVehicle() can explicitly destroy them before destroying the chassis body (see that
+	 * function's doc comment) -- createVehicle() itself never reads these back. `testBallast` is empty in
+	 * the real game (the sprungBallast arg below is a sim-only knob). */
+	chassisShapes: { hull: Shape; ballast: Shape; testBallast: Shape[] };
 	wheels: Record<WheelKey, WheelHandle>;
 	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
 	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
@@ -289,12 +301,28 @@ export function createGroundBody(world: World, halfSize = 5000): Body {
 	return ground;
 }
 
+/**
+ * One extra rigid sprung-mass point welded into the chassis body, in chassis-local meters. SIM-ONLY:
+ * the real game never passes any (its extra sprung weight comes from the actual cardetail parts +
+ * occupant ragdolls the WorldFeatures attach/rest on the chassis). Used by the ride-height /
+ * suspension-feel sim tests to reproduce that ~240kg feature load as a distributed chassis ballast, so
+ * the headless drive tests measure the vehicle at its REAL laden operating point rather than the
+ * unladen bare-vehicle one -- see game/sim/ride-height.test.mjs's LADEN_FEATURE_BALLAST. Modeled as
+ * chassis-baked mass (not separate welded bodies) because static ride height / deflection is identical
+ * either way, and it keeps the sim harness a single body.
+ */
+export interface SprungBallastPoint {
+	massKg: number;
+	localCenterM: V3;
+}
+
 export function createVehicle(
 	world: World,
 	// See tuning.ts's WHEEL_SPAWN_SETTLE_MARGIN_M doc comment: a small deliberate initial penetration
 	// below the ground, not the exact tangent height, is required for stable wheel-ground contact.
 	spawnPosition: V3 = { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M - WHEEL_SPAWN_SETTLE_MARGIN_M, z: 0 },
 	spawnRotation: Q4 = IDENTITY_Q,
+	sprungBallast: readonly SprungBallastPoint[] = [],
 ): Vehicle {
 	const chassis = world.createBody({
 		type: BodyType.Dynamic,
@@ -323,13 +351,32 @@ export function createVehicle(
 		isSensor: true,
 		groupIndex: CAR_GROUP_INDEX,
 	});
-	// Defensive: the two createXShape calls above already trigger b3UpdateBodyMassData each time
+	// SIM-ONLY laden ballast (empty in the real game): each entry is a small, high-density isSensor
+	// sphere welded into the chassis at its chassis-local center, so the composite chassis mass/COM the
+	// suspension springs support matches the full game's cardetail+occupant sprung load. isSensor keeps
+	// it collision-inert (like the COM ballast above) while still contributing mass -- b3UpdateBodyMassData
+	// accumulates over every shape, sensor or not (see body.c / BALLAST_RADIUS_M's doc comment).
+	const TEST_BALLAST_RADIUS_M = 0.15;
+	const testBallast: Shape[] = sprungBallast.map((b) =>
+		chassis.createSphereShape({
+			radius: TEST_BALLAST_RADIUS_M,
+			center: b.localCenterM,
+			density: b.massKg / ((4 / 3) * Math.PI * TEST_BALLAST_RADIUS_M ** 3),
+			isSensor: true,
+			groupIndex: CAR_GROUP_INDEX,
+		}),
+	);
+	// Defensive: the createXShape calls above already trigger b3UpdateBodyMassData each time
 	// (see body.c), but recompute explicitly in case that default ever changes.
 	chassis.applyMassFromShapes();
 
 	const wheels = {} as Record<WheelKey, WheelHandle>;
 	for (const def of WHEEL_DEFS) {
-		const worldPos = add(spawnPosition, rotateVector(spawnRotation, def.localMount));
+		// Spawn the wheel body at its TRUE (un-lifted) car-map mount so it touches down on the ground
+		// exactly as before, regardless of the rest-length lift baked into def.localMount (the joint
+		// anchor). The car then settles with the chassis riding SUSPENSION_RESTLENGTH_OFFSET_M higher.
+		const spawnMount = { x: def.localMount.x, y: def.localMount.y + SUSPENSION_RESTLENGTH_OFFSET_M, z: def.localMount.z };
+		const worldPos = add(spawnPosition, rotateVector(spawnRotation, spawnMount));
 		// BINDFIX: allowFastRotation exempts wheel bodies from box3d's per-body angular-velocity
 		// safety clamp (see tuning.ts's doc comment just after FIXED_SUBSTEPS) -- upstream's own
 		// guidance is that this flag should only be used for circular objects, like wheels.
@@ -387,7 +434,7 @@ export function createVehicle(
 	return {
 		world,
 		chassis,
-		chassisShapes: { hull: hullShape, ballast: ballastShape },
+		chassisShapes: { hull: hullShape, ballast: ballastShape, testBallast },
 		wheels,
 		panels,
 		gearbox: createGearboxState(),
@@ -443,6 +490,7 @@ export function destroyVehicle(vehicle: Vehicle): void {
 	}
 	vehicle.chassisShapes.hull.destroy(false);
 	vehicle.chassisShapes.ballast.destroy(false);
+	for (const b of vehicle.chassisShapes.testBallast) b.destroy(false);
 	vehicle.chassis.destroy();
 }
 
@@ -452,7 +500,10 @@ export function resetVehicle(vehicle: Vehicle): void {
 	vehicle.chassis.setAngularVelocity({ x: 0, y: 0, z: 0 });
 	vehicle.chassis.setAwake(true);
 	for (const w of Object.values(vehicle.wheels)) {
-		const worldPos = add(vehicle.spawnPosition, rotateVector(vehicle.spawnRotation, w.def.localMount));
+		// Un-lift the joint mount back to the true car-map ground-contact height for the wheel body's
+		// reset pose (mirrors createVehicle()'s spawnMount) -- def.localMount carries the rest-length lift.
+		const spawnMount = { x: w.def.localMount.x, y: w.def.localMount.y + SUSPENSION_RESTLENGTH_OFFSET_M, z: w.def.localMount.z };
+		const worldPos = add(vehicle.spawnPosition, rotateVector(vehicle.spawnRotation, spawnMount));
 		w.body.setTransform(worldPos, vehicle.spawnRotation);
 		w.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
 		w.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
