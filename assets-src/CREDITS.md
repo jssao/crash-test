@@ -42,5 +42,54 @@ and not staged.
 Both HDRIs retrieved at 2k `.hdr` resolution (~5.5-6.2MB each); attribution
 is not legally required for CC0 but is recorded here for good practice.
 
+## Terrain textures (2026-07-09 environment-overhaul pass)
+
+All CC0 1.0, Poly Haven, 2k JPG (diffuse + nor_gl + roughness + displacement),
+2048x2048 verified: `terrain/muddy_tracks/`, `terrain/forest_floor/`,
+`terrain/stony_dirt_path/`, `terrain/sparse_grass/`, `terrain/mud_cracked_dry_03/`.
+Sources: https://polyhaven.com/a/muddy_tracks, /a/forest_floor,
+/a/stony_dirt_path, /a/sparse_grass, /a/mud_cracked_dry_03.
+
+## Trees, rocks, forest scatter (2026-07-09)
+
+- `trees/kenney-nature-kit/GLTF/` — Kenney Nature Kit, 329 GLB models (trees at
+  3 size classes, rocks, stumps, logs, bushes). CC0 1.0. Author: Kenney
+  (www.kenney.nl). Source: https://kenney.nl/assets/nature-kit. License text
+  bundled at `trees/kenney-nature-kit/LICENSE.txt`. Flat-shaded low-poly style
+  (no image textures) — game-ready, not photoreal.
+- `trees/bark_brown_01/` — Poly Haven CC0 bark texture (diff+nor_gl+rough, 2k)
+  for reskinning trunks. Source: https://polyhaven.com/a/bark_brown_01.
+- `rocks/boulder_01/`, `rocks/rock_07/`, `rocks/tree_stump_01/` — Poly Haven CC0
+  photoreal hero rocks/stump, 1k glTF+textures. Sources:
+  https://polyhaven.com/a/boulder_01, /a/rock_07, /a/tree_stump_01.
+
+Full sourcing detail, size math, rejected candidates (Poly Haven's realistic
+tree models, up to 949MB each, rejected on size), and verification method are
+in `docs/build-log/specs/asset-manifest.md`.
+
+## Building material textures (2026-07-09)
+
+CC0 1.0, Poly Haven, 2k JPG (diffuse + nor_gl + roughness; corrugated iron also
+has a metalness map): `buildings/brick_red/`, `buildings/plaster_wall/`,
+`buildings/wood_planks/`, `buildings/corrugated_iron/`. Sources:
+https://polyhaven.com/a/red_brick, /a/plastered_wall, /a/wood_planks,
+/a/corrugated_iron.
+
+## Additional HDRI (2026-07-09)
+
+### J&E Gray 02 — `hdri/je_gray_02_2k.hdr`
+- **Source:** https://polyhaven.com/a/je_gray_02
+- **License:** CC0 1.0 Universal
+- **Intended use:** sunny rural/forest daylight alternative to the industrial-
+  toned HDRIs above (high-contrast, real directional sun).
+
+## Car re-evaluation (2026-07-09)
+
+No candidate beat the current CarConcept under license/access constraints.
+Full comparison table (paid model disqualified, CC0/unknown-license Sketchfab
+and BlendSwap candidates account-walled and not fetched) is in
+`docs/build-log/specs/asset-manifest.md`.
+
 ## Total staged size
-~24MB (car ~11.2MB, HDRIs ~11.9MB combined) — well within the ~150MB budget.
+~157MB (car ~11MB, HDRIs ~19MB, terrain ~70MB, buildings ~32MB, trees ~12MB,
+rocks ~12MB) — ~5% over the ~150MB soft budget, flagged in the manifest.
