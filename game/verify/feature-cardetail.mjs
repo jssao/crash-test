@@ -176,6 +176,44 @@ async function main() {
     console.log('[verify-cardetail] hooks before:', JSON.stringify(hooksBefore));
     if (!hooksBefore) throw new Error('window.__GAME__.features.cardetail hooks not published (registry did not discover the feature)');
 
+    // ---- SPAWN-STATE containment screenshots (eyes-on gate for this task's item 5): 4 angles at
+    // radius ~7 around the INTACT car, before any crash -- confirms no cardetail proxy box is visibly
+    // poking through the body from front/side/rear/top. angle=pi/2 looks at the car from the FRONT
+    // (+Z, per cameraOrbit.ts's angle convention), angle=0 is a SIDE view (+X), angle=-pi/2 (== 3pi/2)
+    // is a REAR view (-Z, camera behind the car looking at its tail), and a steep high angle
+    // approximates TOP. targetHeight ~0.5m (roughly mid-body) keeps the car centered in frame at this
+    // radius.
+    const spawnShots = [
+      { name: 'spawn-front', radius: 7, height: 1.6, targetHeight: 0.55, angle: Math.PI / 2 },
+      { name: 'spawn-side', radius: 7, height: 1.6, targetHeight: 0.55, angle: 0 },
+      { name: 'spawn-rear', radius: 7, height: 1.6, targetHeight: 0.55, angle: -Math.PI / 2 },
+      { name: 'spawn-top', radius: 7, height: 9, targetHeight: 0.3, angle: Math.PI / 4 },
+    ];
+    for (const shot of spawnShots) {
+      await evalExpr(`window.__GAME__.setOrbitView({ radius: ${shot.radius}, height: ${shot.height}, targetHeight: ${shot.targetHeight} }); "ok"`);
+      await evalExpr(`window.__GAME__.setFixedAngle(${shot.angle}); 'ok'`);
+      await sleep(700);
+      const shot_ = await c.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(path.join(OUT_DIR, `screenshot-cardetail-${shot.name}.png`), Buffer.from(shot_.data, 'base64'));
+      console.log(`[verify-cardetail] wrote screenshot-cardetail-${shot.name}.png`);
+    }
+
+    // ---- Dedicated post-crash(140) scatter shot (this task's item 5, a fixed/reproducible speed
+    // distinct from the escalating-speed loop below, which exists only to guarantee >=5 detached for
+    // the console report). ----
+    await evalExpr(`
+      window.__GAME__.spawnTestWall(8);
+      window.__GAME__.crash(140);
+      window.__GAME__.stepN(300);
+      "ok";
+    `);
+    await evalExpr('window.__GAME__.setOrbitView({ radius: 11, height: 5, targetHeight: 0.6 }); "ok"');
+    await evalExpr(`window.__GAME__.setFixedAngle(${(2 * Math.PI) / 3}); 'ok'`);
+    await sleep(700);
+    const shotCrash140 = await c.send('Page.captureScreenshot', { format: 'png' });
+    writeFileSync(path.join(OUT_DIR, 'screenshot-cardetail-crash140-scatter.png'), Buffer.from(shotCrash140.data, 'base64'));
+    console.log('[verify-cardetail] wrote screenshot-cardetail-crash140-scatter.png');
+
     // Crash into a wall 8m ahead -- spawnTestWall/crash/stepN all issued as ONE Runtime.evaluate call
     // (see this file's top doc comment on why that matters for reproducibility). crash() re-teleports
     // the car to its spawn pose each call (scenario.ts's crashSetup() calls resetVehicle() first), so

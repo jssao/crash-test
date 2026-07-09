@@ -133,8 +133,10 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// Y bumped 280->460mm for the same ground-clearance reason as the front seats above.
 	{ id: 'rearBench', label: 'Rear bench', strength: 'firm', phys: 'box', dims: box(500, 1200, 800), localCenter: mm(-500, 460, 0), massKgSpec: 22, matKey: 'clothBlack', engineBay: false },
 	// Dashboard (17): re-ordered -- 1400mm is the lateral span (A-pillar to A-pillar), 250mm the
-	// front-back depth, 350mm the binnacle height.
-	{ id: 'dashboard', label: 'Dashboard', strength: 'firm', phys: 'box', dims: box(250, 1400, 350), localCenter: mm(950, 850, 0), massKgSpec: 20, matKey: 'plasticBlackMatte', engineBay: false },
+	// front-back depth, 350mm the binnacle height. Nudged 20mm back (950->930) -- the audit found the
+	// spec's literal value pokes ~4mm past the real InteriorCage node's forward Z bound (car-map.ts
+	// chassis.InteriorCage), which read as the box clipping into the windshield/hood boundary.
+	{ id: 'dashboard', label: 'Dashboard', strength: 'firm', phys: 'box', dims: box(250, 1400, 350), localCenter: mm(930, 850, 0), massKgSpec: 20, matKey: 'plasticBlackMatte', engineBay: false },
 	// Steering wheel + column (18): positioned at the midpoint of the spec's wheel-center and firewall-
 	// mount points; COLLAPSIBLE (see index.ts's 2-stage weld handling: collapse then break).
 	{
@@ -157,7 +159,17 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 
 	// ---- Underbody / extremities (§3, priority 3) ----
 	{ id: 'catConverter', label: 'Catalytic converter', strength: 'firm', phys: 'capsuleZ', dims: capZ(300, 90), localCenter: mm(700, 280, 150), massKgSpec: 7, matKey: 'stainlessBrushed', engineBay: false },
-	{ id: 'mufflerTailpipe', label: 'Muffler + tailpipe', strength: 'firm', phys: 'box', dims: box(700, 200, 180), localCenter: mm(-1900, 260, 200), massKgSpec: 12, matKey: 'stainlessBrushed', engineBay: false },
+	// REAR-OVERHANG CORRECTION (found by the numeric audit, game/sim/cardetail-containment.test.mjs):
+	// the spec's own §0 assumes a 4600mm-overall/~850mm-rear-overhang car and flags this explicitly
+	// ("treat the extra ~240mm as slack... or scale every X position"). The REAL asset (car-map.ts
+	// overallDimsMm) is 4357mm overall, and nearly ALL of that ~243mm shortfall sits in the REAR
+	// overhang specifically (measured real rear overhang, rear-axle-Z to rear-most-body-Z, is only
+	// ~626mm vs the spec's assumed 850mm -- the FRONT overhang matches the real asset almost exactly,
+	// ~931mm vs assumed 950mm). Taking the spec's rear-mounted X values literally therefore pokes
+	// mufflerTailpipe/rearBumperBeam/taillightL/R 265-380mm out the back of the real body envelope.
+	// Repositioned (Z only, forward toward the axle) so each sits fully inside the measured envelope
+	// with a small (~30-40mm) clearance margin instead of clipping through the rear bumper skin.
+	{ id: 'mufflerTailpipe', label: 'Muffler + tailpipe', strength: 'firm', phys: 'box', dims: box(700, 200, 180), localCenter: mm(-1550, 260, 200), massKgSpec: 12, matKey: 'stainlessBrushed', engineBay: false },
 	{ id: 'fuelTank', label: 'Fuel tank', strength: 'rigid', phys: 'box', dims: box(900, 500, 250), localCenter: mm(-1150, 280, 0), massKgSpec: 40, matKey: 'steelMattePowder', engineBay: false },
 	{ id: 'frontSubframe', label: 'Front subframe', strength: 'rigid', phys: 'box', dims: box(1000, 900, 200), localCenter: mm(1450, 280, 0), massKgSpec: 35, matKey: 'steelMattePowder', engineBay: false },
 	{ id: 'rearSubframe', label: 'Rear subframe', strength: 'rigid', phys: 'box', dims: box(950, 900, 200), localCenter: mm(-1450, 280, 0), massKgSpec: 30, matKey: 'steelMattePowder', engineBay: false },
@@ -172,16 +184,50 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// Bumper beams (32-33): "span" bars, modeled as a lateral (local X) capsule, same rationale as the
 	// strut brace above.
 	{ id: 'frontBumperBeam', label: 'Front bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1300, 55), localCenter: mm(2230, 430, 0), massKgSpec: 8, matKey: 'steelMattePowder', engineBay: false },
-	{ id: 'rearBumperBeam', label: 'Rear bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1250, 55), localCenter: mm(-2150, 430, 0), massKgSpec: 9, matKey: 'steelMattePowder', engineBay: false },
-	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2200, 620, -850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
-	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2200, 620, 850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
-	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-2120, 620, -850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
-	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-2120, 620, 850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	// Rear-overhang correction (see mufflerTailpipe's comment above) -- moved forward from the spec's
+	// literal -2150mm so the beam's box sits inside the real rear envelope instead of poking through.
+	{ id: 'rearBumperBeam', label: 'Rear bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1250, 55), localCenter: mm(-1850, 430, 0), massKgSpec: 9, matKey: 'steelMattePowder', engineBay: false },
+	// Headlights (36-37): tiny (~9mm) front-overhang overshoot from the same spec/real-asset mismatch
+	// (see mufflerTailpipe's comment) -- nudged back 30mm to clear the real front envelope.
+	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2170, 620, -850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2170, 620, 850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	// Rear-overhang correction (see mufflerTailpipe's comment above).
+	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, -850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, 850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
 	// Side mirrors (38-39): "projects outboard" -- the spec's first dim (200mm) is explicitly the
-	// outboard (lateral) projection, so lateral is re-ordered to the first column here.
-	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 1150, -1250), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
-	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 1150, 1250), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	// outboard (lateral) projection, so lateral is re-ordered to the first column here. FOUND BY THE
+	// AUDIT: the spec's literal specUp=1150mm (ground-referenced) sits almost exactly at the real
+	// roofline (car-map.ts overallDimsMm.height=1149mm), so the mirror box's top face poked ~91mm
+	// above the roof ("floating cubes at the A-pillars" the orchestrator's screenshot showed) --
+	// dropped to 950mm (roughly beltline/greenhouse height, well clear of the roof). Also pulled the
+	// lateral offset in from 1250mm to 1160mm so the box's outboard face stays inside the real overall
+	// width envelope (car-map.ts overallDimsMm.width=2542mm, half=1271mm) while still projecting a
+	// realistic ~90mm past the door's own outer surface (car-map.ts panels.BodyDoorLColor1, X up to
+	// ~1169mm).
+	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, -1160), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, 1160), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
 ];
+
+/**
+ * Exterior proxy parts (headlights, taillights, mirrors, bumper beams) -- the GLB body already
+ * renders painted lights/mirrors/bumper covers at these locations, so a grey collision-proxy box
+ * glued on top of that pretty bodywork reads as a visible defect ("protruding grey boxes") even when
+ * its AABB is geometrically contained. VISIBILITY POLICY (orchestrator directive): these stay
+ * INVISIBLE while `attached` (index.ts's applyVisuals()) -- flying debris on detach sells the crash,
+ * a grey box glued to intact paint does not. Interior/underbody/engine-bay parts are unaffected by
+ * this set (engine-bay keeps its own separate hood-gated visibility; interior/underbody stay visible
+ * throughout, per the spec's "seen through glass" / "seen from below" intent).
+ */
+export const EXTERIOR_PROXY_IDS: ReadonlySet<string> = new Set([
+	'frontBumperBeam',
+	'rearBumperBeam',
+	'headlightL',
+	'headlightR',
+	'taillightL',
+	'taillightR',
+	'mirrorL',
+	'mirrorR',
+]);
 
 /** Sum of every component's UNSCALED spec mass -- exists only so MASS_SCALE's derivation below is
  * self-checking (rather than a hand-copied "506" that could drift from the table above). */

@@ -6,7 +6,7 @@
     "detachedCount": 0
   },
   "hooksAfter": {
-    "detachedCount": 11,
+    "detachedCount": 9,
     "states": {
       "engineBlock": "broken",
       "turboDownpipe": "broken",
@@ -19,8 +19,8 @@
       "brakeBoosterMC": "attached",
       "strutBrace": "broken",
       "alternator": "attached",
-      "coolantReservoir": "broken",
-      "fuseBox": "broken",
+      "coolantReservoir": "attached",
+      "fuseBox": "attached",
       "driverSeat": "attached",
       "passengerSeat": "attached",
       "rearBench": "attached",
@@ -52,5 +52,5 @@
   },
   "detachedEnough": true,
   "hoodOpen": true,
-  "timestamp": "2026-07-09T14:34:26.655Z"
+  "timestamp": "2026-07-09T17:52:35.326Z"
 }

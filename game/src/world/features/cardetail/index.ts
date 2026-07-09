@@ -28,6 +28,7 @@ import {
 	COLLAPSE_TORQUE_NM,
 	COLUMN_BREAK_FORCE_N,
 	COLUMN_BREAK_TORQUE_NM,
+	EXTERIOR_PROXY_IDS,
 	FIRM_FORCE_N,
 	FIRM_TORQUE_NM,
 	OTHER_MISC,
@@ -182,6 +183,12 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 				ctx.scene.add(mesh);
 				transform = new InterpolatedTransform();
 			}
+			// Set the correct attached-state visibility immediately at spawn/respawn -- don't wait for
+			// the first applyVisuals() call (THREE.Object3D.visible defaults to true, which would leak an
+			// exterior proxy for one frame, and the headless sim test never calls applyVisuals() at all).
+			if (spec.engineBay) mesh.visible = vehicle.panels.hood.state !== 'attached';
+			else if (EXTERIOR_PROXY_IDS.has(spec.id)) mesh.visible = false;
+			else mesh.visible = true;
 			transform.sample(worldPos, spawnRotation);
 			transform.sample(worldPos, spawnRotation); // fill prev+curr, no lerp-from-old-pose on (re)spawn
 
@@ -309,7 +316,15 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			const hoodAttached = ctx.getVehicle().panels.hood.state === 'attached';
 			for (const h of handles) {
 				h.transform.applyTo(h.mesh, alpha);
-				if (h.spec.engineBay) h.mesh.visible = !hoodAttached;
+				if (h.spec.engineBay) {
+					h.mesh.visible = !hoodAttached;
+				} else if (EXTERIOR_PROXY_IDS.has(h.spec.id)) {
+					// VISIBILITY POLICY (orchestrator directive, see tuning.ts's EXTERIOR_PROXY_IDS doc
+					// comment): the GLB body already renders painted headlights/taillights/mirrors/bumper
+					// covers at these spots, so the grey collision proxy stays invisible while still
+					// `attached` and only appears once it has actually detached (flying debris on impact).
+					h.mesh.visible = h.state !== 'attached';
+				}
 			}
 		},
 
@@ -339,6 +354,10 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			 * equivalent accessor). Never mutates state itself. */
 			bodies: () => handles.map((h) => h.body),
 			states: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.state])),
+			/** Diagnostic/test hook: current THREE mesh.visible per component -- lets
+			 * cardetail-containment.test.mjs assert the "exterior proxies are invisible while attached"
+			 * visibility policy (tuning.ts's EXTERIOR_PROXY_IDS) without a scene/renderer. */
+			meshVisible: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.mesh.visible])),
 			/** Diagnostic: current weld constraint-force magnitude (N) per component, or null once
 			 * broken (no weld left to read). Useful for calibrating tuning.ts's break thresholds. */
 			constraintForces: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.weld ? length(h.weld.getConstraintForce()) : null])),
