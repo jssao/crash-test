@@ -52,6 +52,7 @@ import {
   type DestructibleVisualBundle,
 } from './world/visuals';
 import { createHud, type HudController } from './hud/hud';
+import { createWorldFeatures, type WorldFeatureSet } from './world/features/registry';
 
 declare global {
   interface Window {
@@ -77,6 +78,12 @@ declare global {
        * spawn pose right now -- lets a scripted playtest count "blocks displaced > 0.5m" after a wall/
        * tower/barrel hit without re-deriving DestructibleWorld internals itself. */
       destructibleDisplacements: () => number[];
+      /** PLAYTEST HOOK (read-only): total live physics bodies owned by world features (trees,
+       * buildings, occupants, car-detail parts, ...) — physics-everywhere inventory accounting. */
+      featureBodyCount: () => number;
+      /** PLAYTEST HOOK (read-only): per-feature hooks published by each WorldFeature (see
+       * world/features/feature.ts). */
+      features: Record<string, Record<string, unknown>>;
     };
   }
 }
@@ -131,6 +138,16 @@ async function main() {
   const destructibleWorld: DestructibleWorld = createDestructibleWorld(world);
   const destructibleVisuals: DestructibleVisualBundle = buildDestructibleVisuals(destructibleWorld);
   scene.add(destructibleVisuals.group);
+
+  // ---- World features (RUN 2): self-contained content modules (trees, buildings, occupants,
+  // car-detail parts, ...) discovered from world/features/*/index.ts — see feature.ts's contract. ----
+  const features: WorldFeatureSet = await createWorldFeatures({
+    world,
+    scene,
+    getVehicle: () => vehicle,
+    carRoot: car.root,
+    quality,
+  });
 
   hud.setLoadingProgress(0.85, 'assembling damage system…');
 
@@ -314,12 +331,14 @@ async function main() {
       visual.transform.sample(pt.position, pt.rotation);
     }
     chaseCamera.reset();
+    features.reset('car');
   }
 
   function doWorldRepair(): void {
     doCarRepair();
     resetDestructibleWorld(destructibleWorld);
     resnapDestructibleVisuals(destructibleWorld, destructibleVisuals);
+    features.reset('world');
   }
 
   let physicsMsAccum = 0;
@@ -334,6 +353,7 @@ async function main() {
     stepDamageSystem(damageSystem, world, FIXED_DT);
     syncCarDeformablesToThree(carDeformables, vehicle.panels);
     sampleDestructibleVisuals(destructibleWorld, destructibleVisuals);
+    features.afterFixedStep(FIXED_DT);
     const t = vehicle.chassis.getTransform();
     chassisTransform.sample(t.position, t.rotation);
     for (const key of Object.keys(wheelVisuals) as WheelKey[]) {
@@ -410,6 +430,8 @@ async function main() {
         const p = b.body.getPosition();
         return Math.hypot(p.x - b.spawnPos.x, p.y - b.spawnPos.y, p.z - b.spawnPos.z);
       }),
+    featureBodyCount: () => features.totalBodyCount(),
+    features: features.hooks,
   };
 
   resize();
@@ -465,6 +487,7 @@ async function main() {
       if (visual) applyPanelVisual(visual, alpha);
     }
     applyDestructibleVisuals(destructibleVisuals, alpha);
+    features.applyVisuals(alpha);
     chassisTransform.applyTo(car.root, alpha);
     // The physics chassis body's origin sits at ~hub height (tuning.ts's CHASSIS_ORIGIN_HEIGHT_M
     // above the ground -- see its doc comment), but the visual car model's own root is authored at
