@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { init, World, liveHandleCount } from '../../src/ts/index.js';
+import { init, World, liveHandleCount, type Body } from '../../src/ts/index.js';
 import { createRenderer } from './render/createRenderer';
 import {
   QUALITY_PRESETS,
@@ -42,7 +42,7 @@ import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBi
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from './scene/panelVisuals';
 import { resetCrumpleRegistry } from './damage/crumple';
 import { PANEL_KEYS, type PanelKey } from './damage/panels';
-import { spawnTestWall as spawnTestWallBody, crashSetup } from './damage/scenario';
+import { spawnTestWall as spawnTestWallBody, destroyTestWall, crashSetup } from './damage/scenario';
 import { createDestructibleWorld, resetDestructibleWorld, type DestructibleWorld } from './world/bodies';
 import {
   buildDestructibleVisuals,
@@ -125,6 +125,13 @@ async function main() {
   let vehicle: Vehicle = createVehicle(world);
   const SPAWN_POS = vehicle.spawnPosition;
   const SPAWN_ROT = vehicle.spawnRotation;
+  // LEAK FIX: the playtest-only test wall (window.__GAME__.spawnTestWall) has exactly one owner (this
+  // module) -- tracked here so a repeat spawnTestWall() call or a world reset can destroy the PREVIOUS
+  // wall's native handles (shape+body) before replacing/clearing it. See damage/scenario.ts's
+  // destroyTestWall() doc comment for the root-cause history (soak isolation: spawnTestWall+resetWorld
+  // x10 leaked a perfectly linear +2 handles/call, never reclaimed, since neither this hook nor
+  // doWorldRepair() ever destroyed a previously-spawned wall).
+  let testWallBody: Body | null = null;
 
   hud.setLoadingProgress(0.15, 'loading scene…');
 
@@ -340,6 +347,13 @@ async function main() {
 
   function doWorldRepair(): void {
     doCarRepair();
+    // LEAK FIX: a full world reset clears any playtest-spawned test wall too (see testWallBody's doc
+    // comment above) -- destroys shape+body and drops the reference so a stale wall can never be
+    // double-destroyed by a later call.
+    if (testWallBody) {
+      destroyTestWall(testWallBody);
+      testWallBody = null;
+    }
     resetDestructibleWorld(destructibleWorld);
     resnapDestructibleVisuals(destructibleWorld, destructibleVisuals);
     features.reset('world');
@@ -415,7 +429,10 @@ async function main() {
       for (let i = 0; i < n; i++) doFixedStep();
     },
     spawnTestWall: (distanceAhead = 25) => {
-      spawnTestWallBody(world, vehicle, distanceAhead);
+      // LEAK FIX (replace semantics): destroy the PREVIOUS wall (if any) before spawning a new one --
+      // see testWallBody's doc comment above.
+      if (testWallBody) destroyTestWall(testWallBody);
+      testWallBody = spawnTestWallBody(world, vehicle, distanceAhead);
     },
     crash: (speedKmh) => {
       crashSetup(vehicle, speedKmh);

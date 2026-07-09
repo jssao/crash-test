@@ -5,11 +5,19 @@
 // tests (game/sim/damage-*.test.mjs) -- renderer-free (no three/DOM import), same pattern as
 // vehicle.ts/panels.ts.
 
-import { Body, BodyType, World } from '../../../src/ts/index.js';
+import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
 import { rotateVector, scale, type V3 } from '../vehicle/mathUtil';
 import { resetVehicle, type Vehicle } from '../vehicle/vehicle';
 
 const LOCAL_FORWARD: V3 = { x: 0, y: 0, z: 1 };
+
+/** Body -> its own box shape, for every wall spawnTestWall() has ever created -- lookup table backing
+ * destroyTestWall() below. A private WeakMap (not a field on Body itself, which existing callers depend
+ * on treating as a bare box3d-js Body -- see this file's doc comment: spawnTestWall() is shared verbatim
+ * by main.ts AND several existing sim tests that already call the returned Body's OWN .destroy()
+ * directly, e.g. game/sim/damage-moderate-impact.test.mjs, game/sim/features-occupants.test.mjs -- so
+ * this function's return type must stay a plain Body, never a wrapper object). */
+const wallShapes = new WeakMap<Body, Shape>();
 
 /** Spawns a thick static box wall `distanceAhead` meters in front of the vehicle's SPAWN position
  * (along its spawn-forward axis), tall/wide enough that a car can't drive around or over it. Returns
@@ -26,8 +34,34 @@ export function spawnTestWall(world: World, vehicle: Vehicle, distanceAhead = 25
 	// contact to have it enabled (vendor/box3d/src/contact.c: `shapeA->flags & enableHitEvents ||
 	// shapeB->flags & enableHitEvents`), and every car shape (chassis hull + all 5 panels) already has
 	// it on (vehicle.ts/panels.ts).
-	wall.createBoxShape({ halfExtents: { x: 8, y: 2, z: 0.5 }, friction: 0.9, density: 1 });
+	const shape = wall.createBoxShape({ halfExtents: { x: 8, y: 2, z: 0.5 }, friction: 0.9, density: 1 });
+	wallShapes.set(wall, shape);
 	return wall;
+}
+
+/**
+ * FULL teardown of a spawnTestWall() body: destroys its shape BEFORE the body (same box3d-js
+ * live-handle-registry gotcha as every other destroy site in this codebase -- vehicle.ts's
+ * destroyVehicle() doc comment, damage/panels.ts's breakPanelWeld(), etc: destroying the body alone
+ * frees the shape natively too, but leaves its JS-side Shape wrapper's registry entry stuck "live"
+ * forever). Root-caused leak (soak isolation: spawnTestWall+resetWorld x10 = perfectly linear +2
+ * handles/call, never reclaimed) -- main.ts's window.__GAME__.spawnTestWall hook never destroyed the
+ * PREVIOUS wall on a repeat call, and doWorldRepair() never destroyed it either. Safe to call at any
+ * time, including mid-crash: the wall is a plain static body with no userData tag the damage system
+ * ever matches against (hitTouchesCar() only recognizes the chassis/panel entity ids -- see welds.ts),
+ * and nothing else anywhere holds a reference to it, so there is no despawned-body/dangling-reference
+ * hazard to guard against here (contrast damage/panels.ts's PanelHandle.despawned flag, needed because
+ * MULTIPLE places -- system.ts, main.ts's doFixedStep, welds.ts -- hold a live reference to a panel
+ * body across frames; this wall has exactly one owner, whoever holds the Body this function was called
+ * with).
+ */
+export function destroyTestWall(wall: Body): void {
+	const shape = wallShapes.get(wall);
+	if (shape) {
+		shape.destroy(false);
+		wallShapes.delete(wall);
+	}
+	wall.destroy();
 }
 
 /**
