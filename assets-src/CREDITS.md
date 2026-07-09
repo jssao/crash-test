@@ -67,6 +67,28 @@ Full sourcing detail, size math, rejected candidates (Poly Haven's realistic
 tree models, up to 949MB each, rejected on size), and verification method are
 in `docs/build-log/specs/asset-manifest.md`.
 
+## Tree canopy visuals pass (2026-07-09, tree-visuals task)
+
+Replaced the flat-cone/canvas-bark canopy placeholder with real-photo card foliage. New asset:
+
+- `trees/tree_small_02_leaves/` — leaf-cluster alpha-cutout atlas (diff + alpha + nor_gl, 1k
+  JPG/PNG, 1024x1024 confirmed) extracted from Poly Haven's **Tree Small 02** geometry-nodes
+  model. **CC0 1.0 Universal.** Source: https://polyhaven.com/a/tree_small_02 (category
+  Nature/Trees/Broadleaf Trees). Author: Rico Cilliers. Only the `leaves_*` texture maps were
+  retrieved via Poly Haven's public Files API (`api.polyhaven.com/files/tree_small_02`) — not the
+  model's own multi-hundred-MB baked geometry, which this project has no use for (same "reuse the
+  real texture, skip the enormous geometry bake" reasoning `bark_brown_01` above already
+  documents). The atlas packs two distinct usable regions (verified by eye against the downloaded
+  images, not assumed from the filename): a dense field of individually alpha-cut leaf-on-twig
+  clusters (left ~40% of the image) used for outer/silhouette-facing canopy cards, and a solid
+  fully-opaque leaf-mass fill (right ~10%) used for cheap interior canopy bulk — both sampled via
+  fixed UV sub-rects in `game/src/world/features/trees/visuals.ts`, never tiled
+  (`ClampToEdgeWrapping`). `bark_brown_01` (already staged above) is now actually wired into the
+  trunk material (real tileable 2k PBR bark, UV-tiled per trunk class in code — see that file),
+  replacing the earlier 128x128 procedural `CanvasTexture` placeholder.
+- Total added: ~1.29MB (diff 340KB + alpha 265KB + nor_gl 682KB, all 1k) — negligible against the
+  existing ~157MB staged budget.
+
 ## Building material textures (2026-07-09)
 
 CC0 1.0, Poly Haven, 2k JPG (diffuse + nor_gl + roughness; corrugated iron also

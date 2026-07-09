@@ -137,3 +137,35 @@ BlendSwap accounts to unlock the CC0-tagged candidates above for direct inspecti
 - Car candidates search only turned up two directions: a paid model (disqualified)
   or account-walled CC0/unknown-license models (not fetched, per no-signup
   constraint) — genuinely empty of an actionable free-and-clear upgrade.
+
+## Addendum (2026-07-09, tree-visuals task): leaf-cutout atlas acquisition
+
+The "trees are stylized/flat-color, not photoreal" gap noted above (and the toy cone-canopy
+placeholder it produced in `game/src/world/features/trees/visuals.ts`) is addressed for the
+canopy specifically — not by staging one of the previously-rejected 20-950MB full tree models,
+but by extracting just the **leaf-cutout texture atlas** from a *different*, much smaller Poly
+Haven tree model that exposes its maps individually via the Files API:
+
+- Queried `api.polyhaven.com/assets?t=models` for tree-tagged assets, found `tree_small_02`
+  ("Tree Small 02", category Nature/Trees/Broadleaf Trees, author Rico Cilliers) exposes
+  `leaves_diff` / `leaves_alpha` / `leaves_nor_gl` (+ `leaves_rough`/`leaves_arm`/`leaves_ao`, not
+  retrieved) as **separate downloadable files independent of the model's own huge baked
+  geometry** — confirmed via `api.polyhaven.com/files/tree_small_02` before downloading anything.
+  Retrieved only `leaves_{diff,alpha,nor_gl}` at 1k (1024x1024 confirmed via `file`), ~1.29MB
+  total — staged at `assets-src/trees/tree_small_02_leaves/`.
+- Visually verified via the asset's own 512x512 CDN thumbnail (a full deciduous tree with a
+  round, airy clustered-leaf canopy — matches the "Broadleaf Trees" category) before committing
+  to using its leaf atlas; confirmed the atlas itself (viewed directly, both diffuse and alpha
+  channel) packs a dense field of individually alpha-cut leaf-on-twig clusters plus a solid
+  opaque leaf-mass fill region, exactly the two card types a cross-quad canopy needs.
+  **License: CC0 1.0 Universal** (Poly Haven, same as every other asset in this manifest) —
+  verified on the asset's own page/API metadata, not assumed.
+- The already-staged `trees/bark_brown_01/` (this manifest, section 2) was, at the time of the
+  original acquisition pass, staged but **not yet wired into any trunk material** — the
+  cone-canopy placeholder used a small 128x128 procedural `CanvasTexture` bark instead. The
+  tree-visuals pass now actually uses the real staged `bark_brown_01` PBR set for trunks (UV-tiled
+  per trunk class in code, not `Texture.repeat`, since one shared bark material spans very
+  different sapling/mid/large trunk radii). No new download for bark — it was already sitting in
+  `assets-src/` unused.
+- No other new downloads. Total added to the previously-flagged 157MB staged total: ~1.29MB
+  (leaf atlas only; bark was already staged).

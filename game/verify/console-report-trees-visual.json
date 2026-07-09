@@ -1,0 +1,564 @@
+{
+  "waypoints": {
+    "LARGE_TARGET": {
+      "x": -77.56,
+      "z": -11.38
+    },
+    "MID_TARGET": {
+      "x": -76.68,
+      "z": -24.73
+    },
+    "SAPLING_TARGET": {
+      "x": -72.68,
+      "z": 16.2
+    }
+  },
+  "drivePhase1": {
+    "steps": 379,
+    "finalPos": {
+      "x": -56.35788345336914,
+      "y": 0.23886056244373322,
+      "z": -5.620087146759033
+    },
+    "speedKmh": 50.23408876414206
+  },
+  "renderStatsForestInterior": {
+    "renderCalls": 496,
+    "triangles": 526824
+  },
+  "drivePhase2": {
+    "steps": 68,
+    "finalPos": {
+      "x": -71.8259048461914,
+      "y": 0.25169044733047485,
+      "z": -9.824188232421875
+    },
+    "speedKmh": 30.343510800338574
+  },
+  "reverse3": {
+    "pos": {
+      "x": -60.1943244934082,
+      "y": 0.2512519955635071,
+      "z": -6.792581558227539
+    },
+    "speedKmh": 25.29947688787972
+  },
+  "drivePhase3": {
+    "steps": 260,
+    "finalPos": {
+      "x": -71.39717102050781,
+      "y": 0.2327028214931488,
+      "z": -19.379438400268555
+    },
+    "speedKmh": 53.73379918052048,
+    "closestDist": 7.767759307080953,
+    "aim": {
+      "aimX": -93.87541883069397,
+      "aimZ": -42.8771091702512
+    }
+  },
+  "treesSnapshotAfterMid": {
+    "saplings": [
+      {
+        "id": "sapling-0",
+        "broken": false
+      },
+      {
+        "id": "sapling-1",
+        "broken": false
+      },
+      {
+        "id": "sapling-2",
+        "broken": false
+      },
+      {
+        "id": "sapling-3",
+        "broken": false
+      },
+      {
+        "id": "sapling-4",
+        "broken": false
+      },
+      {
+        "id": "sapling-5",
+        "broken": false
+      },
+      {
+        "id": "sapling-6",
+        "broken": false
+      },
+      {
+        "id": "sapling-7",
+        "broken": false
+      },
+      {
+        "id": "sapling-8",
+        "broken": false
+      },
+      {
+        "id": "sapling-9",
+        "broken": false
+      },
+      {
+        "id": "sapling-10",
+        "broken": false
+      },
+      {
+        "id": "sapling-11",
+        "broken": false
+      },
+      {
+        "id": "sapling-12",
+        "broken": false
+      },
+      {
+        "id": "sapling-13",
+        "broken": false
+      },
+      {
+        "id": "sapling-14",
+        "broken": false
+      },
+      {
+        "id": "sapling-15",
+        "broken": false
+      },
+      {
+        "id": "sapling-16",
+        "broken": false
+      },
+      {
+        "id": "sapling-17",
+        "broken": false
+      },
+      {
+        "id": "sapling-18",
+        "broken": false
+      },
+      {
+        "id": "sapling-19",
+        "broken": false
+      },
+      {
+        "id": "sapling-20",
+        "broken": false
+      },
+      {
+        "id": "sapling-21",
+        "broken": false
+      },
+      {
+        "id": "sapling-22",
+        "broken": false
+      },
+      {
+        "id": "sapling-23",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-0",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-1",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-2",
+        "broken": false
+      }
+    ],
+    "mids": [
+      {
+        "id": "mid-0",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-1",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-2",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-3",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-4",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-5",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-6",
+        "broken": true,
+        "leaning": false
+      },
+      {
+        "id": "mid-7",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-8",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-9",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-10",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-11",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-12",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "far-mid-0",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "far-mid-1",
+        "broken": false,
+        "leaning": false
+      }
+    ],
+    "larges": [
+      {
+        "id": "large-0",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-1",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-2",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-3",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-4",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-5",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-6",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "far-large-0",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      }
+    ]
+  },
+  "reverse4": {
+    "pos": {
+      "x": -85.2065200805664,
+      "y": 0.25491225719451904,
+      "z": -31.884166717529297
+    },
+    "speedKmh": 25.72443639780462
+  },
+  "drivePhase4": {
+    "steps": 260,
+    "finalPos": {
+      "x": -93.61173248291016,
+      "y": 0.2632948160171509,
+      "z": -24.58734893798828
+    },
+    "speedKmh": 24.20932774538293,
+    "closestDist": 45.93935489392801,
+    "aim": {
+      "aimX": -67.79370373491147,
+      "aimZ": 35.593919377211556
+    }
+  },
+  "treesSnapshotAfterSapling": {
+    "saplings": [
+      {
+        "id": "sapling-0",
+        "broken": false
+      },
+      {
+        "id": "sapling-1",
+        "broken": false
+      },
+      {
+        "id": "sapling-2",
+        "broken": false
+      },
+      {
+        "id": "sapling-3",
+        "broken": false
+      },
+      {
+        "id": "sapling-4",
+        "broken": true
+      },
+      {
+        "id": "sapling-5",
+        "broken": false
+      },
+      {
+        "id": "sapling-6",
+        "broken": false
+      },
+      {
+        "id": "sapling-7",
+        "broken": false
+      },
+      {
+        "id": "sapling-8",
+        "broken": false
+      },
+      {
+        "id": "sapling-9",
+        "broken": false
+      },
+      {
+        "id": "sapling-10",
+        "broken": false
+      },
+      {
+        "id": "sapling-11",
+        "broken": false
+      },
+      {
+        "id": "sapling-12",
+        "broken": false
+      },
+      {
+        "id": "sapling-13",
+        "broken": false
+      },
+      {
+        "id": "sapling-14",
+        "broken": false
+      },
+      {
+        "id": "sapling-15",
+        "broken": false
+      },
+      {
+        "id": "sapling-16",
+        "broken": false
+      },
+      {
+        "id": "sapling-17",
+        "broken": false
+      },
+      {
+        "id": "sapling-18",
+        "broken": false
+      },
+      {
+        "id": "sapling-19",
+        "broken": false
+      },
+      {
+        "id": "sapling-20",
+        "broken": false
+      },
+      {
+        "id": "sapling-21",
+        "broken": false
+      },
+      {
+        "id": "sapling-22",
+        "broken": false
+      },
+      {
+        "id": "sapling-23",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-0",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-1",
+        "broken": false
+      },
+      {
+        "id": "far-sapling-2",
+        "broken": false
+      }
+    ],
+    "mids": [
+      {
+        "id": "mid-0",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-1",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-2",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-3",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-4",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-5",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-6",
+        "broken": true,
+        "leaning": false
+      },
+      {
+        "id": "mid-7",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-8",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-9",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-10",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-11",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "mid-12",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "far-mid-0",
+        "broken": false,
+        "leaning": false
+      },
+      {
+        "id": "far-mid-1",
+        "broken": false,
+        "leaning": false
+      }
+    ],
+    "larges": [
+      {
+        "id": "large-0",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-1",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-2",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-3",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-4",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-5",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "large-6",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      },
+      {
+        "id": "far-large-0",
+        "branchesBroken": 0,
+        "branchesDrooping": 0,
+        "branchesTotal": 3
+      }
+    ]
+  },
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-09T21:12:25.809Z"
+}
