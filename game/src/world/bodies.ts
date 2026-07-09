@@ -121,10 +121,29 @@ function boxVolume(half: V3): number {
 	return 8 * half.x * half.y * half.z;
 }
 
+/** Per-kind settle damping (playtest issue #1: "debris keeps spinning/rolling ages after it should
+ * settle"). box3d's rollingResistance is spheres/capsules-only (types.h:407) and every legacy
+ * destructible here is a box or a convex hull (barrels are 12-gon prisms), so the spin is bled with a
+ * body-level angularDamping applied at spawn -- mild enough not to change the crash's scatter, firm
+ * enough that freed blocks/crates/poles stop pirouetting within ~1-2s. Masonry/lumber are "high",
+ * steel drums "moderate" (a drum legitimately rolls a bit before stopping). LINEAR damping stays tiny
+ * so debris still flies on a hard hit. These live here (not world/tuning.ts) because they are behavior
+ * this module owns; see game/src/world/features/buildings/tuning.ts for the mirror values on the
+ * newer 'buildings' feature and tests/rolling-resistance.test.ts for the mechanism validation. */
+const WALL_BLOCK_ANGULAR_DAMPING = 1.6;
+const WALL_BLOCK_LINEAR_DAMPING = 0.15;
+const CRATE_ANGULAR_DAMPING = 1.3;
+const CRATE_LINEAR_DAMPING = 0.08;
+const BARREL_ANGULAR_DAMPING = 0.7;
+const BARREL_LINEAR_DAMPING = 0.08;
+const POLE_ANGULAR_DAMPING = 1.2;
+const POLE_LINEAR_DAMPING = 0.08;
+
 /** Creates one dynamic body + its shape(s) at `pos`/rotation, puts it to sleep, and returns the raw
- * Body + Shape handles (caller assembles the DestructibleBody record). */
-function spawnAsleepBody(world: World, pos: V3, rot: Q4 = IDENTITY_Q): Body {
-	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: rot });
+ * Body + Shape handles (caller assembles the DestructibleBody record). `angularDamping`/`linearDamping`
+ * default 0 (unchanged from before this playtest fix for any caller that omits them). */
+function spawnAsleepBody(world: World, pos: V3, rot: Q4 = IDENTITY_Q, angularDamping = 0, linearDamping = 0): Body {
+	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: rot, angularDamping, linearDamping });
 	return body;
 }
 
@@ -141,7 +160,7 @@ function buildWall(world: World, config: (typeof WALL_CONFIGS)[number]): Destruc
 		for (let col = 0; col < WALL_COLS; col++) {
 			const x = config.center.x - totalWidth / 2 + half.x + col * stepX;
 			const pos: V3 = { x, y, z: config.center.z };
-			const body = spawnAsleepBody(world, pos);
+			const body = spawnAsleepBody(world, pos, IDENTITY_Q, WALL_BLOCK_ANGULAR_DAMPING, WALL_BLOCK_LINEAR_DAMPING);
 			const shape = body.createBoxShape({ halfExtents: half, density, friction: WALL_BLOCK_FRICTION });
 			body.applyMassFromShapes();
 			out.push({ kind: 'wallBlock', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: config.material, halfExtents: half });
@@ -164,7 +183,7 @@ function buildCrateTower(world: World): DestructibleBody[] {
 				const x = CRATE_TOWER_CENTER.x + (gx - (gridSize - 1) / 2) * step;
 				const z = CRATE_TOWER_CENTER.z + (gz - (gridSize - 1) / 2) * step;
 				const pos: V3 = { x, y, z };
-				const body = spawnAsleepBody(world, pos);
+				const body = spawnAsleepBody(world, pos, IDENTITY_Q, CRATE_ANGULAR_DAMPING, CRATE_LINEAR_DAMPING);
 				const shape = body.createBoxShape({ halfExtents, density, friction: CRATE_FRICTION });
 				body.applyMassFromShapes();
 				out.push({ kind: 'crate', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'wood', halfExtents });
@@ -187,7 +206,7 @@ function buildBarrelTriangle(world: World): DestructibleBody[] {
 		for (let i = 0; i < countInRow; i++) {
 			const x = BARREL_TRIANGLE_APEX.x + (i - (countInRow - 1) / 2) * BARREL_LATERAL_SPACING_M;
 			const pos: V3 = { x, y: BARREL_HEIGHT_M / 2, z };
-			const body = spawnAsleepBody(world, pos);
+			const body = spawnAsleepBody(world, pos, IDENTITY_Q, BARREL_ANGULAR_DAMPING, BARREL_LINEAR_DAMPING);
 			const shape = body.createHullShape(hullPoints, { density, friction: BARREL_FRICTION });
 			body.applyMassFromShapes();
 			const material: BarrelMaterial = rowIndex % 2 === 0 ? 'barrelBlue' : 'barrelRust';
@@ -217,7 +236,7 @@ function buildPoles(world: World): DestructibleBody[] {
 		// -- so the BODY's own origin is placed at half-height instead, putting the box's bottom face
 		// exactly on the ground (y=0) the same way vehicle.ts's wheel/chassis spawn heights work.
 		const pos: V3 = { x: groundPos.x, y: half.y, z: groundPos.z };
-		const body = spawnAsleepBody(world, pos);
+		const body = spawnAsleepBody(world, pos, IDENTITY_Q, POLE_ANGULAR_DAMPING, POLE_LINEAR_DAMPING);
 		const shape = body.createBoxShape({ halfExtents: half, density, friction: POLE_FRICTION });
 		body.applyMassFromShapes();
 		out.push({ kind: 'pole', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'wood', halfExtents: half });

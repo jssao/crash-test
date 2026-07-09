@@ -12,12 +12,14 @@
 
 import { Body, World, type Shape } from '../../../../../src/ts/index.js';
 import { length, quatFromAxisAngle, type Q4, type V3 } from '../../../vehicle/mathUtil';
-import { rebuildWeld, spawnDynamicBox, spawnDynamicCapsuleVertical, spawnStaticBox, weldAt, type WeldSpec } from './common';
+import { rebuildWeld, spawnDynamicBox, spawnDynamicCapsuleVertical, spawnStaticBox, weldAt, type SettleDamping, type WeldSpec } from './common';
 import {
+	BRICK_ANGULAR_DAMPING,
 	BRICK_BREAK_FORCE_N,
 	BRICK_BREAK_TORQUE_NM,
 	BRICK_FRICTION,
 	BRICK_HALF_EXTENTS,
+	BRICK_LINEAR_DAMPING,
 	BRICK_MASS_KG,
 	BRICK_PROFILE,
 	BRICK_RESTITUTION,
@@ -33,16 +35,20 @@ import {
 	CORNER_STUD_HALF_CROSS_M,
 	CORNER_STUD_SPACING_M,
 	CORNER_WALL_HEIGHT_M,
+	DRYWALL_ANGULAR_DAMPING,
 	DRYWALL_BREAK_FORCE_N,
 	DRYWALL_BREAK_TORQUE_NM,
 	DRYWALL_FRICTION,
+	DRYWALL_LINEAR_DAMPING,
 	DRYWALL_PANEL_MASS_KG,
 	DRYWALL_PROFILE,
 	DRYWALL_RESTITUTION,
+	FENCE_ANGULAR_DAMPING,
 	FENCE_BREAK_FORCE_N,
 	FENCE_BREAK_TORQUE_NM,
 	FENCE_CONFIGS,
 	FENCE_FRICTION,
+	FENCE_LINEAR_DAMPING,
 	FENCE_MASS_KG,
 	FENCE_POST_HALF_CROSS_M,
 	FENCE_POST_HEIGHT_M,
@@ -53,11 +59,14 @@ import {
 	FENCE_SPAN_COUNT,
 	FENCE_SPAN_LENGTH_M,
 	IDENTITY_Q,
+	PIPE_ANGULAR_DAMPING,
 	PIPE_FRICTION,
 	PIPE_HALF_LENGTH_M,
+	PIPE_LINEAR_DAMPING,
 	PIPE_MASS_KG,
 	PIPE_RADIUS_M,
 	PIPE_RESTITUTION,
+	PIPE_ROLLING_RESISTANCE,
 	ROOF_PROFILE,
 	SHED_CENTER,
 	SHED_DEPTH_M,
@@ -68,9 +77,11 @@ import {
 	SHED_STUD_SPACING_M,
 	SHED_WALL_HEIGHT_M,
 	SHED_WIDTH_M,
+	WOOD_ANGULAR_DAMPING,
 	WOOD_BREAK_FORCE_N,
 	WOOD_BREAK_TORQUE_NM,
 	WOOD_FRICTION,
+	WOOD_LINEAR_DAMPING,
 	WOOD_PLANK_MASS_KG,
 	WOOD_RESTITUTION,
 	WOOD_STUD_MASS_KG,
@@ -125,6 +136,22 @@ function restitutionFor(material: PieceMaterial): number {
 	}
 }
 
+/** Per-material settle damping (playtest issue #1) -- see tuning.ts's DEBRIS SETTLE DAMPING block. */
+function dampingFor(material: PieceMaterial): SettleDamping {
+	switch (material) {
+		case 'brick':
+			return { angularDamping: BRICK_ANGULAR_DAMPING, linearDamping: BRICK_LINEAR_DAMPING };
+		case 'drywall':
+			return { angularDamping: DRYWALL_ANGULAR_DAMPING, linearDamping: DRYWALL_LINEAR_DAMPING };
+		case 'pipe':
+			return { angularDamping: PIPE_ANGULAR_DAMPING, linearDamping: PIPE_LINEAR_DAMPING };
+		case 'wood':
+			return { angularDamping: WOOD_ANGULAR_DAMPING, linearDamping: WOOD_LINEAR_DAMPING };
+	}
+}
+
+const FENCE_DAMPING: SettleDamping = { angularDamping: FENCE_ANGULAR_DAMPING, linearDamping: FENCE_LINEAR_DAMPING };
+
 /** Clamp a freed debris body's linear+angular velocity to a per-material cap at the instant its weld
  * breaks -- keeps the release impulse-proportional (debris tumbles a few metres) instead of the
  * baseline's explosive fling (single bricks were flung 60-77m). Direction is preserved; only excess
@@ -161,16 +188,17 @@ function addBoxPiece(
 	kind: PieceKind,
 	material: PieceMaterial,
 	isStatic: boolean,
+	dampingOverride?: SettleDamping,
 ): Body {
 	const { body, shape } = isStatic
 		? spawnStaticBox(world, pos, rot, half, friction)
-		: spawnDynamicBox(world, pos, rot, half, massKg, friction, restitutionFor(material));
+		: spawnDynamicBox(world, pos, rot, half, massKg, friction, restitutionFor(material), dampingOverride ?? dampingFor(material));
 	structure.pieces.push({ body, shape, kind, material, spawnPos: pos, spawnRot: rot, isStatic, half });
 	return body;
 }
 
 function addCapsulePiece(structure: Structure, world: World, pos: V3, halfLength: number, radius: number, massKg: number, friction: number): Body {
-	const { body, shape } = spawnDynamicCapsuleVertical(world, pos, halfLength, radius, massKg, friction, restitutionFor('pipe'));
+	const { body, shape } = spawnDynamicCapsuleVertical(world, pos, halfLength, radius, massKg, friction, restitutionFor('pipe'), dampingFor('pipe'), PIPE_ROLLING_RESISTANCE);
 	structure.pieces.push({ body, shape, kind: 'pipe', material: 'pipe', spawnPos: pos, spawnRot: IDENTITY_Q, isStatic: false, capsule: { halfLength, radius } });
 	return body;
 }
@@ -499,7 +527,7 @@ export function buildFenceLine(world: World, config: FenceConfig): Structure {
 	for (let i = 0; i <= FENCE_SPAN_COUNT; i++) {
 		const x = c.x - halfLen + i * FENCE_SPAN_LENGTH_M;
 		const pos: V3 = { x, y: FENCE_POST_HEIGHT_M / 2, z: c.z };
-		const body = addBoxPiece(structure, world, pos, IDENTITY_Q, postHalf, FENCE_MASS_KG, FENCE_FRICTION, 'post', 'wood', false);
+		const body = addBoxPiece(structure, world, pos, IDENTITY_Q, postHalf, FENCE_MASS_KG, FENCE_FRICTION, 'post', 'wood', false, FENCE_DAMPING);
 		postXs.push(x);
 		postBodies.push(body);
 		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x, y: 0, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM, FENCE_PROFILE);
@@ -511,7 +539,7 @@ export function buildFenceLine(world: World, config: FenceConfig): Structure {
 		for (const railY of FENCE_RAIL_HEIGHTS_M) {
 			const pos: V3 = { x: midX, y: railY, z: c.z };
 			const half: V3 = { x: railHalfLen, y: FENCE_RAIL_HALF_HEIGHT_M, z: FENCE_RAIL_HALF_DEPTH_M };
-			const body = addBoxPiece(structure, world, pos, IDENTITY_Q, half, FENCE_MASS_KG * 0.6, FENCE_FRICTION, 'rail', 'wood', false);
+			const body = addBoxPiece(structure, world, pos, IDENTITY_Q, half, FENCE_MASS_KG * 0.6, FENCE_FRICTION, 'rail', 'wood', false, FENCE_DAMPING);
 			const post = postBodies[i];
 			const postPos: V3 = { x: postXs[i], y: FENCE_POST_HEIGHT_M / 2, z: c.z };
 			addWeld(structure, world, body, pos, IDENTITY_Q, post, postPos, IDENTITY_Q, { x: postXs[i], y: railY, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM, FENCE_PROFILE);

@@ -24,6 +24,34 @@ export type { Q4, V3 };
 // calibration runs).
 // ---------------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------------
+// DEBRIS SETTLE DAMPING (playtest issue #1: "debris keeps spinning/rolling ages after it should
+// settle"). box3d's per-shape rollingResistance applies ONLY to spheres/capsules (types.h:407), so
+// box/hull debris (bricks, planks, studs, drywall, blocks, crates, poles, barrel hulls) gets a
+// game-side body-level angularDamping instead (BodyOptions.angularDamping -> b3DefaultBodyDef(),
+// already wired through createBody()). Applied at SPAWN on every dynamic destructible: mild enough
+// not to alter the crash's break dynamics (it only bleeds residual spin so pieces cross box3d's sleep
+// threshold and thud to rest) yet firm enough that a freed brick/plank stops pirouetting within ~1-2s.
+// Bricks/wood are "high" (masonry/lumber does not keep spinning), barrels/pipes "moderate" (a drum or
+// a length of pipe legitimately rolls a little before stopping). LINEAR damping is kept tiny so the
+// debris still FLIES on a hard hit -- only the eternal SPIN is what we kill. See tests/
+// rolling-resistance.test.ts for the mechanism validation and game/sim/materials-truth*.test.mjs for
+// the in-structure settle assertion.
+// ---------------------------------------------------------------------------------------------
+export const WOOD_ANGULAR_DAMPING = 1.3;
+export const WOOD_LINEAR_DAMPING = 0.08;
+export const DRYWALL_ANGULAR_DAMPING = 1.1;
+export const DRYWALL_LINEAR_DAMPING = 0.1;
+export const BRICK_ANGULAR_DAMPING = 1.7;
+export const BRICK_LINEAR_DAMPING = 0.15;
+/** Pipe is a CAPSULE, so it also gets true rolling resistance (spheres/capsules only) on top of a
+ * moderate angular damping -- a length of galvanized pipe rings and rolls a bit, then stops. */
+export const PIPE_ROLLING_RESISTANCE = 0.35;
+export const PIPE_ANGULAR_DAMPING = 0.5;
+export const PIPE_LINEAR_DAMPING = 0.05;
+export const FENCE_ANGULAR_DAMPING = 1.2;
+export const FENCE_LINEAR_DAMPING = 0.08;
+
 export const WOOD_STUD_MASS_KG = 3;
 export const WOOD_PLANK_MASS_KG = 4;
 export const WOOD_FRICTION = 0.7; // was 0.6 -- freed planks/studs clatter to rest instead of sliding forever

@@ -27,6 +27,13 @@ function worldToLocalOffset(bodyRot: Q4, worldOffset: V3): V3 {
 	return rotateVector(invQuat(bodyRot), worldOffset);
 }
 
+/** Per-body settle damping applied at spawn to every dynamic destructible so freed debris stops
+ * pirouetting (playtest issue #1). See tuning.ts's DEBRIS SETTLE DAMPING block. */
+export interface SettleDamping {
+	readonly angularDamping: number;
+	readonly linearDamping: number;
+}
+
 export function spawnDynamicBox(
 	world: World,
 	pos: V3,
@@ -35,8 +42,15 @@ export function spawnDynamicBox(
 	massKg: number,
 	friction: number,
 	restitution = 0,
+	damping?: SettleDamping,
 ): { body: Body; shape: Shape } {
-	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: rot });
+	const body = world.createBody({
+		type: BodyType.Dynamic,
+		position: pos,
+		rotation: rot,
+		angularDamping: damping?.angularDamping ?? 0,
+		linearDamping: damping?.linearDamping ?? 0,
+	});
 	const density = massKg / boxVolume(half);
 	const shape = body.createBoxShape({ halfExtents: half, density, friction, restitution });
 	body.applyMassFromShapes();
@@ -58,8 +72,16 @@ export function spawnDynamicCapsuleVertical(
 	massKg: number,
 	friction: number,
 	restitution = 0,
+	damping?: SettleDamping,
+	rollingResistance = 0,
 ): { body: Body; shape: Shape } {
-	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: IDENTITY_Q });
+	const body = world.createBody({
+		type: BodyType.Dynamic,
+		position: pos,
+		rotation: IDENTITY_Q,
+		angularDamping: damping?.angularDamping ?? 0,
+		linearDamping: damping?.linearDamping ?? 0,
+	});
 	const density = massKg / capsuleVolume(radius, halfLength * 2);
 	const shape = body.createCapsuleShape({
 		center1: { x: 0, y: -halfLength, z: 0 },
@@ -68,6 +90,7 @@ export function spawnDynamicCapsuleVertical(
 		density,
 		friction,
 		restitution,
+		rollingResistance,
 	});
 	body.applyMassFromShapes();
 	return { body, shape };
