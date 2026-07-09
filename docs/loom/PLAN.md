@@ -68,7 +68,16 @@ deformation feeds back into physics.
 | G6 | Pages deploy workflow + perf gate | sonnet | **done** | 104,439 | Pages workflow (test→deploy jobs), wasm artifacts committed (gitignore negation), pristine-clone CI recipe proven (6/6 + build exit 0, dist 29M), DEPLOY.md 2-command handoff, README hero section; commit 96f5a1b. Real-CI runner behavior unsimulatable locally (noted). Deploy itself user-blocked (no GitHub creds) |
 | PLAYTEST | Scenario battery + soak via CDP (user-authorized simulations) | sonnet | **done** | 381,952 | PASS: barrels/tower, reset-integrity 15/15 (handles flat), accumulator clamp, real-GPU headed 120fps/0.07ms. FINDINGS: BLOCKER wasm OOB trap reproducible 10/16 soak cycles, permanent (repro-oob.mjs); MAJOR flat-ground rollover under sustained steer; MAJOR panels loosen from 60s mild driving; MAJOR ramp unreachable (layout); minor side-wall lanes, Q coalescing. Commit 45cfd87 |
 | FIXROUND | Fix blocker+majors+minors+2 gate gaps; full re-verify | sonnet | **done** | 555,249 | OOB root cause = hypothesis #2 (getTransform on despawned panel body, main.ts:346) — fixed + guarded; hypothesis #1 disproven + locked with memory-growth test + INITIAL_MEMORY 64MB; "rollover" was PITCH (drivetrain reaction torque) → anti-pitch damper; panel stress: ground-normal exclusion; kicker relocated to clear lane (0.93s airtime test); Q counter; gate asserts added. Soak 45 cycles: 0 traps, heap flat. 7/7 + 16/16 + bench 0.137ms + 4 verify scripts + pristine clone all green (orchestrator re-verified key runs). Residual: rare pole-graze loosens hood at 24km/h (documented); stale coords in historical battery.mjs. Commits 12e5e17..fcfc427 |
-| GATE-GAME | Verify items 7–12 | loom:verifier | pending | — | |
+| GATE-GAME | Verify items 7–12 | loom:verifier | **PASS (pass 2)** | 67,071 + 42,138 | pass 1 FAIL (2 assert gaps) → FIXROUND → pass 2 PASS: items 8,10 hard-asserted w/ exit-code gating (file:line), regressions spot-checked OK, soak 45 cycles wasmOobRecurred:false |
+
+## RUN COMPLETE — 2026-07-09
+
+All 12 condition items met (item 11 in amended deploy-READY form; publish is user-blocked on
+GitHub credentials — see DEPLOY.md). Totals: 16 dispatches (11 sonnet workers, 1 haiku reader,
+3 haiku verifier gates, 1 sonnet playtest), ≈4.49M subagent tokens. Gates: PORT pass 1/1,
+GAME pass 2/3. Residual known issues: rare pole-graze loosens hood at ~24km/h (documented in
+damage-tuning.ts); stale coords in historical playtest battery.mjs; real-CI runner behavior
+unsimulatable locally.
 
 ## Pass log
 
@@ -80,3 +89,6 @@ deformation feeds back into physics.
   (topple proven by screenshot, no code assertion of body displacement). Directive → FIXGATE
   worker after playtest lands: (a) add steering segment + yaw assert to shoot-driving.mjs,
   (b) add displaced-destructible-count assertion to shoot-world.mjs; then re-gate (pass 2 of 3).
+- 2026-07-09 · GATE-GAME · PASS (pass 2) · items 8+10 closed with hard exit-code-gated asserts
+  (yaw Δ1.47 rad; 74/131 bodies displaced >0.5m); regression spot-checks OK; soak 45 cycles
+  0 OOB traps. Overall game condition PASS.
