@@ -120,9 +120,32 @@ ragdoll ejection.
 
 | D-play | Scenario battery + endurance soak (parallel) | sonnet ×2 | **done** | 344,947 | wf_0c2b591b-c41; commits 264b951 (battery), 7073db7 (soak). BATTERY: 8/8 scenarios, 0 console errors; kicker pitch held through arc IN BROWSER (original user bug verified dead); MAX CHAOS clean + pristine reset (343 bodies, disp 1.9e-6); new features-trees-bend.test.mjs closes GATE-B caveat (11.6° tilt joint-intact + spring-back). SOAK: 50 reset cycles — 343 bodies exact every cycle, occupants 4/4, 0 traps; 12.5min continuous — heap slope 0.0012MB/s (negligible), 0 errors; wheel-detach ×5 — 0 traps in RUN-1's old OOB pattern. TRIAGE: brick-slab pinning = by-design physics (R/Shift+R recovery; fence coverage held by sim test) — no fix; 2 script-technique minors — no fix; 2 REAL LEAKS → FIXROUND-3: spawnTestWall bodies never freed (+2/call linear, root-caused) + damaged-car resetCar +17 handle burst (needs attribution). |
 
+| FIXROUND-3 | Handle leaks from soak | sonnet | **done** | 304,386 | commit 64c5318: spawnTestWall leak fixed (tracked + destroyed on replace/reset; 50-cycle re-soak monotonicGrowth:false); resetCar +17 = honest NON-finding (one-time damage-proportional reconstruction, cycles 2-5 exactly flat across 4 damage configs); handle-stability.test.mjs locks both. Suites 12/12 + 75/75. |
+| FINAL-GATE | All 12 items + 10b + constraints | loom:verifier | **PASS** | 54,345 | items 11/12 fully verified (0.580ms avg chaos w/ line-cited exit-gate; 119.9fps headed; 8/8 battery + 50-cycle soak 0 errors/0 traps; leak triage judged sound); items 1-10b spot-checked no regression; vendor untouched, no SAB, suites green at 4e8d20e. |
+
+## RUN 2 COMPLETE — 2026-07-09
+
+All 12 condition items + 10b met (items 1/3/6 in their GATE-A-approved amended form). Totals:
+23 dispatches (21 sonnet workers incl. 2 specialized-agent-type content workers, 3 haiku-tier
+verifier gates), ≈5.58M subagent tokens (~1.24× RUN 1) — well under the 9-12M estimate. Gates:
+A pass 1/3, B pass 1/3, FINAL pass 1/3 (all first-pass). Orchestrator-inline fixes: 4 (straight-line
+recalib, feature scaffold, panelVisuals reparent, cardetail forgetHandle).
+
+Residual known issues (documented, non-blocking): ground-extent trajectory sensitivity is a
+characterized float32/solver-order seed amplified by chaotic traction dynamics (vendor-level,
+kicker now robust across 4 ground sizes); suspected vendor readback bug in b3GetWheelJointForce
+(sums config limit into force — candidate upstream report); cardetail+occupants never sleep
+(chassis-tethered, harmless at 14× perf margin); occupants hard to see through tinted glass from
+outside (ejections clearly visible; hook-proof authoritative); cardetail debris has no despawn
+timer (persists until reset, no observed perf impact); brick-slab pinning is honest physics with
+R/Shift+R recovery. Deploy remains user-blocked on GitHub credentials (DEPLOY.md unchanged).
+
 ## Pass log
 
 (append: date · phase · evaluator verdict · directive)
 
 - 2026-07-09 · GATE-A · PASS (pass 1) · items 1-6 YES incl. amendments; residuals carried to Phase B
   vehicle pass (friction root-cause, powertrain top speed, kicker ground-extent sensitivity).
+- 2026-07-09 · GATE-B · PASS (pass 1) · items 7-10b YES; caveat (sapling bend unasserted) closed in
+  Phase D via features-trees-bend.test.mjs.
+- 2026-07-09 · FINAL-GATE · PASS (pass 1) · all 12 + 10b + constraints YES; RUN COMPLETE.
