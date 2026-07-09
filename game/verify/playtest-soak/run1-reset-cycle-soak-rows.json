@@ -1,0 +1,852 @@
+[
+  {
+    "cycle": 0,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 120
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1392,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 1,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1393,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 2,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 350
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1393,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 3,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 110
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1393,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 4,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 102
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1396,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 5,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1396,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 6,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 368
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1397,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 7,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 361
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1398,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 8,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 131
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1399,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 9,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 346
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1400,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 10,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 101
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1399,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 11,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 346
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1402,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 12,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1400,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 13,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 363
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1402,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 14,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 366
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1404,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 15,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 347
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1403,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 16,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1402,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 17,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 370
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1405,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 18,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 346
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1405,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 19,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1405,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 20,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 120
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1407,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 21,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 368
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1406,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 22,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 121
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1410,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 23,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 92
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1410,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 24,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 369
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1413,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 25,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 347
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1413,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 26,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 348
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1413,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 27,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 366
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1414,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 28,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 346
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1414,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 29,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 120
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1416,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 30,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 347
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1416,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 31,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 364
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1416,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 32,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 366
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1418,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 33,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 346
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1418,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 34,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 368
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1419,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 35,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 365
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1420,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 36,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 369
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1420,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 37,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1421,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 38,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 347
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1421,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 39,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1420,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 40,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1419,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 41,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 368
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1420,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 42,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 367
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1423,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 43,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 400
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1422,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 44,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 369
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1424,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 45,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 367
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1425,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 46,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 87
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1427,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 47,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 368
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1427,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 48,
+    "kind": "wall",
+    "scenarioResult": {
+      "kind": "wall",
+      "kmh": 119
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1430,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 49,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 367
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 1429,
+    "featureBodies": 343,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  }
+]

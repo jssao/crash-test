@@ -1,0 +1,55 @@
+{
+  "cyclesRequested": 5,
+  "cyclesRun": 5,
+  "wasmDead": false,
+  "totalConsoleErrors": 0,
+  "totalPageErrors": 0,
+  "findings": [],
+  "perCycle": [
+    {
+      "cycle": 0,
+      "achievedDetach": true,
+      "attempts": 2,
+      "liveHandlesFirst": 1371,
+      "liveHandlesLast": 1367,
+      "speedFirst": 0.00001345986292060361,
+      "speedLast": 4.477010561071386
+    },
+    {
+      "cycle": 1,
+      "achievedDetach": true,
+      "attempts": 2,
+      "liveHandlesFirst": 1376,
+      "liveHandlesLast": 1370,
+      "speedFirst": 0.00028680486528024366,
+      "speedLast": 0.09904439970492769
+    },
+    {
+      "cycle": 2,
+      "achievedDetach": true,
+      "attempts": 2,
+      "liveHandlesFirst": 1377,
+      "liveHandlesLast": 1369,
+      "speedFirst": 0.0004144989648621625,
+      "speedLast": 0.0019165165997776733
+    },
+    {
+      "cycle": 3,
+      "achievedDetach": true,
+      "attempts": 2,
+      "liveHandlesFirst": 1379,
+      "liveHandlesLast": 1371,
+      "speedFirst": 0.0002257969506186007,
+      "speedLast": 4.082317652137226
+    },
+    {
+      "cycle": 4,
+      "achievedDetach": true,
+      "attempts": 2,
+      "liveHandlesFirst": 1380,
+      "liveHandlesLast": 1372,
+      "speedFirst": 0.0004243823246226965,
+      "speedLast": 0.008078387501587753
+    }
+  ]
+}

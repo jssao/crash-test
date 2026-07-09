@@ -1,0 +1,13 @@
+{
+  "seed": 12648430,
+  "cyclesRun": 50,
+  "cyclesRequested": 50,
+  "wasmDead": false,
+  "baselineFeatureBodyCount": 343,
+  "handleSeriesFirst": 1392,
+  "handleSeriesLast": 1429,
+  "monotonicGrowth": false,
+  "totalConsoleErrors": 0,
+  "totalPageErrors": 0,
+  "findings": []
+}

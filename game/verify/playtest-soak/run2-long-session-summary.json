@@ -1,0 +1,28 @@
+{
+  "totalMsRequested": 750000,
+  "actualDurationMs": 750014,
+  "sampleCount": 25,
+  "wasmDead": false,
+  "wasmError": null,
+  "anyNaN": false,
+  "heapFirstMB": 59.53853797912598,
+  "heapLastMB": 60.899492263793945,
+  "heapSlopePerSecMB": 0.001206594233165726,
+  "handlesFirst": 1387,
+  "handlesLast": 1390,
+  "handleSlopePerSec": 0.02165176862254375,
+  "fpsFirst": 10,
+  "fpsLast": 105,
+  "totalConsoleErrors": 0,
+  "totalConsoleWarnings": 0,
+  "totalPageErrors": 0,
+  "findings": [
+    {
+      "severity": "major",
+      "issue": "liveHandleCount grew with a clearly positive linear trend over the session",
+      "handleSlopePerSec": 0.02165176862254375,
+      "handlesFirst": 1387,
+      "handlesLast": 1390
+    }
+  ]
+}

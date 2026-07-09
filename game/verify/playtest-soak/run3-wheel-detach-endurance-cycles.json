@@ -1,0 +1,682 @@
+[
+  {
+    "cycle": 0,
+    "achievedDetach": true,
+    "attempts": 2,
+    "attemptLog": [
+      {
+        "attempt": 0,
+        "detachedCount": 2,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        }
+      }
+    ],
+    "rimDriveMs": 60044,
+    "rimSamples": [
+      {
+        "elapsedMs": 10005,
+        "speedKmh": 0.00001345986292060361,
+        "chassisPos": {
+          "x": -0.20090718567371368,
+          "y": 0.6179996728897095,
+          "z": 16.924470901489258
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.28ms"
+      },
+      {
+        "elapsedMs": 20009,
+        "speedKmh": 0.000016898120982197218,
+        "chassisPos": {
+          "x": -0.20104455947875977,
+          "y": 0.6179337501525879,
+          "z": 16.92447280883789
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.31ms"
+      },
+      {
+        "elapsedMs": 30030,
+        "speedKmh": 0.00000673603286021248,
+        "chassisPos": {
+          "x": -0.2011784315109253,
+          "y": 0.6178758144378662,
+          "z": 16.92447280883789
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.31ms"
+      },
+      {
+        "elapsedMs": 40035,
+        "speedKmh": 0.000016922267484515225,
+        "chassisPos": {
+          "x": -0.20127716660499573,
+          "y": 0.6178465485572815,
+          "z": 16.924474716186523
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.30ms"
+      },
+      {
+        "elapsedMs": 50039,
+        "speedKmh": 0.000024316480125198678,
+        "chassisPos": {
+          "x": -0.2013901025056839,
+          "y": 0.6178236603736877,
+          "z": 16.924474716186523
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.33ms"
+      },
+      {
+        "elapsedMs": 60043,
+        "speedKmh": 4.477010561071386,
+        "chassisPos": {
+          "x": -0.19723117351531982,
+          "y": 0.22268623113632202,
+          "z": 17.265485763549805
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1367,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.27ms"
+      }
+    ],
+    "newConsoleErrorsDuringRimDrive": 0,
+    "wasmTrapDuringRimDrive": null
+  },
+  {
+    "cycle": 1,
+    "achievedDetach": true,
+    "attempts": 2,
+    "attemptLog": [
+      {
+        "attempt": 0,
+        "detachedCount": 1,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        }
+      }
+    ],
+    "rimDriveMs": 60052,
+    "rimSamples": [
+      {
+        "elapsedMs": 10022,
+        "speedKmh": 0.00028680486528024366,
+        "chassisPos": {
+          "x": -0.08800464123487473,
+          "y": 0.5274662971496582,
+          "z": 17.144968032836914
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1376,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.26ms"
+      },
+      {
+        "elapsedMs": 20027,
+        "speedKmh": 0.0002914340464639413,
+        "chassisPos": {
+          "x": -0.08798635751008987,
+          "y": 0.5275956988334656,
+          "z": 17.144975662231445
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1376,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.27ms"
+      },
+      {
+        "elapsedMs": 30039,
+        "speedKmh": 0.0002958676438803738,
+        "chassisPos": {
+          "x": -0.08796755224466324,
+          "y": 0.5277388095855713,
+          "z": 17.144981384277344
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1376,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.26ms"
+      },
+      {
+        "elapsedMs": 40044,
+        "speedKmh": 0.0002895990575164353,
+        "chassisPos": {
+          "x": -0.08794797211885452,
+          "y": 0.5278812646865845,
+          "z": 17.144989013671875
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1376,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.24ms"
+      },
+      {
+        "elapsedMs": 50048,
+        "speedKmh": 0.0002900008413085289,
+        "chassisPos": {
+          "x": -0.08792699873447418,
+          "y": 0.5280282497406006,
+          "z": 17.144994735717773
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1376,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.24ms"
+      },
+      {
+        "elapsedMs": 60052,
+        "speedKmh": 0.09904439970492769,
+        "chassisPos": {
+          "x": -0.07755716890096664,
+          "y": 0.28986337780952454,
+          "z": 17.1885929107666
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1370,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.23ms"
+      }
+    ],
+    "newConsoleErrorsDuringRimDrive": 0,
+    "wasmTrapDuringRimDrive": null
+  },
+  {
+    "cycle": 2,
+    "achievedDetach": true,
+    "attempts": 2,
+    "attemptLog": [
+      {
+        "attempt": 0,
+        "detachedCount": 1,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        }
+      }
+    ],
+    "rimDriveMs": 60043,
+    "rimSamples": [
+      {
+        "elapsedMs": 10022,
+        "speedKmh": 0.0004144989648621625,
+        "chassisPos": {
+          "x": -0.03712210804224014,
+          "y": 0.5384733080863953,
+          "z": 17.074413299560547
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1377,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.30ms"
+      },
+      {
+        "elapsedMs": 20025,
+        "speedKmh": 0.0005408178441694235,
+        "chassisPos": {
+          "x": -0.03701310604810715,
+          "y": 0.5386562347412109,
+          "z": 17.075735092163086
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1377,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.30ms"
+      },
+      {
+        "elapsedMs": 30030,
+        "speedKmh": 0.0005080988820694045,
+        "chassisPos": {
+          "x": -0.03684341534972191,
+          "y": 0.5386353135108948,
+          "z": 17.07701873779297
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1377,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.29ms"
+      },
+      {
+        "elapsedMs": 40034,
+        "speedKmh": 0.0005040030761776199,
+        "chassisPos": {
+          "x": -0.03667939826846123,
+          "y": 0.5386523604393005,
+          "z": 17.07833480834961
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1377,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.29ms"
+      },
+      {
+        "elapsedMs": 50039,
+        "speedKmh": 0.0004988746105265562,
+        "chassisPos": {
+          "x": -0.03651683032512665,
+          "y": 0.5386771559715271,
+          "z": 17.079654693603516
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1377,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.29ms"
+      },
+      {
+        "elapsedMs": 60043,
+        "speedKmh": 0.0019165165997776733,
+        "chassisPos": {
+          "x": 0.04546165093779564,
+          "y": 0.2695492208003998,
+          "z": 17.247575759887695
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1369,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.24ms"
+      }
+    ],
+    "newConsoleErrorsDuringRimDrive": 0,
+    "wasmTrapDuringRimDrive": null
+  },
+  {
+    "cycle": 3,
+    "achievedDetach": true,
+    "attempts": 2,
+    "attemptLog": [
+      {
+        "attempt": 0,
+        "detachedCount": 2,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        }
+      }
+    ],
+    "rimDriveMs": 60045,
+    "rimSamples": [
+      {
+        "elapsedMs": 10024,
+        "speedKmh": 0.0002257969506186007,
+        "chassisPos": {
+          "x": 0.0019801915623247623,
+          "y": 0.602341890335083,
+          "z": 16.577356338500977
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1379,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.26ms"
+      },
+      {
+        "elapsedMs": 20028,
+        "speedKmh": 0.00019379448064180962,
+        "chassisPos": {
+          "x": 0.001974432496353984,
+          "y": 0.6023568511009216,
+          "z": 16.577356338500977
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1379,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.23ms"
+      },
+      {
+        "elapsedMs": 30032,
+        "speedKmh": 0.0002456165949700603,
+        "chassisPos": {
+          "x": 0.001968708587810397,
+          "y": 0.6023712158203125,
+          "z": 16.577354431152344
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1379,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.24ms"
+      },
+      {
+        "elapsedMs": 40036,
+        "speedKmh": 0.00024258601836578685,
+        "chassisPos": {
+          "x": 0.0019630948081612587,
+          "y": 0.6023871898651123,
+          "z": 16.577354431152344
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1379,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.22ms"
+      },
+      {
+        "elapsedMs": 50040,
+        "speedKmh": 0.0002616685738551699,
+        "chassisPos": {
+          "x": 0.0019574807956814766,
+          "y": 0.6024038791656494,
+          "z": 16.577354431152344
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1379,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.24ms"
+      },
+      {
+        "elapsedMs": 60044,
+        "speedKmh": 4.082317652137226,
+        "chassisPos": {
+          "x": 0.02256740815937519,
+          "y": 0.22280247509479523,
+          "z": 16.893220901489258
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "detached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1371,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.20ms"
+      }
+    ],
+    "newConsoleErrorsDuringRimDrive": 0,
+    "wasmTrapDuringRimDrive": null
+  },
+  {
+    "cycle": 4,
+    "achievedDetach": true,
+    "attempts": 2,
+    "attemptLog": [
+      {
+        "attempt": 0,
+        "detachedCount": 1,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        }
+      }
+    ],
+    "rimDriveMs": 60046,
+    "rimSamples": [
+      {
+        "elapsedMs": 10023,
+        "speedKmh": 0.0004243823246226965,
+        "chassisPos": {
+          "x": -0.09692464768886566,
+          "y": 0.5396765470504761,
+          "z": 16.928232192993164
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1380,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.21ms"
+      },
+      {
+        "elapsedMs": 20026,
+        "speedKmh": 0.00041097052058727455,
+        "chassisPos": {
+          "x": -0.09699045866727829,
+          "y": 0.5398820638656616,
+          "z": 16.929378509521484
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1380,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.23ms"
+      },
+      {
+        "elapsedMs": 30030,
+        "speedKmh": 0.00041929769014583746,
+        "chassisPos": {
+          "x": -0.09711895883083344,
+          "y": 0.5398901104927063,
+          "z": 16.93046760559082
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1380,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.20ms"
+      },
+      {
+        "elapsedMs": 40033,
+        "speedKmh": 0.0004047420993562736,
+        "chassisPos": {
+          "x": -0.09724698960781097,
+          "y": 0.5398982167243958,
+          "z": 16.93155860900879
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1380,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.22ms"
+      },
+      {
+        "elapsedMs": 50041,
+        "speedKmh": 0.00042021786559955483,
+        "chassisPos": {
+          "x": -0.09737882763147354,
+          "y": 0.5399057269096375,
+          "z": 16.932680130004883
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1380,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.19ms"
+      },
+      {
+        "elapsedMs": 60045,
+        "speedKmh": 0.008078387501587753,
+        "chassisPos": {
+          "x": -0.1980808973312378,
+          "y": 0.2688489854335785,
+          "z": 17.321741104125977
+        },
+        "finite": true,
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "detached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "liveHandles": 1372,
+        "featureBodies": 343,
+        "fps": "fps 10  |  physics 0.22ms"
+      }
+    ],
+    "newConsoleErrorsDuringRimDrive": 0,
+    "wasmTrapDuringRimDrive": null
+  }
+]
