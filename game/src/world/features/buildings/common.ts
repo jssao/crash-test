@@ -34,10 +34,11 @@ export function spawnDynamicBox(
 	half: V3,
 	massKg: number,
 	friction: number,
+	restitution = 0,
 ): { body: Body; shape: Shape } {
 	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: rot });
 	const density = massKg / boxVolume(half);
-	const shape = body.createBoxShape({ halfExtents: half, density, friction });
+	const shape = body.createBoxShape({ halfExtents: half, density, friction, restitution });
 	body.applyMassFromShapes();
 	return { body, shape };
 }
@@ -56,6 +57,7 @@ export function spawnDynamicCapsuleVertical(
 	radius: number,
 	massKg: number,
 	friction: number,
+	restitution = 0,
 ): { body: Body; shape: Shape } {
 	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: IDENTITY_Q });
 	const density = massKg / capsuleVolume(radius, halfLength * 2);
@@ -65,6 +67,7 @@ export function spawnDynamicCapsuleVertical(
 		radius,
 		density,
 		friction,
+		restitution,
 	});
 	body.applyMassFromShapes();
 	return { body, shape };

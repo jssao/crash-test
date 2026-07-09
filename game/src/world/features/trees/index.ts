@@ -5,7 +5,16 @@
 // auto-discovered by ./../registry.ts, zero edits to any shared file.
 
 import type { FeatureContext, WorldFeature } from '../feature';
-import { createTreesWorld, resetTreesWorld, stepTreesWorld, treesBodyCount, type TreesWorld } from './bodies';
+import {
+	createTreesWorld,
+	largeBranchDroopCount,
+	midLeaningDeg,
+	MID_LEAN_REPORT_DEG,
+	resetTreesWorld,
+	stepTreesWorld,
+	treesBodyCount,
+	type TreesWorld,
+} from './bodies';
 import {
 	applyTreesVisuals,
 	buildTreesVisuals,
@@ -52,10 +61,11 @@ export default function createTreesFeature(ctx: FeatureContext): WorldFeature {
 			/** Read-only playtest snapshot -- window.__GAME__.features.trees.snapshot(). */
 			snapshot: () => ({
 				saplings: trees.saplings.map((s) => ({ id: s.id, broken: s.broken })),
-				mids: trees.mids.map((m) => ({ id: m.id, broken: m.broken })),
+				mids: trees.mids.map((m) => ({ id: m.id, broken: m.broken, leaning: midLeaningDeg(m) > MID_LEAN_REPORT_DEG })),
 				larges: trees.larges.map((l) => ({
 					id: l.id,
 					branchesBroken: l.branches.filter((b) => b.broken).length,
+					branchesDrooping: largeBranchDroopCount(l),
 					branchesTotal: l.branches.length,
 				})),
 			}),

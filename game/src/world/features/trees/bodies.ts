@@ -18,7 +18,7 @@
 // same as world/bodies.ts) -- a car impact (or a neighboring body waking it via contact) wakes it.
 
 import { Body, BodyType, Shape, SphericalJoint, WeldJoint, World } from '../../../../../src/ts/index.js';
-import { quatFromAxisAngle, rotateVector, type Q4, type V3 } from '../../../vehicle/mathUtil';
+import { dot, LOCAL_UP, quatFromAxisAngle, rotateVector, type Q4, type V3 } from '../../../vehicle/mathUtil';
 import {
 	FAR_LARGE_SITES,
 	FAR_MID_SITES,
@@ -236,6 +236,9 @@ function resetMid(world: World, m: MidTree): void {
 	m.trunk.setAwake(false);
 }
 
+/** The root weld is angularly compliant (tuning.ts's MID_WELD_ANGULAR_HERTZ) so the trunk leans/creaks
+ * under load; this fells it (destroys the weld) once the impact force/torque crosses the fell
+ * threshold. Same per-step polling technique as damage/welds.ts (NOT world.jointEvents()). */
 function pollMidBreaks(mids: readonly MidTree[]): void {
 	for (const m of mids) {
 		if (m.broken || !m.joint) continue;
@@ -346,6 +349,9 @@ function resetLarge(world: World, l: LargeTree): void {
 	}
 }
 
+/** Branch welds are angularly compliant (tuning.ts's LARGE_WELD_ANGULAR_HERTZ) so a branch bends/
+ * droops under load, then snaps off once force/torque crosses the threshold. Same per-step polling as
+ * damage/welds.ts. */
 function pollLargeBreaks(larges: readonly LargeTree[]): void {
 	for (const l of larges) {
 		for (const b of l.branches) {
@@ -361,6 +367,44 @@ function pollLargeBreaks(larges: readonly LargeTree[]): void {
 			}
 		}
 	}
+}
+
+// =================================================================================================
+// Bend/droop reporting (destruction-feel): the compliant welds let an unbroken trunk/branch sit
+// visibly deflected; these read that deflection off the LIVE rotations (honest -- no separate stored
+// flag to drift out of sync) for the feature snapshot + destruction-feel.test.mjs assertions.
+// =================================================================================================
+
+/** Degrees a trunk has tipped away from vertical. */
+export function trunkTiltDeg(body: Body): number {
+	const up = rotateVector(body.getRotation(), LOCAL_UP);
+	const c = Math.max(-1, Math.min(1, dot(up, { x: 0, y: 1, z: 0 })));
+	return (Math.acos(c) * 180) / Math.PI;
+}
+
+/** Angle (degrees) of the relative rotation between two quaternions -- how far a branch has swung from
+ * its spawn pose. Only the scalar part of a*b^-1 is needed for the angle. */
+function quatAngleDeg(a: Q4, b: Q4): number {
+	const w = a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z; // scalar part of a * conj(b)
+	return (2 * Math.acos(Math.min(1, Math.abs(w))) * 180) / Math.PI;
+}
+
+/** A mid trunk counts as "leaning" once its compliant root weld has tipped it past this, while still
+ * attached (unfelled). */
+export const MID_LEAN_REPORT_DEG = 4;
+export const BRANCH_DROOP_REPORT_DEG = 6;
+
+export function midLeaningDeg(m: MidTree): number {
+	return m.broken || !m.joint ? 0 : trunkTiltDeg(m.trunk);
+}
+
+export function largeBranchDroopCount(l: LargeTree): number {
+	let n = 0;
+	for (const b of l.branches) {
+		if (b.broken || !b.joint) continue;
+		if (quatAngleDeg(b.body.getRotation(), b.spawnRot) > BRANCH_DROOP_REPORT_DEG) n++;
+	}
+	return n;
 }
 
 // =================================================================================================

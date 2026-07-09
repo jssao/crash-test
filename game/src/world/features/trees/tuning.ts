@@ -67,13 +67,23 @@ export const MID_TRUNK_HEIGHT_M = 6.5;
 export const MID_MASS_KG = 320;
 export const MID_FRICTION = 0.7;
 
-export const MID_WELD_LINEAR_HERTZ = 0; // 0 = rigid (max stiffness) until it breaks
-export const MID_WELD_ANGULAR_HERTZ = 0;
-export const MID_WELD_DAMPING_RATIO = 1;
+// DESTRUCTION-FEEL: the root weld is now COMPLIANT in angle from spawn (a soft torsion spring, the
+// same bend-then-break idea the sapling's spherical spring already proves) instead of dead-rigid, so
+// a mid-speed hit visibly LEANS/creaks the heavy trunk and it springs back -- it only fells (the weld
+// breaks) once the impact FORCE crosses the raised threshold below. Linear stays rigid (hertz 0) so
+// the trunk never sinks into the ground; only the tip-over axis gives. A car contact is a one-step
+// force spike (no ramp), so pure in-place softening never engaged here -- baseline compliance is what
+// makes the lean real (measured: game/sim/destruction-feel.test.mjs).
+export const MID_WELD_LINEAR_HERTZ = 0;
+export const MID_WELD_ANGULAR_HERTZ = 4;
+export const MID_WELD_DAMPING_RATIO = 0.7;
 
-/** HIGH relative to the sapling's -- survives everyday bumps/glancing hits, breaks under a genuinely
- * fast (~80km/h) frontal impact. Calibrated empirically (game/sim/features-trees.test.mjs). */
-export const MID_FORCE_THRESHOLD_N = 260_000;
+/** Fell (weld-break) threshold. RAISED from 260kN so the mid trunk actually lives up to its own design
+ * note -- "only a fast car fells it": with the compliant weld above, peak contact FORCE scales cleanly
+ * with speed (~260kN@20km/h .. ~845kN@80km/h, measured), so a 550kN fell line leans the trunk at
+ * <=45km/h and fells it from ~55km/h up (still fells decisively at the 80km/h the feature test drives).
+ * Torque is largely absorbed by the angular compliance now, so force is the dominant trigger. */
+export const MID_FORCE_THRESHOLD_N = 550_000;
 export const MID_TORQUE_THRESHOLD_NM = 140_000;
 
 export const MID_SITES: readonly TreeSiteXZ[] = [
@@ -114,12 +124,16 @@ export const LARGE_BRANCH_LAYOUT: readonly { heightM: number; yawDeg: number }[]
 	{ heightM: 4.8, yawDeg: 330 },
 ];
 
+// DESTRUCTION-FEEL: branch welds are COMPLIANT in angle from spawn (soft torsion spring) so a branch
+// visibly BENDS/droops under a glancing load and springs back, then snaps off once the impact force
+// crosses the threshold -- rather than popping rigid->free in one step. Linear stays rigid so the
+// branch doesn't sag off its mount at rest.
 export const LARGE_WELD_LINEAR_HERTZ = 0;
-export const LARGE_WELD_ANGULAR_HERTZ = 0;
-export const LARGE_WELD_DAMPING_RATIO = 1;
+export const LARGE_WELD_ANGULAR_HERTZ = 40;
+export const LARGE_WELD_DAMPING_RATIO = 0.6;
 
-/** LOWER than the mid tree's trunk weld -- branches are meant to snap off readily on any real
- * impact. Calibrated empirically (game/sim/features-trees.test.mjs). */
+/** LOWER than the mid tree's trunk weld -- branches are meant to bend then snap off readily on any
+ * real impact. Calibrated empirically (game/sim/features-trees.test.mjs). */
 export const LARGE_BRANCH_FORCE_THRESHOLD_N = 30_000;
 export const LARGE_BRANCH_TORQUE_THRESHOLD_NM = 12_000;
 

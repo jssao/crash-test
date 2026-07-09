@@ -1,0 +1,155 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "evalExceptions": [],
+  "approachNudge": {
+    "steps": 482,
+    "finalPos": {
+      "x": 66.19385528564453,
+      "y": 0.23457863926887512,
+      "z": 12.79586410522461
+    },
+    "speedKmh": 70.64864992159322
+  },
+  "creep": {
+    "bent": 0,
+    "broken": 0,
+    "speedKmh": 22.14898073226862,
+    "steps": 219
+  },
+  "nudgeBentBrick": 12,
+  "nudgeBrokenBrick": 6,
+  "nudgeTelemetry": {
+    "speedKmh": 17.390705005353112,
+    "gear": 1,
+    "rpm": 1511.1715827872847,
+    "wheelOmegas": {
+      "fl": 13.240314483642578,
+      "fr": 11.998437881469727,
+      "rl": 11.948515892028809,
+      "rr": 10.941919326782227
+    },
+    "slipHints": {
+      "fl": 0.33321271636171357,
+      "fr": -0.1511191584856988,
+      "rl": -0.24227982971982964,
+      "rr": -0.6288129107745171
+    },
+    "steeringAngle": -0.00010812500113388523,
+    "chassisPos": {
+      "x": 69.34380340576172,
+      "y": 0.24702000617980957,
+      "z": 22.21479606628418
+    },
+    "chassisQuat": {
+      "x": -0.00019140001677442342,
+      "y": -0.9337839484214783,
+      "z": -0.0010471495334059,
+      "w": 0.35783591866493225
+    },
+    "rollAngleRad": -0.00039196291378512633,
+    "yawRateRadS": -0.2820762153331429,
+    "upDot": 0.9999977336877766,
+    "groundedWheelCount": 4,
+    "assistAuthority": 1,
+    "damage": {
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "broken",
+        "doorR": "broken",
+        "hatch": "attached",
+        "roof": "loosened"
+      },
+      "stressLevels": {
+        "hood": 103.22137682953343,
+        "doorL": 90.11621458295308,
+        "doorR": 91.71723095228653,
+        "hatch": 15.310543600965799,
+        "roof": 85.95104348021155
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 51595,
+      "glassShattered": [
+        "glass-BodyWindshield-1"
+      ]
+    }
+  },
+  "brokenAfterReset": 0,
+  "bentAfterReset": 0,
+  "approachBreach": {
+    "steps": 372,
+    "finalPos": {
+      "x": 66.55443572998047,
+      "y": 0.30466967821121216,
+      "z": 19.72537612915039
+    },
+    "speedKmh": 64.44832054329423
+  },
+  "breachBrokenBrick": 33,
+  "breachTelemetry": {
+    "speedKmh": 60.345513442503716,
+    "gear": 2,
+    "rpm": 3370.582051589597,
+    "wheelOmegas": {
+      "fl": 0,
+      "fr": -21.466115951538086,
+      "rl": 71.12899017333984,
+      "rr": 69.91265869140625
+    },
+    "slipHints": {
+      "fl": -16.65100078481846,
+      "fr": -25.022786005918313,
+      "rl": 10.66253144174404,
+      "rr": 10.195460152681541
+    },
+    "steeringAngle": 0.09932333209754901,
+    "chassisPos": {
+      "x": 67.20630645751953,
+      "y": 0.2902923822402954,
+      "z": 19.90172576904297
+    },
+    "chassisQuat": {
+      "x": -0.02445383183658123,
+      "y": 0.5652859807014465,
+      "z": 0.006706175394356251,
+      "w": 0.8245053291320801
+    },
+    "rollAngleRad": -0.016589022782574056,
+    "yawRateRadS": -0.020877684636480768,
+    "upDot": 0.9987140746401767,
+    "groundedWheelCount": 3,
+    "assistAuthority": 1,
+    "damage": {
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "broken",
+        "doorR": "broken",
+        "hatch": "broken",
+        "roof": "broken"
+      },
+      "stressLevels": {
+        "hood": 106.22315803706636,
+        "doorL": 107.10626381476754,
+        "doorR": 264.98573533739625,
+        "hatch": 90.27706589142414,
+        "roof": 162.43058286664956
+      },
+      "wheelStates": {
+        "fl": "detached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 57161,
+      "glassShattered": [
+        "glass-BodyWindshield-1"
+      ]
+    }
+  },
+  "timestamp": "2026-07-09T18:55:05.427Z"
+}

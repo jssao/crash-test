@@ -11,7 +11,7 @@
 // contact wakes its island, and the very next poll then sees the real (non-stale) constraint force.
 
 import type { FeatureContext, WorldFeature } from '../feature';
-import { buildAllStructures, pollStructureBreaks, resetStructure, totalBrokenJointCount, totalPieceCount } from './structures';
+import { buildAllStructures, pollStructureBreaks, resetStructure, totalBrokenJointCount, totalPieceCount, totalYieldedJointCount } from './structures';
 import {
 	applyBuildingsVisuals,
 	disposeBuildingsVisuals,
@@ -51,6 +51,13 @@ export default function createBuildingsFeature(ctx: FeatureContext): WorldFeatur
 			structures: structures.map((s) => ({ id: s.id, pieceCount: s.pieces.length, jointCount: s.joints.length })),
 			totalPieceCount: () => totalPieceCount(structures),
 			totalBrokenJointCount: () => totalBrokenJointCount(structures),
+			/** Joints currently plastically bent (yielded but not broken) -- the "bulge/slump/lean"
+			 * signal the destruction-feel work introduced. */
+			totalYieldedJointCount: () => totalYieldedJointCount(structures),
+			yieldedJointCountFor: (id: string): number => {
+				const s = structures.find((x) => x.id === id);
+				return s ? s.joints.filter((j) => !j.broken && j.stage === 'yielded').length : -1;
+			},
 			brokenJointCountFor: (id: string): number => {
 				const s = structures.find((x) => x.id === id);
 				return s ? s.joints.filter((j) => j.broken).length : -1;

@@ -26,19 +26,22 @@ export type { Q4, V3 };
 
 export const WOOD_STUD_MASS_KG = 3;
 export const WOOD_PLANK_MASS_KG = 4;
-export const WOOD_FRICTION = 0.6;
+export const WOOD_FRICTION = 0.7; // was 0.6 -- freed planks/studs clatter to rest instead of sliding forever
+export const WOOD_RESTITUTION = 0.12; // wood clatters (a little bounce), not a dead thud
 /** Studs/planks: low-medium weld strength -- a stud frame yields well before masonry. */
 export const WOOD_BREAK_FORCE_N = 3500;
 export const WOOD_BREAK_TORQUE_NM = 1800;
 
 export const DRYWALL_PANEL_MASS_KG = 7;
-export const DRYWALL_FRICTION = 0.4;
+export const DRYWALL_FRICTION = 0.34; // was 0.4 -- lower so burst drywall sheets flutter-slide flat
+export const DRYWALL_RESTITUTION = 0.0; // drywall doesn't bounce
 /** Lowest threshold in the whole feature -- "the car punches through easily" per spec. */
 export const DRYWALL_BREAK_FORCE_N = 900;
 export const DRYWALL_BREAK_TORQUE_NM = 450;
 
 export const BRICK_MASS_KG = 2.6;
-export const BRICK_FRICTION = 0.75;
+export const BRICK_FRICTION = 0.9; // was 0.75 -- bricks thud and tumble to rest quickly, not skate
+export const BRICK_RESTITUTION = 0.0; // masonry does not bounce
 /** High per-joint threshold -- individually strong, but a real car impact exceeds it along a wide
  * front so many bricks still cascade free ("the box3d showcase" per spec). */
 export const BRICK_BREAK_FORCE_N = 6000;
@@ -46,14 +49,109 @@ export const BRICK_BREAK_TORQUE_NM = 2200;
 
 export const PIPE_MASS_KG = 4;
 export const PIPE_FRICTION = 0.3;
+export const PIPE_RESTITUTION = 0.28; // galvanized pipe rings and rolls
 export const PIPE_RADIUS_M = 0.05;
 export const PIPE_HALF_LENGTH_M = 0.55; // 1.1m pipe segments
 
 export const FENCE_MASS_KG = 2.5;
-export const FENCE_FRICTION = 0.5;
+export const FENCE_FRICTION = 0.6; // was 0.5 (posts/rails are 'wood' material -> WOOD_RESTITUTION)
 /** Low thresholds -- fences are meant to break away easily. */
 export const FENCE_BREAK_FORCE_N = 700;
 export const FENCE_BREAK_TORQUE_NM = 350;
+
+// ---------------------------------------------------------------------------------------------
+// PLASTIC-YIELD PROFILES (destruction-feel: bend-then-break). Generalizes damage/welds.ts's panel
+// LOOSEN->BREAK escalation to structures: a weld under over-YIELD (but under-BREAK) load softens IN
+// PLACE (runtime hertz/damping setters, exactly like loosenPanelWeld()) so the piece visibly leans/
+// bulges/creases and BLEEDS impact energy, instead of every weld snapping rigid->free in one step.
+// This is what interrupts the brick-wall cascade at low speed (a slow nudge now bulges/slumps a few
+// courses instead of vaporizing all 120 bricks) while a fast hit still spikes past BREAK on the first
+// contact step and sprays. See structures.ts's pollStructureBreaks() for the state machine.
+//
+// - yieldForceFrac/yieldTorqueFrac: onset of plastic yield, as a fraction of the piece's BREAK
+//   threshold. Below this the weld is rigid (hertz 0).
+// - yield{Linear,Angular}Hertz + yieldDampingRatio: the softened spring once yielded. Lower Hz = the
+//   piece leans/sags further before load re-balances.
+// - ductileBreakMult: from the yielded (bent) stage the weld only fully separates once force exceeds
+//   BREAK * this. 1 = brittle (masonry/drywall: yields a touch then sprays). >1 = ductile (studs/
+//   posts: crease and lean, stay attached unless hit HARD again -- "permanently bent").
+// - breakSpeedCapMs/breakSpinCapRad: at the instant a weld breaks, the freed piece's velocity is
+//   clamped to these (impulse-proportional release) so debris thuds/tumbles instead of rocketing
+//   tens of metres (baseline had single bricks flung 77m). Generous enough to still read as a spray.
+// ---------------------------------------------------------------------------------------------
+
+export interface YieldProfile {
+	readonly yieldForceFrac: number;
+	readonly yieldTorqueFrac: number;
+	readonly yieldLinearHertz: number;
+	readonly yieldAngularHertz: number;
+	readonly yieldDampingRatio: number;
+	readonly ductileBreakMult: number;
+	readonly breakSpeedCapMs: number;
+	readonly breakSpinCapRad: number;
+}
+
+/** Masonry: brittle, but yields a little first so a low-speed hit bulges/slumps a course rather than
+ * detonating the whole wall. Cap keeps the spray from rocketing. */
+export const BRICK_PROFILE: YieldProfile = {
+	yieldForceFrac: 0.4,
+	yieldTorqueFrac: 0.4,
+	yieldLinearHertz: 14,
+	yieldAngularHertz: 10,
+	yieldDampingRatio: 0.8,
+	ductileBreakMult: 1.0,
+	breakSpeedCapMs: 7.5,
+	breakSpinCapRad: 16,
+};
+
+/** Drywall: near-brittle (punches through easily, per spec) -- barely softens before bursting. */
+export const DRYWALL_PROFILE: YieldProfile = {
+	yieldForceFrac: 0.75,
+	yieldTorqueFrac: 0.75,
+	yieldLinearHertz: 8,
+	yieldAngularHertz: 6,
+	yieldDampingRatio: 0.4,
+	ductileBreakMult: 1.0,
+	breakSpeedCapMs: 12,
+	breakSpinCapRad: 24,
+};
+
+/** Wood stud/plank frame: DUCTILE -- creases and leans under load and stays attached (studs bow at the
+ * base, planks hang askew) unless a much harder hit finally snaps them free. */
+export const WOOD_STUD_PROFILE: YieldProfile = {
+	yieldForceFrac: 0.35,
+	yieldTorqueFrac: 0.35,
+	yieldLinearHertz: 5,
+	yieldAngularHertz: 3.5,
+	yieldDampingRatio: 0.5,
+	ductileBreakMult: 2.4,
+	breakSpeedCapMs: 10,
+	breakSpinCapRad: 18,
+};
+
+/** Light roof panel: brittle-ish, snaps off on a real hit but sags first. */
+export const ROOF_PROFILE: YieldProfile = {
+	yieldForceFrac: 0.5,
+	yieldTorqueFrac: 0.5,
+	yieldLinearHertz: 7,
+	yieldAngularHertz: 5,
+	yieldDampingRatio: 0.45,
+	ductileBreakMult: 1.15,
+	breakSpeedCapMs: 12,
+	breakSpinCapRad: 22,
+};
+
+/** Fence: leans at the base first, then breaks away readily (fences are meant to give way). */
+export const FENCE_PROFILE: YieldProfile = {
+	yieldForceFrac: 0.45,
+	yieldTorqueFrac: 0.45,
+	yieldLinearHertz: 6,
+	yieldAngularHertz: 4,
+	yieldDampingRatio: 0.5,
+	ductileBreakMult: 1.25,
+	breakSpeedCapMs: 11,
+	breakSpinCapRad: 20,
+};
 
 // ---------------------------------------------------------------------------------------------
 // 1) Garden shed -- wood stud frame + plank walls + light roof panels.

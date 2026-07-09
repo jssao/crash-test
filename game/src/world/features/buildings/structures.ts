@@ -19,6 +19,8 @@ import {
 	BRICK_FRICTION,
 	BRICK_HALF_EXTENTS,
 	BRICK_MASS_KG,
+	BRICK_PROFILE,
+	BRICK_RESTITUTION,
 	BRICK_WALL_CENTER,
 	BRICK_WALL_COLUMNS,
 	BRICK_WALL_LENGTH_M,
@@ -35,6 +37,8 @@ import {
 	DRYWALL_BREAK_TORQUE_NM,
 	DRYWALL_FRICTION,
 	DRYWALL_PANEL_MASS_KG,
+	DRYWALL_PROFILE,
+	DRYWALL_RESTITUTION,
 	FENCE_BREAK_FORCE_N,
 	FENCE_BREAK_TORQUE_NM,
 	FENCE_CONFIGS,
@@ -42,6 +46,7 @@ import {
 	FENCE_MASS_KG,
 	FENCE_POST_HALF_CROSS_M,
 	FENCE_POST_HEIGHT_M,
+	FENCE_PROFILE,
 	FENCE_RAIL_HALF_DEPTH_M,
 	FENCE_RAIL_HALF_HEIGHT_M,
 	FENCE_RAIL_HEIGHTS_M,
@@ -52,6 +57,8 @@ import {
 	PIPE_HALF_LENGTH_M,
 	PIPE_MASS_KG,
 	PIPE_RADIUS_M,
+	PIPE_RESTITUTION,
+	ROOF_PROFILE,
 	SHED_CENTER,
 	SHED_DEPTH_M,
 	SHED_PLANK_THICKNESS_HALF_M,
@@ -65,8 +72,11 @@ import {
 	WOOD_BREAK_TORQUE_NM,
 	WOOD_FRICTION,
 	WOOD_PLANK_MASS_KG,
+	WOOD_RESTITUTION,
 	WOOD_STUD_MASS_KG,
+	WOOD_STUD_PROFILE,
 	type FenceConfig,
+	type YieldProfile,
 } from './tuning';
 
 export type PieceKind = 'stud' | 'plank' | 'roof' | 'drywall' | 'pipe' | 'brick' | 'post' | 'rail' | 'footing';
@@ -90,6 +100,48 @@ export interface StructureJointRecord {
 	spec: WeldSpec;
 	joint: ReturnType<World['createWeldJoint']> | null;
 	broken: boolean;
+	/** Plastic-yield profile for this weld's material (see tuning.ts). */
+	profile: YieldProfile;
+	/** 'rigid' until the weld first yields, then 'yielded' (softened in place, piece leans/bulges). */
+	stage: 'rigid' | 'yielded';
+	/** The dynamic piece body released when this weld breaks (bodyA is always the dynamic piece in
+	 * every addWeld() call site) -- its velocity is clamped at break-time for impulse-proportional
+	 * release. */
+	readonly pieceBody: Body;
+}
+
+/** Per-material contact restitution (bricks/drywall thud, wood clatters, pipe rings) -- masonry and
+ * drywall do not bounce; wood/pipe get a little. */
+function restitutionFor(material: PieceMaterial): number {
+	switch (material) {
+		case 'brick':
+			return BRICK_RESTITUTION;
+		case 'drywall':
+			return DRYWALL_RESTITUTION;
+		case 'pipe':
+			return PIPE_RESTITUTION;
+		case 'wood':
+			return WOOD_RESTITUTION;
+	}
+}
+
+/** Clamp a freed debris body's linear+angular velocity to a per-material cap at the instant its weld
+ * breaks -- keeps the release impulse-proportional (debris tumbles a few metres) instead of the
+ * baseline's explosive fling (single bricks were flung 60-77m). Direction is preserved; only excess
+ * magnitude is trimmed. */
+function clampDebrisVelocity(body: Body, capMs: number, capRad: number): void {
+	const v = body.getLinearVelocity();
+	const s = Math.hypot(v.x, v.y, v.z);
+	if (s > capMs) {
+		const k = capMs / s;
+		body.setLinearVelocity({ x: v.x * k, y: v.y * k, z: v.z * k });
+	}
+	const w = body.getAngularVelocity();
+	const ws = Math.hypot(w.x, w.y, w.z);
+	if (ws > capRad) {
+		const k = capRad / ws;
+		body.setAngularVelocity({ x: w.x * k, y: w.y * k, z: w.z * k });
+	}
 }
 
 export interface Structure {
@@ -110,13 +162,15 @@ function addBoxPiece(
 	material: PieceMaterial,
 	isStatic: boolean,
 ): Body {
-	const { body, shape } = isStatic ? spawnStaticBox(world, pos, rot, half, friction) : spawnDynamicBox(world, pos, rot, half, massKg, friction);
+	const { body, shape } = isStatic
+		? spawnStaticBox(world, pos, rot, half, friction)
+		: spawnDynamicBox(world, pos, rot, half, massKg, friction, restitutionFor(material));
 	structure.pieces.push({ body, shape, kind, material, spawnPos: pos, spawnRot: rot, isStatic, half });
 	return body;
 }
 
 function addCapsulePiece(structure: Structure, world: World, pos: V3, halfLength: number, radius: number, massKg: number, friction: number): Body {
-	const { body, shape } = spawnDynamicCapsuleVertical(world, pos, halfLength, radius, massKg, friction);
+	const { body, shape } = spawnDynamicCapsuleVertical(world, pos, halfLength, radius, massKg, friction, restitutionFor('pipe'));
 	structure.pieces.push({ body, shape, kind: 'pipe', material: 'pipe', spawnPos: pos, spawnRot: IDENTITY_Q, isStatic: false, capsule: { halfLength, radius } });
 	return body;
 }
@@ -133,9 +187,10 @@ function addWeld(
 	anchorWorld: V3,
 	forceThresholdN: number,
 	torqueThresholdNm: number,
+	profile: YieldProfile,
 ): void {
 	const { joint, spec } = weldAt(world, bodyA, posA, rotA, bodyB, posB, rotB, anchorWorld, forceThresholdN, torqueThresholdNm);
-	structure.joints.push({ spec, joint, broken: false });
+	structure.joints.push({ spec, joint, broken: false, profile, stage: 'rigid', pieceBody: bodyA });
 }
 
 function evenPositions(start: number, end: number, spacing: number): number[] {
@@ -184,7 +239,7 @@ function buildWallRun(
 		studBodies.push(body);
 		studPos.push(pos);
 		const anchor: V3 = { x: pos.x, y: 0, z: pos.z };
-		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM);
+		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM, WOOD_STUD_PROFILE);
 	}
 
 	const plankOffset = studHalfCross + plankThicknessHalf;
@@ -203,7 +258,7 @@ function buildWallRun(
 		const plankBody = addBoxPiece(structure, world, plankPos, IDENTITY_Q, plankHalf, WOOD_PLANK_MASS_KG, WOOD_FRICTION, 'plank', 'wood', false);
 		const stud = studBodies[i];
 		const anchor: V3 = axis === 'x' ? { x: positions[i], y: wallHeight / 2, z: fixed } : { x: fixed, y: wallHeight / 2, z: positions[i] };
-		addWeld(structure, world, plankBody, plankPos, IDENTITY_Q, stud, studPos[i], IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM);
+		addWeld(structure, world, plankBody, plankPos, IDENTITY_Q, stud, studPos[i], IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM, WOOD_STUD_PROFILE);
 	}
 
 	return { studPos, studBodies };
@@ -261,7 +316,7 @@ export function buildShed(world: World): Structure {
 			const stud = edgeStuds.studBodies[nearestIdx];
 			const studPos = edgeStuds.studPos[nearestIdx];
 			const anchor: V3 = { x: studPos.x, y: SHED_WALL_HEIGHT_M, z: zEdge };
-			addWeld(structure, world, body, pos, rot, stud, studPos, IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N * 0.6, WOOD_BREAK_TORQUE_NM * 0.6);
+			addWeld(structure, world, body, pos, rot, stud, studPos, IDENTITY_Q, anchor, WOOD_BREAK_FORCE_N * 0.6, WOOD_BREAK_TORQUE_NM * 0.6, ROOF_PROFILE);
 		}
 	}
 
@@ -296,7 +351,7 @@ function buildCornerSegment(
 		const body = addBoxPiece(structure, world, pos, IDENTITY_Q, studHalf, WOOD_STUD_MASS_KG, WOOD_FRICTION, 'stud', 'wood', false);
 		studBodies.push(body);
 		studPos.push(pos);
-		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: pos.x, y: 0, z: pos.z }, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM);
+		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: pos.x, y: 0, z: pos.z }, WOOD_BREAK_FORCE_N, WOOD_BREAK_TORQUE_NM, WOOD_STUD_PROFILE);
 	}
 
 	// Drywall sheets on both faces, one sheet per ~sheet-width bay, welded to the bay's near stud.
@@ -326,7 +381,7 @@ function buildCornerSegment(
 			const stud = studBodies[nearestIdx];
 			const sPos = studPos[nearestIdx];
 			const anchor: V3 = axis === 'x' ? { x: sPos.x, y: CORNER_WALL_HEIGHT_M / 2, z: fixed } : { x: fixed, y: CORNER_WALL_HEIGHT_M / 2, z: sPos.z };
-			addWeld(structure, world, body, pos, IDENTITY_Q, stud, sPos, IDENTITY_Q, anchor, DRYWALL_BREAK_FORCE_N, DRYWALL_BREAK_TORQUE_NM);
+			addWeld(structure, world, body, pos, IDENTITY_Q, stud, sPos, IDENTITY_Q, anchor, DRYWALL_BREAK_FORCE_N, DRYWALL_BREAK_TORQUE_NM, DRYWALL_PROFILE);
 			cursor += sheetLen;
 		}
 	}
@@ -393,13 +448,13 @@ export function buildBrickWall(world: World): Structure {
 			const a = rowBricks[col];
 			const b = rowBricks[col + 1];
 			const anchor: V3 = { x: (a.pos.x + b.pos.x) / 2, y, z: c.z };
-			addWeld(structure, world, a.body, a.pos, IDENTITY_Q, b.body, b.pos, IDENTITY_Q, anchor, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM);
+			addWeld(structure, world, a.body, a.pos, IDENTITY_Q, b.body, b.pos, IDENTITY_Q, anchor, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM, BRICK_PROFILE);
 		}
 		// Vertical: weld each brick to its nearest-overlap neighbor in the row below (or the footing
 		// for row 0).
 		if (r === 0) {
 			for (const brick of rowBricks) {
-				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: brick.pos.x, y: 0, z: c.z }, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM);
+				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: brick.pos.x, y: 0, z: c.z }, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM, BRICK_PROFILE);
 			}
 		} else {
 			const below = rows[r - 1];
@@ -415,7 +470,7 @@ export function buildBrickWall(world: World): Structure {
 				}
 				const target = below[nearestIdx];
 				const anchor: V3 = { x: (target.pos.x + brick.pos.x) / 2, y: (target.pos.y + brick.pos.y) / 2, z: c.z };
-				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, target.body, target.pos, IDENTITY_Q, anchor, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM);
+				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, target.body, target.pos, IDENTITY_Q, anchor, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM, BRICK_PROFILE);
 			}
 		}
 		rows.push(rowBricks);
@@ -447,7 +502,7 @@ export function buildFenceLine(world: World, config: FenceConfig): Structure {
 		const body = addBoxPiece(structure, world, pos, IDENTITY_Q, postHalf, FENCE_MASS_KG, FENCE_FRICTION, 'post', 'wood', false);
 		postXs.push(x);
 		postBodies.push(body);
-		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x, y: 0, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM);
+		addWeld(structure, world, body, pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x, y: 0, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM, FENCE_PROFILE);
 	}
 
 	for (let i = 0; i < FENCE_SPAN_COUNT; i++) {
@@ -459,7 +514,7 @@ export function buildFenceLine(world: World, config: FenceConfig): Structure {
 			const body = addBoxPiece(structure, world, pos, IDENTITY_Q, half, FENCE_MASS_KG * 0.6, FENCE_FRICTION, 'rail', 'wood', false);
 			const post = postBodies[i];
 			const postPos: V3 = { x: postXs[i], y: FENCE_POST_HEIGHT_M / 2, z: c.z };
-			addWeld(structure, world, body, pos, IDENTITY_Q, post, postPos, IDENTITY_Q, { x: postXs[i], y: railY, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM);
+			addWeld(structure, world, body, pos, IDENTITY_Q, post, postPos, IDENTITY_Q, { x: postXs[i], y: railY, z: c.z }, FENCE_BREAK_FORCE_N, FENCE_BREAK_TORQUE_NM, FENCE_PROFILE);
 		}
 	}
 
@@ -503,32 +558,72 @@ export function resetStructure(world: World, structure: Structure): void {
 		}
 		record.joint = rebuildWeld(world, record.spec);
 		record.broken = false;
+		record.stage = 'rigid'; // rebuildWeld() restores the rigid (hertz-0) weld; clear the yield state to match
 	}
 }
 
 /**
- * Polls every still-live joint's constraint force/torque against its stored threshold (same model as
- * damage/welds.ts's direct-force-spike check -- NOT world.jointEvents(), see index.ts's doc comment
- * for why), destroying+marking-broken any that exceed it. Call once per fixed step, AFTER
- * world.step() (so getConstraintForce() reflects this step's solve). Exported (rather than kept
- * private to index.ts) so headless sim tests that import this module directly -- skipping the
+ * Advances the PLASTIC-YIELD -> BREAK state machine for every still-live joint. Call once per fixed
+ * step, AFTER world.step() (so getConstraintForce() reflects this step's solve). Exported (rather than
+ * kept private to index.ts) so headless sim tests that import this module directly -- skipping the
  * WorldFeature registry entirely, per registry.ts's own doc comment -- still exercise the exact same
- * break logic the browser game runs. Returns the number of joints newly broken this call.
+ * logic the browser game runs. Returns the number of joints newly broken this call.
+ *
+ * Per joint, using the constraint force/torque measured on its CURRENT stiffness (generalizes damage/
+ * welds.ts's direct-force-spike check -- NOT world.jointEvents(), see index.ts's doc comment):
+ *
+ *   1. BREAK first. A weld breaks once force/torque exceeds BREAK * ductileBreakMult. Because break is
+ *      checked before yield, a hard (fast) hit that spikes a still-RIGID weld straight past the break
+ *      line snaps it on the first contact step -> the wall sprays. For ductile materials (studs/posts,
+ *      mult > 1) the softened yielded weld rarely climbs back to that raised line, so they stay bent.
+ *      The freed piece's release velocity is clamped (impulse-proportional; see clampDebrisVelocity).
+ *
+ *   2. Else YIELD. A still-RIGID weld whose force/torque crosses the (lower) yield line softens IN
+ *      PLACE via the runtime hertz/damping setters (exactly loosenPanelWeld()'s trick) -- the piece
+ *      now leans/bulges/creases and bleeds impact energy. A softened weld transmits LESS force to its
+ *      neighbours, which is what interrupts the brick-wall cascade at low speed: a slow nudge bulges/
+ *      slumps a few courses instead of detonating all 120 bricks.
  */
 export function pollStructureBreaks(structure: Structure): number {
 	let brokenThisCall = 0;
 	for (const record of structure.joints) {
 		if (record.broken || !record.joint) continue;
+		const p = record.profile;
 		const forceMag = length(record.joint.getConstraintForce());
 		const torqueMag = length(record.joint.getConstraintTorque());
-		if (forceMag > record.spec.forceThresholdN || torqueMag > record.spec.torqueThresholdNm) {
+
+		const breakF = record.spec.forceThresholdN * p.ductileBreakMult;
+		const breakT = record.spec.torqueThresholdNm * p.ductileBreakMult;
+		if (forceMag > breakF || torqueMag > breakT) {
+			clampDebrisVelocity(record.pieceBody, p.breakSpeedCapMs, p.breakSpinCapRad);
 			record.joint.destroy();
 			record.joint = null;
 			record.broken = true;
 			brokenThisCall++;
+			continue;
+		}
+
+		if (record.stage === 'rigid') {
+			const yieldF = record.spec.forceThresholdN * p.yieldForceFrac;
+			const yieldT = record.spec.torqueThresholdNm * p.yieldTorqueFrac;
+			if (forceMag > yieldF || torqueMag > yieldT) {
+				record.joint.setLinearHertz(p.yieldLinearHertz);
+				record.joint.setAngularHertz(p.yieldAngularHertz);
+				record.joint.setLinearDampingRatio(p.yieldDampingRatio);
+				record.joint.setAngularDampingRatio(p.yieldDampingRatio);
+				record.stage = 'yielded';
+			}
 		}
 	}
 	return brokenThisCall;
+}
+
+/** Count of joints currently in the plastic-yielded (bent-but-attached) state -- exposed for the
+ * feature's playtest hooks + the destruction-feel test's bend-signature assertions. */
+export function totalYieldedJointCount(structures: readonly Structure[]): number {
+	let n = 0;
+	for (const s of structures) for (const j of s.joints) if (!j.broken && j.stage === 'yielded') n++;
+	return n;
 }
 
 export function totalPieceCount(structures: readonly Structure[]): number {
