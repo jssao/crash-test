@@ -16,9 +16,15 @@
 // This test asserts the SPECIFIC thing kicker-jump.test.mjs (catches air / lands upright / still
 // drivable) does not check numerically: that the chassis's pitch RATE is not artificially killed while
 // genuinely airborne. Same kicker-ramp launch script as kicker-jump.test.mjs, including its yaw-angle
-// lane-centering correction and shared (unpinned) ground -- see that file's header comment (vehicle
-// deep-pass residual 3) for why the correction is yaw-based rather than position-based, and why the
-// ground half-size no longer needs pinning.
+// lane-centering correction, its speed-held lift-before-the-jump approach (RE-CALIBRATED airborne
+// round 3 -- see that file's header comment for the measured entry-speed sweep: a full-send 73km/h
+// hit now honestly backflips under the strict >=3-wheel assist gating, so the drivability-contract
+// tests enter at a measured lands-clean ~58km/h; asymmetric-launch.test.mjs owns the flip-is-reachable
+// contract), and shared (unpinned) ground -- see that file's header comment (vehicle deep-pass
+// residual 3) for why the correction is yaw-based rather than position-based, and why the ground
+// half-size no longer needs pinning. (The SUSTAINED_AIRBORNE_STEPS/PARTIAL_AUTHORITY_FLOOR floor
+// machinery an older revision of this comment referenced was retired in round 3 -- takeoff is now an
+// instant full authority cut, which this test's authority===0 "early" pick relies on directly.)
 // RE-CALIBRATED (vehicle deep-pass, GATE-A item 4 regression, root-caused): the friction fix (residual
 // 1) makes the kicker launch meaningfully harder/more heavily loaded at the moment of departure, which
 // stretched out the launch's own angular-rate RAMP-UP transient (chassis pitching up under a much
@@ -74,12 +80,18 @@ describe('airborne-momentum', () => {
 		let airborne = false;
 		let airStepIdx = 0;
 		const log = [];
-		const DRIVE_STEPS = 360;
+		const KICKER_ENTRY_SPEED_MS = 16.1; // ~58km/h -- see kicker-jump.test.mjs's re-calibration note
+		const THROTTLE_CUT_Z = 41;
+		const DRIVE_STEPS = 420;
 		for (let i = 0; i < DRIVE_STEPS; i++) {
-			const x = vehicle.chassis.getPosition().x;
+			const pos = vehicle.chassis.getPosition();
+			const vel = vehicle.chassis.getLinearVelocity();
+			const speed = Math.hypot(vel.x, vel.y, vel.z);
+			const x = pos.x;
 			const yaw = yawFromQuat(vehicle.chassis.getRotation());
 			const steer = Math.max(-0.3, Math.min(0.3, yaw * 5 + x * 0.01));
-			stepVehicle(vehicle, { throttle: 1, brake: 0, steer, handbrake: false }, FIXED_DT);
+			const throttle = pos.z < THROTTLE_CUT_Z && speed < KICKER_ENTRY_SPEED_MS ? 1 : 0;
+			stepVehicle(vehicle, { throttle, brake: 0, steer, handbrake: false }, FIXED_DT);
 			world.step(FIXED_DT, FIXED_SUBSTEPS);
 
 			const h = wheelHeights(vehicle);
@@ -104,12 +116,16 @@ describe('airborne-momentum', () => {
 		expect(log.length).toBeGreaterThan(15); // genuinely caught sustained air (matches kicker-jump's bar)
 
 		// "early" reference: the first sample where the vehicle's OWN ground-authority gate has fully
-		// disengaged (assistAuthority === 0, see this file's header comment) -- the first point in the
-		// log genuinely representative of unassisted free flight, not a fixed sample count tuned to the
-		// old launch profile. Falls back to a late-log sample if authority never fully reaches 0 (should
+		// disengaged (assistAuthority === 0, see this file's header comment), PLUS a 5-sample settle
+		// offset -- under round 3's INSTANT takeoff cut, authority reaches 0 on the very first airborne
+		// sample, which still sits in the launch's own angular-rate ramp-up transient (measured at the
+		// 58km/h entry: pitch rate 0.035 at sample 0 rising through 0.87 by sample 4, then holding a
+		// conserved ~1.52 to the end of flight); comparing retention against that not-yet-developed
+		// sample-0 rate would make the assertion vacuous, so "early" is the first settled free-flight
+		// sample instead. Falls back to a late-log sample if authority never fully reaches 0 (should
 		// not happen for a real sustained jump, but keeps this well-defined either way).
 		let earlyIdx = log.findIndex((l) => l.assistAuthority === 0);
-		if (earlyIdx === -1) earlyIdx = Math.min(5, log.length - 2);
+		earlyIdx = earlyIdx === -1 ? Math.min(5, log.length - 2) : Math.min(earlyIdx + 5, log.length - 2);
 		const early = Math.abs(log[earlyIdx].pitchRate);
 		const last = Math.abs(log[log.length - 1].pitchRate);
 		console.log(

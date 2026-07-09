@@ -65,7 +65,6 @@ import {
 	LATERAL_GRIP_MIN_SPEED_MS,
 	LATERAL_GRIP_PEAK_G,
 	LATERAL_GRIP_RAMP_EXPONENT,
-	PARTIAL_AUTHORITY_FLOOR,
 	REVERSE_ENGAGE_SPEED_MS,
 	REVERSE_MAX_SPEED_MS,
 	STEER_CLAMP_MAX_RAD,
@@ -84,7 +83,6 @@ import {
 	SUSPENSION_RESTLENGTH_OFFSET_M,
 	SUSPENSION_SETTLE_GRACE_STEPS,
 	SUSPENSION_UPPER_LIMIT_M,
-	SUSTAINED_AIRBORNE_STEPS,
 	SLIP_OVERRIDE_DEBOUNCE_STEPS,
 	TRACTION_SLIP_ALLOWANCE_RAD_S,
 	TRACTION_SLIP_CUTOFF_RAD_S,
@@ -215,13 +213,6 @@ export interface Vehicle {
 	wheelGrounded: Record<WheelKey, boolean>;
 	groundAuthority: number;
 	brakeRamp: number;
-	/**
-	 * Consecutive steps with <=1 wheel grounded -- see tuning.ts's SUSTAINED_AIRBORNE_STEPS doc comment
-	 * (diagnostic-A-regression fix: distinguishes a real off-a-ramp jump from a brief multi-wheel
-	 * unloading event during hard oscillating-steer weight transfer, which must NOT fully zero the
-	 * anti-roll/anti-pitch assists the way a genuine sustained jump correctly does).
-	 */
-	lowContactStreak: number;
 	/**
 	 * Steps remaining in the post-spawn/post-reset suspension-SETTLE grace window, during which every
 	 * wheel is forced "grounded" regardless of the raw deflection reading. FIX (found while validating
@@ -447,7 +438,6 @@ export function createVehicle(
 		wheelGrounded: { fl: true, fr: true, rl: true, rr: true },
 		groundAuthority: 1,
 		brakeRamp: 0,
-		lowContactStreak: 0,
 		settleStepsRemaining: SUSPENSION_SETTLE_GRACE_STEPS,
 		wheelSlipOverCutoffStreak: { fl: 0, fr: 0, rl: 0, rr: 0 },
 	};
@@ -519,7 +509,6 @@ export function resetVehicle(vehicle: Vehicle): void {
 	}
 	vehicle.groundAuthority = 1;
 	vehicle.brakeRamp = 0;
-	vehicle.lowContactStreak = 0;
 	vehicle.settleStepsRemaining = SUSPENSION_SETTLE_GRACE_STEPS;
 }
 
@@ -665,30 +654,54 @@ function updateWheelGroundContact(vehicle: Vehicle, key: WheelKey): boolean {
 }
 
 /**
- * Rate-limits the ground-only assists' (anti-roll/yaw-damping/anti-pitch/lateral-grip) authority
- * toward a target derived from how many of the 4 wheels are currently grounded: full authority (1) at
- * >=2 grounded, 0.5 at exactly 1, zero (0) only once ALL 4 wheels have been continuously ungrounded
- * for SUSTAINED_AIRBORNE_STEPS (see that constant's doc comment for why 2-grounded doesn't reduce
- * authority at all, and why the drop to 0 needs a genuine sustained streak, not just an instantaneous
- * 0-grounded reading). See tuning.ts's ASSIST_AUTHORITY_RAMP_TIME_S doc comment for why this ramps
- * rather than snaps (so a landing doesn't instantly reintroduce full-strength leveling torque against
- * whatever attitude the car landed at).
+ * Ground-only assist authority, STRICTLY gated to >=3-wheel ground contact -- ASYMMETRIC-LAUNCH
+ * HONESTY REWRITE (airborne round 3, user escalation: a car launching HALF-ON the kicker ramp
+ * "corrects itself flat before landing instead of flipping"). The old policy (full authority at >=2
+ * grounded, PARTIAL_AUTHORITY_FLOOR below that until SUSTAINED_AIRBORNE_STEPS elapsed, symmetric
+ * ramp in both directions) had two dishonesty leaks for asymmetric launches specifically:
+ *   1. A half-on-ramp launch keeps EXACTLY 2 wheels (the off-ramp side) grounded until the lip --
+ *      the >=2 rule held the assists at FULL authority while the ramp geometry was actively
+ *      imparting the roll rate, killing the rotation at its source.
+ *   2. The symmetric ASSIST_AUTHORITY_RAMP_TIME_S ramp bled decaying-but-nonzero authority into the
+ *      first ~0.15s of genuine flight (takeoff reused the ramp that only ever made sense for
+ *      landing re-entry smoothing).
+ * New policy (every claim re-measured against the full battery -- see tuning.ts's assist-retirement
+ * audit doc comment above ANTI_ROLL_ENABLED):
+ *   - target 1 ONLY at >=3 wheels grounded (one lifted wheel in ordinary hard cornering is still
+ *     real suspension feedback); 0 at <=2 (that state is either a genuine launch developing or a
+ *     two-wheel balance no leveling torque should be faking stability for).
+ *   - DOWNWARD: instant cut, zero authority bleed into flight (removing an assist torque is not a
+ *     physical discontinuity -- it just stops fighting whatever rotation is real).
+ *   - UPWARD: still ramped over ASSIST_AUTHORITY_RAMP_TIME_S -- landing-only smoothing, so touchdown
+ *     doesn't snap full-strength leveling torque on against whatever attitude the car landed at.
+ * The lowContactStreak/SUSTAINED_AIRBORNE_STEPS/PARTIAL_AUTHORITY_FLOOR machinery this replaces was
+ * removed rather than kept as dead complexity -- it existed to protect a sustained-oscillation
+ * rollover mode that was re-measured green under the new hard-cut policy (see tuning.ts).
  */
 function updateGroundAuthority(vehicle: Vehicle, groundedCount: number, dt: number): number {
-	// rawTarget: FULL authority at >=2 grounded (ordinary hard-cornering weight transfer routinely
-	// lifts one wheel, or one diagonal pair briefly -- that's still real suspension feedback, not
-	// flight, and reducing authority for it was found to trigger real, previously-masked rollovers in
-	// sustained-oscillation.test.mjs's hard-oscillating-steer scenario: fixing diagnostic B's drift bug
-	// made the car track commanded steer more faithfully/sharply than the gains were ever validated
-	// against, and even a modest, brief authority reduction right as a roll begins turned out to be
-	// enough to tip an otherwise-recoverable disturbance past the point where any amount of anti-roll
-	// torque can pull it back). Only 0-1 grounded (see tuning.ts's SUSTAINED_AIRBORNE_STEPS doc comment)
-	// counts toward genuinely losing contact.
-	vehicle.lowContactStreak = groundedCount === 0 ? vehicle.lowContactStreak + 1 : 0;
-	const rawTarget = groundedCount >= 2 ? 1 : groundedCount === 1 ? 0.5 : 0;
-	const target = vehicle.lowContactStreak >= SUSTAINED_AIRBORNE_STEPS ? rawTarget : Math.max(rawTarget, PARTIAL_AUTHORITY_FLOOR);
-	const maxDelta = dt / ASSIST_AUTHORITY_RAMP_TIME_S;
-	vehicle.groundAuthority = clamp(vehicle.groundAuthority + clamp(target - vehicle.groundAuthority, -maxDelta, maxDelta), 0, 1);
+	// WHEEL-SUPPORT PLAUSIBILITY (measured leak, asym-launch probe at 20m/s half-on the kicker):
+	// mid-tumble, the wheels swing on their springs from ROTATIONAL/INERTIAL load alone --
+	// getSuspensionDeflection() read >ENTER on 3 wheels for ~5 consecutive steps with every wheel
+	// >0.18m clear of the ground (and again for a step during the mid-trajectory ROOF slam), ramping
+	// authority to 0.444 in genuine mid-flight: the deflection proxy cannot see rotation-induced
+	// spring load on its own. Every measured leak step had the car past 90deg of roll/pitch (upDot
+	// -0.89..-1.00), which points at the physical discriminator: suspension springs can only push
+	// along chassis-down, so with upDot <= 0.5 their vertical support component is under half its
+	// magnitude and "3+ wheels are carrying the car" is implausible regardless of what deflection
+	// reads -- and a leveling torque against a car on its roof/side is exactly the auto-leveling
+	// dishonesty this gating exists to prevent. (A stricter chassis free-fall-acceleration gate was
+	// prototyped and REMOVED: redundant with this check for every measured leak, and it measurably
+	// perturbed the crash suites -- a hard wall crash contains real 1-3-step free-fall-grade bounce
+	// windows whose assist cut reshuffled cardetail-containment's detach outcomes.)
+	const wheelsCanSupport = dot(chassisUp(vehicle.chassis.getRotation()), { x: 0, y: 1, z: 0 }) > 0.5;
+
+	const target = groundedCount >= 3 && wheelsCanSupport ? 1 : 0;
+	if (target < vehicle.groundAuthority) {
+		vehicle.groundAuthority = target; // takeoff/contact-loss: instant, no authority bleed into flight
+	} else {
+		const maxDelta = dt / ASSIST_AUTHORITY_RAMP_TIME_S;
+		vehicle.groundAuthority = clamp(vehicle.groundAuthority + Math.min(target - vehicle.groundAuthority, maxDelta), 0, 1);
+	}
 	return vehicle.groundAuthority;
 }
 
@@ -1019,10 +1032,10 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	if (fl.joint) fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 	if (fr.joint) fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 
-	// ---- Anti-roll + yaw-damping + anti-pitch + lateral-grip assists, gated by ground authority ----
-	// FIX (diagnostic A): these 4 terms only make physical sense while the car is meaningfully in
-	// contact with the ground -- summed, then scaled by groundAuthority (1 at >=3 wheels grounded, 0
-	// at 0-1, ramped smoothly on transitions, see updateGroundAuthority()) rather than applied
+	// ---- Ground-only assists, gated by ground authority ----
+	// These terms only make physical sense while the car is meaningfully in contact with the ground --
+	// summed, then scaled by groundAuthority (1 ONLY at >=3 wheels grounded, 0 at <=2; instant cut on
+	// contact loss, ramped back in on landing only -- see updateGroundAuthority()) rather than applied
 	// unconditionally every step regardless of airborne state.
 	const transform = vehicle.chassis.getTransform();
 	const angularVel = vehicle.chassis.getAngularVelocity();

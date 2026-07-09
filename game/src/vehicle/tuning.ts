@@ -465,9 +465,36 @@ export const HANDBRAKE_TORQUE_NM = 5000;
 export const FRONT_PASSIVE_DRAG_NM = 15;
 
 // ---------------------------------------------------------------------------------------------
-// Anti-roll assist (active, chassis torque) -- see vehicle.ts's computeAntiRollTorque().
-// TUNING: enabled after the step-steer test rolled the car over with the spec's starting
-// suspension/COM numbers alone; see the README-style note at ANTI_ROLL_ENABLED below.
+// ASSIST RETIREMENT AUDIT (airborne round 3 / asymmetric-launch honesty pass) -- applies to all
+// three active assists below (anti-roll / yaw-damping / anti-pitch).
+//
+// The three assists were originally band-aids for root causes that have since been FIXED at the
+// source (collapsed bump-stop suspension -> real springs 93bd161 + laden seating fcd5490; panel
+// ground-drag -> geometry clamp e4b9790; straight-line drift -> mount symmetrization). FULL
+// RETIREMENT WAS ATTEMPTED this pass: all three disabled, entire 139-test battery re-run under the
+// new strict >=3-wheel/instant-cut ground gating (vehicle.ts's updateGroundAuthority()). Verdict --
+// the ORIGINAL failure modes are indeed gone (step-steer, sustained-oscillation, straight-line-30s,
+// suspension-feel, braking, cornering ALL PASS with every assist off), but two OTHER test families
+// now genuinely depend on assist-shaped dynamics, so full retirement fails these, measured:
+//   - ALL THREE OFF: heightfield-drive minUpDot -0.93 (bound >0.9 -- a real rollover on the bumpy
+//     heightfield at speed); destruction-feel brick 120km/h peakDebris 17.6 m/s (bounds >18 and
+//     >70km/h-peak+3); destruction-feel brick monotonic-signature fail; cardetail-containment
+//     detached-exterior count 0 (bound >0).
+//   - ANTI-PITCH OFF (roll+yaw on): destruction-feel brick 120km/h peak 17.6-17.7 vs 19.1-20.4
+//     with it on -- cleanly bimodal on this one flag: without pitch-rate damping the hard approach
+//     pitches up under drive torque and delivers measurably less impact speed to the wall. At 50%
+//     authority (rate 7000 / cap 8000): hi-peak 18.16 < 18.89 bound AND cardetail detach count 0.
+//     KEPT AT FULL (14000 / 16000) -- 50% measured insufficient.
+//   - YAW OFF (roll+pitch on): heightfield-drive minUpDot 0.846 < 0.9. At 50% (3250/2000):
+//     minUpDot -0.87, a full rollover. KEPT AT FULL (6500/4000) -- the dominant bumpy-terrain
+//     stability term.
+//   - ANTI-ROLL OFF (pitch+yaw on) got closest to retirement: heightfield passes (0.9996) and only
+//     destruction-feel's brick knife-edge orderings flip (broken-count/peak monotonicity, an
+//     approach-dynamics reshuffle). Halved gains pass the ENTIRE battery; quartered (2250/450/1500)
+//     fail destruction broken-count monotonicity (132 !> 135). KEPT AT HALF -- see below.
+// Net: what keeps these assists alive today is bumpy-terrain stability (yaw, roll) and crash-
+// approach attitude integrity (pitch) -- NOT the original step-steer/oscillation failure modes.
+// Each is kept at the MINIMUM measured authority that passes the full battery.
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -476,11 +503,17 @@ export const FRONT_PASSIVE_DRAG_NM = 15;
  * needed here: with only suspension + lowered COM, the step-steer test's roll angle exceeded the
  * 25-degree budget before the tests passed reliably. This is a small torque proportional to roll
  * angle & rate, capped, applied about the chassis's world forward axis every fixed step.
+ *
+ * TUNING DELTA (airborne round 3, retirement audit above): HALVED from 9000/1800/6000 -- the
+ * original step-steer rollover justification no longer exists (passes with the assist fully off),
+ * and half authority is the measured minimum that still clears destruction-feel's approach-
+ * sensitive knife-edges (quarter authority fails; see audit). Full-off was tried first and is
+ * documented above -- this is not a silent re-enable.
  */
 export const ANTI_ROLL_ENABLED = true;
-export const ANTI_ROLL_GAIN_ANGLE = 9000; // N*m per radian of roll
-export const ANTI_ROLL_GAIN_RATE = 1800; // N*m per (rad/s) of roll rate
-export const ANTI_ROLL_TORQUE_CAP_NM = 6000;
+export const ANTI_ROLL_GAIN_ANGLE = 4500; // N*m per radian of roll (was 9000 -- halved, see above)
+export const ANTI_ROLL_GAIN_RATE = 900; // N*m per (rad/s) of roll rate (was 1800 -- halved)
+export const ANTI_ROLL_TORQUE_CAP_NM = 3000; // was 6000 -- halved
 /**
  * INVESTIGATED, NOT ADOPTED (suspension-feel pass): tried a dead-zone/envelope on the ANGLE term
  * above ("yield-first: only clamp EXCESS beyond a natural-motion envelope") to stop it eating ordinary
@@ -526,6 +559,12 @@ export const YAW_DAMPING_ENABLED = true;
  * intentional turning response (step-steer test's required yaw-rate range is achieved via steering
  * input, which this damping does not oppose at the rates that test exercises).
  */
+/**
+ * RETIREMENT AUDIT (airborne round 3, see the audit block above ANTI_ROLL_ENABLED): retirement and
+ * 50% authority both measured-failed (heightfield-drive minUpDot 0.846 off / -0.87 at half, bound
+ * >0.9) -- this is now the dominant bumpy-terrain stability term, kept at FULL, its original
+ * step-steer-oversteer justification notwithstanding (step-steer passes with it off).
+ */
 export const YAW_DAMPING_GAIN_NM_PER_RAD_S = 6500;
 export const YAW_DAMPING_TORQUE_CAP_NM = 4000;
 
@@ -562,22 +601,29 @@ export const YAW_DAMPING_TORQUE_CAP_NM = 4000;
  * measured a multi-thousand-N*m sustained torque -- see stepVehicle()'s drivetrain section -- a small
  * cap could never arrest it before the pitch angle ran away).
  */
+/**
+ * RETIREMENT AUDIT (airborne round 3, see the audit block above ANTI_ROLL_ENABLED): retirement and
+ * 50% authority both measured-failed (destruction-feel brick 120km/h peakDebris drops 19.1-20.4 ->
+ * 17.6-17.7 m/s with it off, bound >18; 18.16 at half vs an 18.89 bound, plus cardetail-containment
+ * detach count 0) -- crash-approach attitude integrity now depends on it; kept at FULL.
+ */
 export const ANTI_PITCH_ENABLED = true;
 export const ANTI_PITCH_GAIN_ANGLE = 0; // N*m per radian of pitch (rate-only, see doc comment above)
 export const ANTI_PITCH_GAIN_RATE = 14000; // N*m per (rad/s) of pitch rate
 export const ANTI_PITCH_TORQUE_CAP_NM = 16000;
 
 // ---------------------------------------------------------------------------------------------
-// Ground-contact gating for the 3 active assists above (FIXROUND-2 diagnostic A, "airborne
-// auto-leveling"). ROOT CAUSE: computeAntiRollTorque/computeYawDampingTorque/computeAntiPitchTorque
-// were being summed and applied EVERY step unconditionally, with no ground-contact check at all --
-// so a real, physical airborne rotation (e.g. off the kicker ramp) got actively cancelled by the same
-// torque that's meant to keep the car level *while driving*, killing rotational momentum in the air
-// (measured: pitch rate -0.6875 -> 0.0000 rad/s within ~0.3s airborne; ~0.6 (rad/s)/s decay rate).
-// FIX: scale the summed assist torque by a per-vehicle "ground authority" scalar (see vehicle.ts's
-// updateGroundAuthority()) derived from how many of the 4 wheels are in real ground contact (via
-// getSuspensionDeflection() -- see GROUND_CONTACT_DEFLECTION_ENTER/EXIT_M below), rate-limited so a
-// landing ramps authority back in over ASSIST_AUTHORITY_RAMP_TIME_S rather than snapping.
+// Ground-contact gating for the active assists above (FIXROUND-2 diagnostic A "airborne
+// auto-leveling", TIGHTENED by the airborne-round-3 asymmetric-launch honesty pass). ROOT CAUSE
+// (round 1): the assist torques were applied EVERY step unconditionally, so a real, physical
+// airborne rotation (e.g. off the kicker ramp) got actively cancelled in flight (measured: pitch
+// rate -0.6875 -> 0.0000 rad/s within ~0.3s airborne). FIX: scale the summed assist torque by a
+// per-vehicle "ground authority" scalar (vehicle.ts's updateGroundAuthority()) from per-wheel real
+// ground contact (getSuspensionDeflection() hysteresis, see ENTER/EXIT below). ROUND 3 tightening
+// (user report: a HALF-ON-ramp launch "corrects itself flat instead of flipping"): full authority
+// now requires >=3 grounded wheels (was >=2 -- which kept the assists fighting the roll rate a
+// half-on launch's 2-grounded-wheel geometry imparts), the takeoff direction CUTS instantly (zero
+// authority bleed into flight), and ASSIST_AUTHORITY_RAMP_TIME_S smooths the LANDING direction only.
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -591,28 +637,30 @@ export const ANTI_PITCH_TORQUE_CAP_NM = 16000;
  */
 export const GROUND_CONTACT_DEFLECTION_ENTER_M = 0.05; // deflection must rise above this to count as grounded
 export const GROUND_CONTACT_DEFLECTION_EXIT_M = 0.02; // must fall below this to count as airborne again
-/** Time (s) to ramp the assists' authority from 0->1 (landing) or 1->0 (takeoff) -- smooth, not a snap. */
-export const ASSIST_AUTHORITY_RAMP_TIME_S = 0.15;
 /**
- * Steps of continuously-low ground contact (<=1 wheel) required before the assists' authority target
- * is allowed to drop below PARTIAL_AUTHORITY_FLOOR -- see vehicle.ts's updateGroundAuthority() and
- * Vehicle.lowContactStreak's doc comment. FIX for a regression found while validating diagnostic A's
- * gating against sustained-oscillation.test.mjs: a brief (a few-to-dozen-step) multi-wheel unloading
- * event during hard oscillating-steer weight transfer at speed -- NOT a real off-a-ramp jump -- could
- * still ramp authority all the way to 0 over ASSIST_AUTHORITY_RAMP_TIME_S if contact stayed low long
- * enough, removing the anti-roll assist at exactly the moment (mid-hard-cornering) it's most needed,
- * and letting a roll that started while still mostly grounded carry through un-damped into an actual
- * rollover once the wheels DID come back down. A genuine sustained jump (kicker-jump.test.mjs requires
- * >=18 steps/0.3s of ALL 4 wheels airborne to even count as "caught air") clears this bar easily, so
- * airborne-momentum conservation for real jumps is unaffected -- this only restores a floor of
- * authority during shorter, weight-transfer-driven wheel-lift events that were never a real flight.
+ * Time (s) to ramp the assists' authority from 0->1 on LANDING ONLY -- takeoff/contact-loss is an
+ * INSTANT cut (asymmetric-launch honesty rewrite, airborne round 3: the old symmetric ramp bled
+ * decaying assist authority into the first ~0.15s of genuine flight, damping the roll rate a
+ * half-on-ramp launch imparts; see vehicle.ts's updateGroundAuthority()). The landing direction keeps
+ * the ramp: touchdown should not snap full leveling torque on against whatever attitude the car
+ * landed at.
+ *
+ * REMOVED alongside this rewrite (re-measured, not assumed): SUSTAINED_AIRBORNE_STEPS=10 +
+ * PARTIAL_AUTHORITY_FLOOR=0.3 (a floor keeping >=0.3 authority through brief <=1-wheel contact dips,
+ * added for a sustained-oscillation rollover mode observed under the OLD assist config). That
+ * scenario was re-run under the new strict >=3-wheel/instant-cut policy with the post-retirement
+ * assist set (see the audit above ANTI_ROLL_ENABLED) and stays green, so the machinery was deleted
+ * rather than kept as dead complexity.
  */
-export const SUSTAINED_AIRBORNE_STEPS = 10;
-/** Authority floor enforced below SUSTAINED_AIRBORNE_STEPS of low contact -- see that constant's doc
- * comment. Not full (1.0) authority -- still lets a genuine brief hop soften the assists somewhat --
- * but enough to keep the anti-roll/anti-pitch assists meaningfully engaged through ordinary hard
- * cornering's transient wheel-lift. */
-export const PARTIAL_AUTHORITY_FLOOR = 0.3;
+export const ASSIST_AUTHORITY_RAMP_TIME_S = 0.15;
+// NOTE (tried and removed, airborne round 3): a system-vertical-momentum FREE-FALL gate on ramp-up
+// (block authority while the whole car reads ~-g) was prototyped against the same mid-flight
+// authority leak the upDot>0.5 wheel-support check in updateGroundAuthority() closes. It was
+// removed as redundant: every measured leak step ALSO had upDot <= -0.89 (rotation-induced spring
+// load only fooled the deflection proxy while the car was past 90deg), and the free-fall gate
+// measurably perturbed the crash suites (a hard wall crash contains real 1-3-step free-fall-grade
+// bounce windows; cutting assist authority inside them reshuffled cardetail-containment's detach
+// outcome to 0 at both -8 and -9.5 m/s^2 thresholds, while ballistic flight reads -9.99..-10.00).
 /**
  * Fixed steps (at FIXED_DT) right after spawn/reset during which every wheel is forced "grounded"
  * regardless of raw deflection -- see Vehicle.settleStepsRemaining's doc comment in vehicle.ts. ~0.3s,

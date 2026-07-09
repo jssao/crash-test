@@ -80,20 +80,34 @@ describe('kicker-jump', () => {
 		let maxConsecutiveAirSteps = 0;
 		let everCaughtAir = false;
 
-		// Straight full-throttle for up to 6s -- comfortably enough to reach the kicker (43m ahead) and
-		// clear its ~2m length at any plausible speed, plus land. A mild yaw-angle correction (see this
-		// file's header comment, residual 3) keeps the car centered on the kicker's lane (x=0): a long
-		// full-throttle RWD launch with LITERALLY zero steering input drifts off-center over ~45m from a
-		// small persistent yaw bias, same as how a real (attentive) player would make small corrections
-		// to stay centered on a lane rather than holding the wheel dead level for a 45m sprint -- this
-		// does not touch the "reachable in a straight line" fix itself (the correction gains are small
-		// and only offset natural drift, not a deliberate turn).
-		const DRIVE_STEPS = 360;
+		// RE-CALIBRATED (airborne round 3, asymmetric-launch honesty pass -- measured justification):
+		// this used to be an unconditional full-throttle run, arriving at the 30-degree kicker at
+		// ~73km/h. Under the honest strict assist gating (vehicle.ts's updateGroundAuthority(): full
+		// authority only at >=3 grounded wheels, instant cut on contact loss), the ramp face unloads
+		// the front axle so the climb happens on the rear wheels alone (2 grounded) -- the anti-pitch
+		// assist that previously (and dishonestly, per the round-3 escalation) damped the launch
+		// rotation DURING the climb is correctly off, and a full-send 73km/h hit now genuinely
+		// backflips the car onto its roof (measured entry-speed sweep, settled upDot after landing:
+		// 43km/h->0.87, 47->0.90, 50->0.93, 54->1.000, 58->1.000, 65->1.000, full-send 73 -> -1.000
+		// on the roof). That flip is real crash-sandbox physics, not a regression -- flipping at full
+		// send is exactly what the round-3 escalation demands be REACHABLE (see
+		// asymmetric-launch.test.mjs for the roll-direction equivalent). THIS test's contract is the
+		// playability one (kicker reachable straight ahead, catches real air, lands drivable), so the
+		// approach now models a player lifting off the throttle just before the jump: hold ~58km/h
+		// (16.1 m/s) until the ramp base (z=41), then coast -- squarely in the measured
+		// lands-clean band, still catching ~0.65s of air (39-41 airborne steps, need >=18).
+		const KICKER_ENTRY_SPEED_MS = 16.1; // ~58km/h, measured upDot=1.000 landing band (see above)
+		const THROTTLE_CUT_Z = 41; // ramp base is at z=43; lift ~2m before it
+		const DRIVE_STEPS = 420;
 		for (let i = 0; i < DRIVE_STEPS; i++) {
-			const x = vehicle.chassis.getPosition().x;
+			const pos = vehicle.chassis.getPosition();
+			const vel = vehicle.chassis.getLinearVelocity();
+			const speed = Math.hypot(vel.x, vel.y, vel.z);
+			const x = pos.x;
 			const yaw = yawFromQuat(vehicle.chassis.getRotation());
 			const steer = Math.max(-0.3, Math.min(0.3, yaw * 5 + x * 0.01));
-			stepVehicle(vehicle, { throttle: 1, brake: 0, steer, handbrake: false }, FIXED_DT);
+			const throttle = pos.z < THROTTLE_CUT_Z && speed < KICKER_ENTRY_SPEED_MS ? 1 : 0;
+			stepVehicle(vehicle, { throttle, brake: 0, steer, handbrake: false }, FIXED_DT);
 			world.step(FIXED_DT, FIXED_SUBSTEPS);
 
 			const h = wheelHeights(vehicle);
