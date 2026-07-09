@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { CAR_MAP } from '../assets/car-map';
+import { polishCarMaterials } from './carMaterials';
 
 export interface CarBundle {
   root: THREE.Object3D;
@@ -97,6 +98,10 @@ export async function loadCar(url: string): Promise<CarBundle> {
 
   await selectVariant(gltf, CAR_MAP.chosenVariantIndex);
   sanitizeLogoMaterials(gltf.scene);
+  // Paint/glass tuning for the outdoor je_gray_02 HDRI (see carMaterials.ts's module doc comment) --
+  // MUST run before the glassMeshes traversal below and before returning, so every downstream
+  // consumer (carDeformables registration, glass-shatter clone in main.ts) captures these materials.
+  polishCarMaterials(gltf.scene);
 
   const glassMeshes: THREE.Mesh[] = [];
   gltf.scene.traverse((object) => {

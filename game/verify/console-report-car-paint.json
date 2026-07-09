@@ -1,0 +1,18 @@
+{
+  "quality": "medium",
+  "screenshots": {
+    "sideGlass": "/Users/jesuscalderon/Documents/crash test/game/verify/car-paint-side-glass.png",
+    "beauty": "/Users/jesuscalderon/Documents/crash test/game/verify/car-paint-beauty-dirtroad.png",
+    "crashShatter": "/Users/jesuscalderon/Documents/crash test/game/verify/car-paint-crash-shatter.png"
+  },
+  "perf": {
+    "calls": 491,
+    "triangles": 583710
+  },
+  "notes": [
+    "post-crash damage telemetry: {\"panelStates\":{\"hood\":\"broken\",\"doorL\":\"loosened\",\"doorR\":\"loosened\",\"hatch\":\"loosened\",\"roof\":\"loosened\"},\"stressLevels\":{\"hood\":103.30730268006837,\"doorL\":40.977015711518035,\"doorR\":60.86749101033326,\"hatch\":43.30570007480688,\"roof\":46.766876587468474},\"wheelStates\":{\"fl\":\"attached\",\"fr\":\"attached\",\"rl\":\"attached\",\"rr\":\"attached\"},\"dentedVertexCount\":16871,\"glassShattered\":[\"glass-BodyRearwindow-43\"]}"
+  ],
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": []
+}
