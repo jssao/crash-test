@@ -1,0 +1,359 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "stages": {
+    "braking": [
+      {
+        "seatKey": "frontLeft",
+        "alive": true,
+        "state": "seated",
+        "ejected": false,
+        "peakAccelG": 16.335323956715655,
+        "carCollisionEnabled": false,
+        "headHeight": 0.8283312320709229,
+        "headPos": {
+          "x": 0.7029193043708801,
+          "y": 0.8283312320709229,
+          "z": 22.111303329467773
+        },
+        "pelvisPos": {
+          "x": 0.6991414427757263,
+          "y": 0.4973103702068329,
+          "z": 21.911880493164062
+        },
+        "shatteredGlass": []
+      },
+      {
+        "seatKey": "frontRight",
+        "alive": true,
+        "state": "seated",
+        "ejected": false,
+        "peakAccelG": 16.344147978325093,
+        "carCollisionEnabled": false,
+        "headHeight": 0.8344929814338684,
+        "headPos": {
+          "x": -0.1384688913822174,
+          "y": 0.8344929814338684,
+          "z": 22.116348266601562
+        },
+        "pelvisPos": {
+          "x": -0.14025288820266724,
+          "y": 0.4973810315132141,
+          "z": 21.92732810974121
+        },
+        "shatteredGlass": []
+      },
+      {
+        "seatKey": "rearLeft",
+        "alive": true,
+        "state": "seated",
+        "ejected": false,
+        "peakAccelG": 18.594258298843293,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7955889701843262,
+        "headPos": {
+          "x": 0.7369092702865601,
+          "y": 0.7955889701843262,
+          "z": 20.464176177978516
+        },
+        "pelvisPos": {
+          "x": 0.6666461825370789,
+          "y": 0.4462607204914093,
+          "z": 20.312210083007812
+        },
+        "shatteredGlass": []
+      },
+      {
+        "seatKey": "rearRight",
+        "alive": true,
+        "state": "seated",
+        "ejected": false,
+        "peakAccelG": 18.32324306059148,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7902750372886658,
+        "headPos": {
+          "x": -0.25835636258125305,
+          "y": 0.7902750372886658,
+          "z": 20.485734939575195
+        },
+        "pelvisPos": {
+          "x": -0.173524409532547,
+          "y": 0.4458019435405731,
+          "z": 20.329391479492188
+        },
+        "shatteredGlass": []
+      }
+    ],
+    "ejection": [
+      {
+        "seatKey": "frontLeft",
+        "alive": true,
+        "state": "tumbling",
+        "ejected": true,
+        "peakAccelG": 18.397728490494902,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7708035707473755,
+        "headPos": {
+          "x": 0.4855991005897522,
+          "y": 0.7708035707473755,
+          "z": 23.40127944946289
+        },
+        "pelvisPos": {
+          "x": 0.3347938358783722,
+          "y": 0.6143145561218262,
+          "z": 23.110681533813477
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "frontRight",
+        "alive": true,
+        "state": "tumbling",
+        "ejected": true,
+        "peakAccelG": 40.81998387941097,
+        "carCollisionEnabled": false,
+        "headHeight": 0.5556196570396423,
+        "headPos": {
+          "x": -0.45592978596687317,
+          "y": 0.5556196570396423,
+          "z": 23.119665145874023
+        },
+        "pelvisPos": {
+          "x": -0.39835435152053833,
+          "y": 0.7487503886222839,
+          "z": 22.78102684020996
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "rearLeft",
+        "alive": true,
+        "state": "tumbling",
+        "ejected": true,
+        "peakAccelG": 19.700354905162982,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7944027781486511,
+        "headPos": {
+          "x": 0.5223342180252075,
+          "y": 0.7944027781486511,
+          "z": 21.8784122467041
+        },
+        "pelvisPos": {
+          "x": 0.3733457624912262,
+          "y": 0.47134706377983093,
+          "z": 21.722665786743164
+        },
+        "shatteredGlass": []
+      },
+      {
+        "seatKey": "rearRight",
+        "alive": true,
+        "state": "tumbling",
+        "ejected": true,
+        "peakAccelG": 19.732624663260992,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7771622538566589,
+        "headPos": {
+          "x": -0.5570869445800781,
+          "y": 0.7771622538566589,
+          "z": 21.87952995300293
+        },
+        "pelvisPos": {
+          "x": -0.4464948773384094,
+          "y": 0.4535209834575653,
+          "z": 21.693302154541016
+        },
+        "shatteredGlass": []
+      }
+    ],
+    "getup": [
+      {
+        "seatKey": "frontLeft",
+        "alive": false,
+        "state": "dead",
+        "ejected": true,
+        "peakAccelG": 109.19538646631713,
+        "carCollisionEnabled": false,
+        "headHeight": 0.37003815174102783,
+        "headPos": {
+          "x": 0.4377209544181824,
+          "y": 0.37003815174102783,
+          "z": 23.35344696044922
+        },
+        "pelvisPos": {
+          "x": 0.359729140996933,
+          "y": 0.36834031343460083,
+          "z": 22.979887008666992
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "frontRight",
+        "alive": true,
+        "state": "flee",
+        "ejected": true,
+        "peakAccelG": 40.81998387941097,
+        "carCollisionEnabled": false,
+        "headHeight": 0.6984865069389343,
+        "headPos": {
+          "x": -0.7276820540428162,
+          "y": 0.6984865069389343,
+          "z": 23.373388290405273
+        },
+        "pelvisPos": {
+          "x": -0.5956457853317261,
+          "y": 0.3846432566642761,
+          "z": 23.196170806884766
+        },
+        "shatteredGlass": [
+          "BodyWindshield",
+          "BodyDoorRWindow"
+        ]
+      },
+      {
+        "seatKey": "rearLeft",
+        "alive": false,
+        "state": "dead",
+        "ejected": true,
+        "peakAccelG": 72.45220461015337,
+        "carCollisionEnabled": false,
+        "headHeight": 0.26601988077163696,
+        "headPos": {
+          "x": 0.2560562491416931,
+          "y": 0.26601988077163696,
+          "z": 22.62338638305664
+        },
+        "pelvisPos": {
+          "x": 0.5572301745414734,
+          "y": 0.27076804637908936,
+          "z": 22.385234832763672
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "rearRight",
+        "alive": true,
+        "state": "flee",
+        "ejected": true,
+        "peakAccelG": 64.90733844723614,
+        "carCollisionEnabled": true,
+        "headHeight": 1.0544639825820923,
+        "headPos": {
+          "x": -2.2504427433013916,
+          "y": 1.0544639825820923,
+          "z": 23.36530113220215
+        },
+        "pelvisPos": {
+          "x": -2.3643593788146973,
+          "y": 0.6680368781089783,
+          "z": 23.35455322265625
+        },
+        "shatteredGlass": [
+          "BodyWindshield",
+          "BodyDoorRWindow"
+        ]
+      }
+    ],
+    "flee": [
+      {
+        "seatKey": "frontLeft",
+        "alive": false,
+        "state": "dead",
+        "ejected": true,
+        "peakAccelG": 109.19538646631713,
+        "carCollisionEnabled": false,
+        "headHeight": 0.4746541380882263,
+        "headPos": {
+          "x": 0.47143590450286865,
+          "y": 0.4746541380882263,
+          "z": 23.322649002075195
+        },
+        "pelvisPos": {
+          "x": 0.3518780469894409,
+          "y": 0.39915087819099426,
+          "z": 22.969446182250977
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "frontRight",
+        "alive": true,
+        "state": "flee",
+        "ejected": true,
+        "peakAccelG": 40.81998387941097,
+        "carCollisionEnabled": false,
+        "headHeight": 0.7510128617286682,
+        "headPos": {
+          "x": -0.8446237444877625,
+          "y": 0.7510128617286682,
+          "z": 23.371896743774414
+        },
+        "pelvisPos": {
+          "x": -0.6326916813850403,
+          "y": 0.484468549489975,
+          "z": 23.18943977355957
+        },
+        "shatteredGlass": [
+          "BodyWindshield",
+          "BodyDoorRWindow"
+        ]
+      },
+      {
+        "seatKey": "rearLeft",
+        "alive": false,
+        "state": "dead",
+        "ejected": true,
+        "peakAccelG": 72.45220461015337,
+        "carCollisionEnabled": false,
+        "headHeight": 0.22358115017414093,
+        "headPos": {
+          "x": 0.23951077461242676,
+          "y": 0.22358115017414093,
+          "z": 22.431974411010742
+        },
+        "pelvisPos": {
+          "x": 0.5136897563934326,
+          "y": 0.18204137682914734,
+          "z": 22.16958999633789
+        },
+        "shatteredGlass": [
+          "BodyWindshield"
+        ]
+      },
+      {
+        "seatKey": "rearRight",
+        "alive": true,
+        "state": "flee",
+        "ejected": true,
+        "peakAccelG": 64.90733844723614,
+        "carCollisionEnabled": true,
+        "headHeight": 0.503976047039032,
+        "headPos": {
+          "x": -5.855690002441406,
+          "y": 0.503976047039032,
+          "z": 23.365169525146484
+        },
+        "pelvisPos": {
+          "x": -6.23553991317749,
+          "y": 0.37193959951400757,
+          "z": 23.3583984375
+        },
+        "shatteredGlass": [
+          "BodyWindshield",
+          "BodyDoorRWindow"
+        ]
+      }
+    ]
+  },
+  "timestamp": "2026-07-09T19:44:33.566Z"
+}

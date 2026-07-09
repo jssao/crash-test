@@ -5,9 +5,18 @@
 // lifecycle design), rendered via ./visuals.ts, orchestrated here per the WorldFeature contract
 // (../feature.ts). Self-contained: builds its own minimal seat-pan bodies (no dependency on a
 // 'cardetail' feature), per the task's explicit ownership split.
+//
+// ACTIVE LAYER (./active.ts): once per fixed step each occupant is driven by the muscle/life-death/
+// self-preservation-FSM controller -- alive+seated occupants BRACE against g-forces (torque-limited
+// muscles), lethal impacts KILL them (limp forever), survivors TUMBLE -> SETTLE -> RECOVER -> FLEE ->
+// SAFE. An ejecting occupant's head/torso crossing a cabin-glass plane shatters that window via a sink
+// main.ts wires to the damage system's glassShattered emitter (setGlassShatterSink hook below), and
+// occupant<->car collision is re-enabled once the whole body clears the chassis hull AABB. See
+// active.ts's HONEST-PHYSICS DISCLOSURE for which parts are real physics vs the documented assist.
 
 import * as THREE from 'three';
 import type { FeatureContext, WorldFeature } from '../feature';
+import { createOccupantRuntime, resetOccupantAccelBaseline, updateOccupantActive, type OccupantRuntime } from './active';
 import {
 	createOccupant,
 	createSeatPan,
@@ -25,12 +34,19 @@ import { applyOccupantVisual, buildOccupantVisual, disposeOccupantVisual, sample
 interface OccupantEntry {
 	seatKey: SeatKey;
 	occupant: Occupant;
+	runtime: OccupantRuntime;
 	visual: OccupantVisual;
 }
+
+/** Sink main.ts registers so an ejecting occupant crossing a cabin-glass plane can shatter that window
+ * via the damage system's glassShattered emitter -- see setGlassShatterSink() hook. `node` is a
+ * car-map.ts glassMeshNodes name (e.g. 'BodyWindshield'). */
+type GlassShatterSink = (node: string) => void;
 
 export default function createOccupantsFeature(ctx: FeatureContext): WorldFeature {
 	const seatPans: SeatPan[] = [];
 	const entries: OccupantEntry[] = [];
+	let glassSink: GlassShatterSink | null = null;
 
 	/**
 	 * Builds all 4 seat pans + all 4 occupants fresh against the CURRENT vehicle (never cached across
@@ -49,7 +65,7 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 			const occupant = createOccupant(ctx.world, chassis, seatIndex, seatKey, t.position, t.rotation);
 			const visual = buildOccupantVisual(occupant, seatKey);
 			ctx.scene.add(visual.group);
-			entries.push({ seatKey, occupant, visual });
+			entries.push({ seatKey, occupant, runtime: createOccupantRuntime(), visual });
 		});
 	}
 
@@ -69,9 +85,14 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 	return {
 		name: 'occupants',
 
-		afterFixedStep(): void {
+		afterFixedStep(dt: number): void {
+			const chassis = ctx.getVehicle().chassis;
+			const t = chassis.getTransform();
+			const activeCtx = { chassisPos: t.position, chassisRot: t.rotation, chassisVel: chassis.getLinearVelocity() };
 			for (const entry of entries) {
-				pollOccupantRestraint(entry.occupant);
+				pollOccupantRestraint(entry.occupant); // may eject this step (breaks restraint + kick)
+				const shattered = updateOccupantActive(entry.occupant, entry.runtime, dt, activeCtx);
+				if (glassSink) for (const node of shattered) glassSink(node);
 				sampleOccupantVisual(entry.occupant, entry.visual);
 			}
 		},
@@ -84,7 +105,7 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 			// Same rebuild for BOTH 'car' and 'world': main.ts's doWorldRepair() always runs a full
 			// doCarRepair() (destroy+recreate chassis) before either reset() fires, so by the time this
 			// runs there is never a "car unchanged" case to special-case -- see ./physics.ts's doc
-			// comment.
+			// comment. Fresh runtimes (alive/seated) come with the rebuilt occupants.
 			teardownAll();
 			seatAll();
 		},
@@ -94,6 +115,12 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 		},
 
 		hooks: {
+			/** main.ts wires the glass-shatter sink here (occupant crosses a cabin-glass plane -> shatter
+			 * that window via the damage system's glassShattered emitter). Kept as a registration hook
+			 * rather than a FeatureContext field so no shared file changes -- see main.ts. */
+			setGlassShatterSink: (sink: GlassShatterSink) => {
+				glassSink = sink;
+			},
 			/** Read-only per-seat state for scripted playtests (game/verify/feature-occupants.mjs,
 			 * game/sim/features-occupants.test.mjs). */
 			seatStates: () =>
@@ -103,6 +130,25 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 					restraintForceN: e.occupant.restraintJoint ? vecLength(e.occupant.restraintJoint.getConstraintForce()) : null,
 					pelvisPos: e.occupant.parts.pelvis.body.getPosition(),
 				})),
+			/** Read-only ACTIVE-LAYER state (life/death + FSM + glass) for game/verify/occupants-active.mjs
+			 * and any scripted playtest -- the authoritative machine-readable evidence the screenshots
+			 * illustrate. */
+			occupantStates: () =>
+				entries.map((e) => {
+					const head = e.occupant.parts.head.body.getPosition();
+					return {
+						seatKey: e.seatKey,
+						alive: e.runtime.alive,
+						state: e.runtime.state,
+						ejected: e.occupant.ejected,
+						peakAccelG: e.runtime.peakAccelG,
+						carCollisionEnabled: e.runtime.carCollisionEnabled,
+						headHeight: head.y,
+						headPos: head,
+						pelvisPos: e.occupant.parts.pelvis.body.getPosition(),
+						shatteredGlass: [...e.runtime.shatteredGlass],
+					};
+				}),
 			/** Diagnostic-only: per-seat torso mesh world position/visibility, for verify-script sanity
 			 * checks when a render-side screenshot doesn't show what's expected. */
 			debugVisuals: () =>
@@ -120,10 +166,15 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 				}),
 			/** Sets every seated occupant's velocity to the chassis's CURRENT velocity -- lets a crash
 			 * scenario (window.__GAME__.crash()) start each occupant "already riding along" instead of
-			 * an artificial t=0 relative-velocity spike (see physics.ts's matchOccupantVelocity() doc). */
+			 * an artificial t=0 relative-velocity spike (see physics.ts's matchOccupantVelocity() doc).
+			 * Also re-baselines each occupant's accel estimator so the instantaneous velocity set isn't
+			 * misread as a lethal impact (see active.ts's resetOccupantAccelBaseline()). */
 			matchVehicleVelocity: () => {
 				const v = ctx.getVehicle().chassis.getLinearVelocity();
-				for (const entry of entries) if (!entry.occupant.ejected) matchOccupantVelocity(entry.occupant, v);
+				for (const entry of entries) {
+					if (!entry.occupant.ejected) matchOccupantVelocity(entry.occupant, v);
+					resetOccupantAccelBaseline(entry.occupant, entry.runtime);
+				}
 				for (const pan of seatPans) matchSeatPanVelocity(pan, v);
 			},
 		},

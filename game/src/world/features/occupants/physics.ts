@@ -187,6 +187,22 @@ export interface OccupantPartBody {
 	shape: Shape;
 }
 
+/** Named references to each articulated joint, so the active/muscle layer (./active.ts) can address a
+ * specific joint (e.g. widen a hip's cone limit to let the leg straighten for a get-up) without relying
+ * on positional indices into internalJoints. Same objects as internalJoints, just keyed. */
+export interface OccupantJoints {
+	spine: SphericalJoint; // pelvis <-> torso
+	neck: SphericalJoint; // torso <-> head
+	shoulderL: SphericalJoint;
+	shoulderR: SphericalJoint;
+	elbowL: RevoluteJoint;
+	elbowR: RevoluteJoint;
+	hipL: SphericalJoint;
+	hipR: SphericalJoint;
+	kneeL: RevoluteJoint;
+	kneeR: RevoluteJoint;
+}
+
 export interface Occupant {
 	seatKey: SeatKey;
 	seatIndex: number;
@@ -194,6 +210,8 @@ export interface Occupant {
 	/** Internal ragdoll joints (spine/neck/2x shoulder/2x elbow/2x hip/2x knee = 10) -- never touch the
 	 * chassis, always safe to .destroy() normally. */
 	internalJoints: (SphericalJoint | RevoluteJoint)[];
+	/** The same 10 internal joints, keyed by name (see OccupantJoints). */
+	joints: OccupantJoints;
 	/** Lap-restraint joint (chassis<->pelvis) -- null once broken (ejected) or forgotten (car repair). */
 	restraintJoint: SphericalJoint | null;
 	restraintThresholdN: number;
@@ -279,55 +297,54 @@ export function createOccupant(
 
 	const internalJoints: (SphericalJoint | RevoluteJoint)[] = [];
 
-	function ball(parentKey: PartKey, childKey: PartKey, parentAttach: V3, childAttach: V3, coneRad: number, twistRad: number): void {
+	function ball(parentKey: PartKey, childKey: PartKey, parentAttach: V3, childAttach: V3, coneRad: number, twistRad: number): SphericalJoint {
 		const { frameA, frameB } = buildBallFrames(REST_OFFSET[baseOf(parentKey)], REST_OFFSET[baseOf(childKey)]);
-		internalJoints.push(
-			world.createSphericalJoint(parts[parentKey].body, parts[childKey].body, {
-				frameA: { position: parentAttach, rotation: frameA as Quat },
-				frameB: { position: childAttach, rotation: frameB as Quat },
-				collideConnected: false,
-				enableSpring: true,
-				hertz: BALL_SPRING_HERTZ,
-				dampingRatio: BALL_SPRING_DAMPING,
-				enableConeLimit: true,
-				coneAngle: coneRad,
-				enableTwistLimit: true,
-				lowerTwistAngle: -twistRad,
-				upperTwistAngle: twistRad,
-			}),
-		);
+		const joint = world.createSphericalJoint(parts[parentKey].body, parts[childKey].body, {
+			frameA: { position: parentAttach, rotation: frameA as Quat },
+			frameB: { position: childAttach, rotation: frameB as Quat },
+			collideConnected: false,
+			enableSpring: true,
+			hertz: BALL_SPRING_HERTZ,
+			dampingRatio: BALL_SPRING_DAMPING,
+			enableConeLimit: true,
+			coneAngle: coneRad,
+			enableTwistLimit: true,
+			lowerTwistAngle: -twistRad,
+			upperTwistAngle: twistRad,
+		});
+		internalJoints.push(joint);
+		return joint;
 	}
 
-	function hinge(parentKey: PartKey, childKey: PartKey, parentAttach: V3, childAttach: V3): void {
+	function hinge(parentKey: PartKey, childKey: PartKey, parentAttach: V3, childAttach: V3): RevoluteJoint {
 		const { frameA, frameB } = buildHingeFrames(REST_OFFSET[baseOf(parentKey)], REST_OFFSET[baseOf(childKey)]);
-		internalJoints.push(
-			world.createRevoluteJoint(parts[parentKey].body, parts[childKey].body, {
-				frameA: { position: parentAttach, rotation: frameA as Quat },
-				frameB: { position: childAttach, rotation: frameB as Quat },
-				collideConnected: false,
-				targetAngle: 0,
-				enableSpring: true,
-				hertz: HINGE_SPRING_HERTZ,
-				dampingRatio: HINGE_SPRING_DAMPING,
-				enableLimit: true,
-				lowerAngle: HINGE_LOWER_RAD,
-				upperAngle: HINGE_UPPER_RAD,
-			}),
-		);
+		const joint = world.createRevoluteJoint(parts[parentKey].body, parts[childKey].body, {
+			frameA: { position: parentAttach, rotation: frameA as Quat },
+			frameB: { position: childAttach, rotation: frameB as Quat },
+			collideConnected: false,
+			targetAngle: 0,
+			enableSpring: true,
+			hertz: HINGE_SPRING_HERTZ,
+			dampingRatio: HINGE_SPRING_DAMPING,
+			enableLimit: true,
+			lowerAngle: HINGE_LOWER_RAD,
+			upperAngle: HINGE_UPPER_RAD,
+		});
+		internalJoints.push(joint);
+		return joint;
 	}
 
-	ball('pelvis', 'torso', ATTACH.pelvisTop, ATTACH.torsoBottom, SPINE_CONE_RAD, SPINE_TWIST_RAD);
-	ball('torso', 'head', ATTACH.torsoTop, ATTACH.headBottom, NECK_CONE_RAD, NECK_TWIST_RAD);
-	(['L', 'R'] as const).forEach((side) => {
-		const arm = side === 'L' ? 'upperArmL' : 'upperArmR';
-		const fore = side === 'L' ? 'forearmL' : 'forearmR';
-		const thigh = side === 'L' ? 'thighL' : 'thighR';
-		const shin = side === 'L' ? 'shinL' : 'shinR';
-		ball('torso', arm, ATTACH.torsoShoulder(side), ATTACH.upperArmTop, SHOULDER_CONE_RAD, SHOULDER_TWIST_RAD);
-		hinge(arm, fore, ATTACH.upperArmBottom, ATTACH.forearmTop);
-		ball('pelvis', thigh, ATTACH.pelvisHip(side), ATTACH.thighHip, HIP_CONE_RAD, HIP_TWIST_RAD);
-		hinge(thigh, shin, ATTACH.thighKnee, ATTACH.shinKnee);
-	});
+	const spine = ball('pelvis', 'torso', ATTACH.pelvisTop, ATTACH.torsoBottom, SPINE_CONE_RAD, SPINE_TWIST_RAD);
+	const neck = ball('torso', 'head', ATTACH.torsoTop, ATTACH.headBottom, NECK_CONE_RAD, NECK_TWIST_RAD);
+	const shoulderL = ball('torso', 'upperArmL', ATTACH.torsoShoulder('L'), ATTACH.upperArmTop, SHOULDER_CONE_RAD, SHOULDER_TWIST_RAD);
+	const elbowL = hinge('upperArmL', 'forearmL', ATTACH.upperArmBottom, ATTACH.forearmTop);
+	const hipL = ball('pelvis', 'thighL', ATTACH.pelvisHip('L'), ATTACH.thighHip, HIP_CONE_RAD, HIP_TWIST_RAD);
+	const kneeL = hinge('thighL', 'shinL', ATTACH.thighKnee, ATTACH.shinKnee);
+	const shoulderR = ball('torso', 'upperArmR', ATTACH.torsoShoulder('R'), ATTACH.upperArmTop, SHOULDER_CONE_RAD, SHOULDER_TWIST_RAD);
+	const elbowR = hinge('upperArmR', 'forearmR', ATTACH.upperArmBottom, ATTACH.forearmTop);
+	const hipR = ball('pelvis', 'thighR', ATTACH.pelvisHip('R'), ATTACH.thighHip, HIP_CONE_RAD, HIP_TWIST_RAD);
+	const kneeR = hinge('thighR', 'shinR', ATTACH.thighKnee, ATTACH.shinKnee);
+	const joints: OccupantJoints = { spine, neck, shoulderL, shoulderR, elbowL, elbowR, hipL, hipR, kneeL, kneeR };
 
 	// Lap-restraint: chassis (frameA, position = the seat's own chassis-local hip point) <-> pelvis
 	// (frameB, position = ATTACH.pelvisRestraint). The chassis's own REST_OFFSET is IDENTITY (it's the
@@ -352,6 +369,7 @@ export function createOccupant(
 		seatIndex,
 		parts,
 		internalJoints,
+		joints,
 		restraintJoint,
 		restraintThresholdN: RESTRAINT_FORCE_THRESHOLD_N[seatKey],
 		ejected: false,
@@ -414,6 +432,40 @@ export function pollOccupantRestraint(occupant: Occupant): boolean {
 		pelvisBody.applyLinearImpulseToCenter({ x: dir.x * EJECTION_KICK_NS, y: dir.y * EJECTION_KICK_NS, z: dir.z * EJECTION_KICK_NS });
 	}
 	return true;
+}
+
+/**
+ * DEATH: makes an occupant a pure limp ragdoll forever -- disables the restoring spring on every
+ * internal ball/hinge joint so nothing pulls it back toward any pose (the active.ts muscle layer also
+ * stops applying torque once dead). Idempotent. The joints THEMSELVES stay (the skeleton doesn't
+ * fall apart -- cone/twist/hinge LIMITS still hold the body together); only their pose-restoring
+ * springs go slack, which -- combined with muscles off -- is what "limp" means here. */
+export function setOccupantLimp(occupant: Occupant): void {
+	for (const joint of occupant.internalJoints) {
+		if (joint instanceof SphericalJoint) joint.enableSpring(false);
+		else joint.enableMotor(false);
+	}
+	// A killed BELTED occupant still hangs in the belt, but limp -- drop the (possibly braced-stiffened,
+	// see active.ts) lap-restraint spring back to slack so the pelvis flops instead of being held upright.
+	if (occupant.restraintJoint) occupant.restraintJoint.enableSpring(false);
+}
+
+/**
+ * Re-enables occupant<->car collision on an already-ejected occupant by flipping every part's shape
+ * from CAR_GROUP_INDEX (-1, never collides with any car body) back to the neutral group 0 (falls
+ * through to ordinary category/mask filtering, so it DOES collide with the chassis hull / wheels /
+ * panels again). Keeps the EJECTED_MARKER_BIT cleared so "this part is ejected" stays externally
+ * readable. CALLER CONTRACT (active.ts): only ever call this once the occupant's whole body has
+ * cleared the chassis hull AABB + margin -- flipping it while any part is still INSIDE the convex hull
+ * is the explosive-depenetration hazard this feature is built to avoid (see the EJECTED_MARKER_BIT doc
+ * comment). Idempotent-safe to call, but active.ts latches it to fire once. */
+export function enableOccupantCarCollision(occupant: Occupant): void {
+	for (const key of PART_KEYS) {
+		occupant.parts[key].shape.setFilter(
+			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS, groupIndex: 0 },
+			false,
+		);
+	}
 }
 
 /** Sets every seated (non-ejected) part's linear velocity -- used by crash-test setup (headless sim +

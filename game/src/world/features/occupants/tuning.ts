@@ -264,3 +264,134 @@ export const SHIRT_COLOR_SEED: Record<SeatKey, number> = {
 	rearLeft: 0x2f8f4e, // green
 	rearRight: 0xd18f1a, // amber
 };
+
+// =================================================================================================
+// MUSCLE / LIFE-DEATH / SELF-PRESERVATION tuning (drives active.ts). See that module's doc comment.
+// =================================================================================================
+
+/**
+ * MUSCLE LAYER. Each articulated ball-joint that we actively "power" gets a PD controller in active.ts:
+ * a world-space corrective torque = Kp*(rotation error toward the target relative pose) - Kd*(relative
+ * angular velocity), its MAGNITUDE HARD-CLAMPED to maxTorqueNm, applied as an equal-and-opposite pair
+ * to the child and parent bodies (Body.applyTorque, momentum-conserving -- like a real muscle spanning
+ * a joint). The clamp is the whole point of the drama gradient: within its torque budget a muscle holds
+ * posture against ordinary g's (braking/cornering), but a crash's angular impulse blows straight past
+ * the budget and the joint goes limp-ragdoll for that instant (test: occupants-active braced-vs-limp +
+ * muscle-overwhelm). maxTorqueNm values are grounded in real human isometric joint-strength orders of
+ * magnitude (neck extensors ~30-50 N*m, lumbar/trunk ~150-300 N*m, hip ~150-350 N*m, shoulder ~50-90
+ * N*m) rather than tuned purely for looks. Kp/Kd give a snappy-but-damped (~2-3 Hz, ~critically damped)
+ * hold well inside those torque ceilings for small errors. These are the SEATED-BRACING gains; the
+ * self-preservation FSM (active.ts) reuses the same controller with pose targets swapped per state. */
+export interface MuscleGains {
+	kp: number; // N*m per radian of orientation error
+	kd: number; // N*m per (rad/s) of relative angular velocity
+	maxTorqueNm: number; // hard magnitude clamp -- the "muscle strength" ceiling
+}
+export const MUSCLE_NECK: MuscleGains = { kp: 90, kd: 9, maxTorqueNm: 45 };
+export const MUSCLE_SPINE: MuscleGains = { kp: 900, kd: 110, maxTorqueNm: 320 };
+export const MUSCLE_SHOULDER: MuscleGains = { kp: 70, kd: 8, maxTorqueNm: 70 };
+export const MUSCLE_HIP: MuscleGains = { kp: 320, kd: 34, maxTorqueNm: 260 };
+
+/**
+ * CORE/trunk bracing acts through the LAP-RESTRAINT SPRING rather than an explicit PD torque: while
+ * alive + seated we raise the pelvis<->chassis spring stiffness from its passive BALL_SPRING_HERTZ to
+ * this braced value, which holds the pelvis upright ON THE BELT (target = the seated rest orientation)
+ * so the muscle-held torso has a stable base instead of tipping with a sagging pelvis. A solver-
+ * integrated spring is UNCONDITIONALLY STABLE even on the light (~6kg) pelvis body, unlike a stiff
+ * explicit per-step PD torque (which oscillates at these stiffnesses). It is NOT torque-capped, but the
+ * drama gradient is preserved a different way: in a real crash the stiff belt's own constraint force
+ * spikes straight through RESTRAINT_FORCE_THRESHOLD_N and the belt BREAKS (ejection) -> limp ragdoll.
+ * On death the restraint spring is dropped back to slack (setOccupantLimp) so a killed belted occupant
+ * hangs limp. */
+export const RESTRAINT_BRACE_HERTZ = 16;
+export const RESTRAINT_BRACE_DAMPING = 1;
+
+/** During TUMBLING (alive, airborne/just-ejected) muscles drop to a fraction of full strength -- a
+ * flailing-but-slightly-protective tone, not a firm brace (arms pull toward the head, see active.ts). */
+export const MUSCLE_TUMBLING_SCALE = 0.35;
+
+/**
+ * LIFE/DEATH MODEL. Peak head OR torso linear acceleration during the whole scenario, expressed in g
+ * (using 9.81 m/s^2 as the g unit for comparison with real-world crash-safety figures even though the
+ * sim's gravity is 10 m/s^2). Above this -> the occupant is KILLED (motors off, springs off, pure limp
+ * ragdoll forever, active.ts). Real-world calibration: severe-but-survivable crash head loads run
+ * ~40-60g, and the classic head-injury / skull-fracture / AIS-serious neighborhood begins ~60-80g+
+ * (Head Injury Criterion territory); 65g sits at the lethal edge of that band. Measured against the
+ * occupants-active tests: a ~70 km/h wall crash leaves ejected occupants below this (they survive and
+ * flee), while a 140 km/h crash drives belted occupants well past it (they die in the seat). */
+export const DEATH_PEAK_ACCEL_G = 65;
+export const GRAVITY_G_UNIT = 9.81;
+
+/**
+ * SELF-PRESERVATION FSM timings (seconds) + geometry. See active.ts's state machine. Honest-physics
+ * disclosure lives on STABILIZE_* below and in active.ts's module doc: seated bracing + the life/death
+ * model + the muscle-overwhelm gradient are all real torque-limited physics; the post-crash get-up and
+ * flee-walk ride on a DOCUMENTED stabilization ASSIST (a velocity-level kinematic servo on the core
+ * column standing in for the balance controller + foot-ground-reaction loop a real biped needs),
+ * clearly labelled, not emergent balance. */
+export const FSM_SETTLE_SECONDS = 1.0; // time settled-on-ground before attempting to get up
+export const FSM_RECOVER_SECONDS = 2.5; // get-up duration before transitioning to flee-walk
+export const FSM_TUMBLE_MIN_SECONDS = 0.4; // minimum flail time before "settled" can latch
+/** How far from the car (meters) the occupant tries to flee, and the "safe" arrival radius. */
+export const FLEE_DISTANCE_M = 15;
+export const FLEE_ARRIVED_M = 12;
+/** Below this ground speed (m/s) AND angular speed (rad/s) the pelvis counts as "settled". */
+export const SETTLE_LINEAR_SPEED_MS = 1.2;
+export const SETTLE_ANGULAR_SPEED_RAD_S = 2.5;
+
+/**
+ * DOCUMENTED STABILIZATION ASSIST (active.ts, RECOVER/FLEE/SAFE only -- NEVER while seated, NEVER while
+ * dead, NEVER during TUMBLING). This is the honest-physics boundary: an 11-capsule ragdoll cannot
+ * balance/stand/walk from pure joint motors without a full balance controller (ZMP/foot-placement +
+ * ground-reaction loop) that is out of scope here. Instead, once an occupant has settled and starts to
+ * recover, we drive its PELVIS with a VELOCITY-LEVEL (kinematic) servo -- each step SETTING the pelvis's
+ * linear & angular velocity toward the standing target (Body.setLinearVelocity/setAngularVelocity)
+ * while the muscle PD drags the rest of the body along like a puppet. Velocity-level control is
+ * UNCONDITIONALLY STABLE, unlike a stiff force/torque servo on the light (~6kg) pelvis body (which
+ * oscillates it to box3d's per-step rotation clamp, ~45 rad/s). The pelvis servo IS the assist -- it
+ * substitutes for the legs' ground reaction + the balance loop. Labelled as such in code + in the
+ * return-to-user; NOT sold as emergent locomotion. */
+export const STABILIZE_STAND_PELVIS_Y_M = 0.92; // target pelvis height standing (column sags ~6cm under gravity, so aim high enough that the head clears 1.2m)
+export const STABILIZE_WALK_SPEED_MS = 1.5; // capped horizontal flee speed
+export const STABILIZE_LIN_GAIN = 6; // desired pelvis speed per meter of position error (1/s)
+export const STABILIZE_MAX_LIN_SPEED_MS = 3.0; // clamp on the assisted pelvis speed (>= walk + rise)
+export const STABILIZE_ANG_GAIN = 6; // desired pelvis angular speed per radian of tilt-from-upright (1/s)
+export const STABILIZE_MAX_ANG_SPEED_RAD_S = 4.5; // clamp on the assisted uprighting rate
+/** Subtle alternating hip pitch (radians) + frequency (Hz) giving the flee-walk a visible stepping gait
+ * on top of the pelvis drift -- cosmetic, layered into the hip muscle targets during FLEE. */
+export const STABILIZE_STEP_AMPLITUDE_RAD = 0.5;
+export const STABILIZE_STEP_HZ = 1.4;
+
+/**
+ * GLASS-SHATTER TRIGGER geometry (chassis-local, same frame as SEAT_LOCAL: +X = car left, +Z = front,
+ * y measured up from the chassis body origin). An ejecting occupant's head/torso trajectory crossing
+ * one of these boundaries OUTWARD fires that window's glassShattered (active.ts records it; index.ts
+ * forwards to the damage system's emitter via a sink main.ts wires in). Approximate cabin-boundary
+ * planes derived from the seat geometry + car-map wheelbase (like SEAT_LOCAL -- not scanned glass
+ * geometry), which is all the crossing test needs. Node names are car-map.ts's glassMeshNodes. */
+export const GLASS_WINDSHIELD_Z_M = 0.95; // forward of the front seats (z=0.55); crossing +Z fires it
+export const GLASS_SIDE_X_M = 0.6; // |x| beyond this (outward) fires that side's door window
+export const GLASS_REAR_Z_M = -1.55; // behind the rear seats (z=-1.05); crossing -Z fires the rear window
+/** Vertical band (chassis-local y) a crossing must fall within to count as "through the glass" rather
+ * than under the floor / over the roof. */
+export const GLASS_Y_MIN_M = 0.05;
+export const GLASS_Y_MAX_M = 1.25;
+export const GLASS_NODE_WINDSHIELD = 'BodyWindshield';
+export const GLASS_NODE_DOOR_LEFT = 'BodyDoorLWindow';
+export const GLASS_NODE_DOOR_RIGHT = 'BodyDoorRWindow';
+export const GLASS_NODE_REAR = 'BodyRearwindow';
+
+/**
+ * CAR-COLLISION RE-ENABLE. An ejected occupant starts collision-filtered against the whole car (it
+ * spawned INSIDE the single convex chassis hull -- un-filtering while still inside = explosive
+ * depenetration, the hard constraint this feature is built around; see physics.ts's EJECTED_MARKER
+ * doc). We re-enable car collision (flip groupIndex CAR_GROUP_INDEX -> 0) only once the occupant's
+ * ENTIRE body AABB clears this chassis-local hull AABB + margin -- so they fly out through the
+ * (now-shattered) glass unimpeded, then can land on / bounce off the car's exterior from OUTSIDE
+ * without ever tunnelling back through it. Extents come from the real chassis hull silhouette
+ * (vehicle/tuning.ts HULL_* + car dims), inflated to a safe enclosing box. */
+export const HULL_AABB_HALF_X_M = 1.35;
+export const HULL_AABB_HALF_Z_M = 2.3;
+export const HULL_AABB_Y_MIN_M = -0.5; // chassis-local (origin ~hub height); ground is ~-0.39
+export const HULL_AABB_Y_MAX_M = 0.9;
+export const HULL_AABB_CLEAR_MARGIN_M = 0.2;
