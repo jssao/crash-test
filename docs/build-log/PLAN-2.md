@@ -140,6 +140,18 @@ outside (ejections clearly visible; hook-proof authoritative); cardetail debris 
 timer (persists until reset, no observed perf impact); brick-slab pinning is honest physics with
 R/Shift+R recovery. Deploy remains user-blocked on GitHub credentials (DEPLOY.md unchanged).
 
+## REOPENED — 2026-07-09 (user playtest)
+
+User's first hands-on playtest found 2 visual defects ALL gates missed: (1) cardetail proxy boxes
+protrude from the intact car (headlights/taillights/mirrors/dashboard placement — spec axis remap
+error + no invisible-while-attached policy for exterior proxies); (2) loosened panels dangle at
+~90°/~1m from their hinges (weld frame compensation encodes wrong rest pose — only visible when a
+weld SOFTENS, which no assert or reviewed screenshot covered). GATE LESSON (permanent): alignment
+asserts proved visual-tracks-body, never body-sits-right-on-car, and no post-loosen pose was ever
+checked; worker-reviewed screenshots were staged angles, not player views. → FIXROUND-4 dispatched
+(2 workers: part placement + containment asserts; weld rest pose + loosen-pose asserts; BOTH must
+eyes-on-review player-view screenshots, orchestrator re-reviews independently before handback).
+
 ## Pass log
 
 (append: date · phase · evaluator verdict · directive)
@@ -149,3 +161,14 @@ R/Shift+R recovery. Deploy remains user-blocked on GitHub credentials (DEPLOY.md
 - 2026-07-09 · GATE-B · PASS (pass 1) · items 7-10b YES; caveat (sapling bend unasserted) closed in
   Phase D via features-trees-bend.test.mjs.
 - 2026-07-09 · FINAL-GATE · PASS (pass 1) · all 12 + 10b + constraints YES; RUN COMPLETE.
+- 2026-07-09 · USER PLAYTEST · FAIL (reopened) · cardetail placement + loosened-panel rest pose;
+  FIXROUND-4 dispatched; item-1/7 checks to be re-gated with placement+pose asserts, not tracking.
+- 2026-07-09 · FIXROUND-4 · CLOSED · placement fixed (988aa4d: spec assumed 4600mm car vs real
+  4357mm — rear parts poked 265-380mm out the tail; mirrors at roof height; exterior proxies now
+  invisible-while-attached; 6-test containment lock derived from MEASURED car-map nodes, not spec
+  numbers). Weld rest pose: NOT a bug — proven analytically vs vendor weld_joint.c + empirically
+  (loosened panels settle 0.017-0.16m/0-14° across 20-150km/h sweep) + visually; user-seen dangling
+  panels were free-tumbling BROKEN panels near an airborne flipping car + the cube noise (374cad8
+  adds panel-loosen-pose.test.mjs 3-test lock). Orchestrator personally reviewed fresh player-view
+  screenshots at combined HEAD: spawn front/side clean (zero proxies), 90km/h break reads as
+  credible wreckage. Suites 52 files/84 tests green. 451,380 tokens.
