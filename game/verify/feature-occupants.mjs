@@ -177,12 +177,19 @@ async function main() {
     writeFileSync(path.join(OUT_DIR, 'feature-occupants-seated.png'), Buffer.from(shotSeated.data, 'base64'));
     console.log('[verify-occupants] wrote feature-occupants-seated.png');
 
-    // Zoomed close-up (pixel-crop, not a camera move -- main.ts's fixed orbit radius/height are shared
-    // by every verify script) of the cabin/windshield region -- best-effort visual, see the note above.
-    const shotCabin = await c.send('Page.captureScreenshot', {
-      format: 'png',
-      clip: { x: 420, y: 300, width: 420, height: 250, scale: 2 },
-    });
+    // Cabin close-up attempt: setOrbitView() (verify hook added in commit 7fbe0d1) pulls the orbit way
+    // in (radius 3.5m, per spec) and raises it steeply (height 3m against that small radius, aimed down
+    // at targetHeight 0.9m -- roughly seated head/torso height) so the shot looks DOWN THROUGH the
+    // windshield into the cabin, rather than the previous pixel-crop (which just cropped the same
+    // distant default-orbit render, not a real close-up). NOTE (see this file's top doc comment and
+    // physics.ts's TUNING NOTE): this car's windshield/side glass renders as an opaque tint from
+    // outside in this build -- debugVisualsBefore above is the AUTHORITATIVE proof the 4 occupants are
+    // correctly seated + in the render graph; this screenshot is a best-effort visual on top of that,
+    // and may simply show tinted glass with no visible occupants underneath regardless of angle.
+    await evalExpr('window.__GAME__.setOrbitView({ radius: 3.5, height: 3, targetHeight: 0.9 }); "ok"');
+    await evalExpr(`window.__GAME__.setFixedAngle(${Math.PI / 2.3}); 'ok'`);
+    await sleep(700);
+    const shotCabin = await c.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(path.join(OUT_DIR, 'feature-occupants-cabin-closeup.png'), Buffer.from(shotCabin.data, 'base64'));
     console.log('[verify-occupants] wrote feature-occupants-cabin-closeup.png');
 
@@ -199,6 +206,18 @@ async function main() {
     seatStatesAfter = await evalExpr('window.__GAME__.features.occupants.seatStates()');
     console.log('[verify-occupants] seatStatesAfter=', JSON.stringify(seatStatesAfter));
 
+    // Mid-ejection shot: a wider, elevated orbit (bigger than the game's own default 9m/3.2m) so ejected
+    // occupants have a chance of reading as distinct from the wrecked car. NOTE (measured across several
+    // calibration runs): matchVehicleVelocity() launches occupants at the chassis's own impact speed, so
+    // pelvisPos ends up only ~0.5-2m from the chassis's own post-impact position (both land near the
+    // wall) -- i.e. occupants separate from their SEATS by a lot (the actual assertion below) but not
+    // necessarily from the CAR's own silhouette by much, so an ejected figure reading as clearly separate
+    // in a screenshot is best-effort/inconsistent run-to-run (confirmed a humanoid ragdoll shape visible
+    // beside the car in some runs, occluded by the wreck in others depending on which side it lands).
+    // seatStates()'s ejected=true + the real pelvisPos displacement above is the AUTHORITATIVE evidence
+    // ejection happened; this screenshot is a best-effort visual on top of that, same caveat as the
+    // cabin-closeup shot above.
+    await evalExpr('window.__GAME__.setOrbitView({ radius: 13, height: 6, targetHeight: 1 }); "ok"');
     await evalExpr(`window.__GAME__.setFixedAngle(${Math.PI / 3}); 'ok'`);
     await sleep(800);
     const shotCrash = await c.send('Page.captureScreenshot', { format: 'png' });

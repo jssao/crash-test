@@ -83,8 +83,22 @@ async function getWsUrl(port) {
 // in-page (no per-step CDP round trip) -- computes yaw from chassisQuat the same way
 // verify/shoot-driving.mjs's __yawOf() does, steers toward (targetX,targetZ), stops early once within
 // `stopDist` meters or after `maxSteps`. Returns the final chassisPos + step count actually taken.
+//
+// SPEED CAP (added post vehicle-retune, commit e4b9790): this controller was originally calibrated
+// against the pre-retune car, whose natural speed profile during a long approach stayed in the
+// 25-45km/h range (see the committed console-report-trees.json's driveResult2 samples). The retuned
+// car (real grip 1.05, 0-100 in 5.8s, 235km/h top speed) accelerates far faster in the SAME step
+// budget, so an uncapped constant-throttle approach now blows well past 90-100km/h -- at that speed a
+// steer clamped to +-1 can't correct heading fast enough (it just carves a wide arc instead of
+// pivoting), so the car overshoots the target, ends up pointed the wrong way, and (confirmed
+// reproducible) spirals hundreds of meters off course circling at full steer lock, never reaching the
+// tree. Fixed by capping throttle to 0 (coast, let drag bleed speed) whenever speedKmh exceeds
+// `speedCapKmh`, which keeps the car in the same controllable speed band the original calibration
+// relied on regardless of how much stronger the drivetrain now is. `speedCapKmh` defaults to Infinity
+// (uncapped) so any other caller of this snippet is unaffected if it omits the argument.
 const DRIVE_TOWARD_SNIPPET = `
-window.__driveToward = function (targetX, targetZ, maxSteps, stopDist, throttle, gain) {
+window.__driveToward = function (targetX, targetZ, maxSteps, stopDist, throttle, gain, speedCapKmh) {
+  const cap = speedCapKmh === undefined ? Infinity : speedCapKmh;
   function yawOf(q) {
     const t = { x: 2 * (q.y * 1 - q.z * 0), y: 2 * (q.z * 0 - q.x * 1), z: 2 * (q.x * 0 - q.y * 0) };
     const fwd = {
@@ -110,8 +124,9 @@ window.__driveToward = function (targetX, targetZ, maxSteps, stopDist, throttle,
     const currentYaw = yawOf(t.chassisQuat);
     const err = wrap(desiredYaw - currentYaw);
     const steer = Math.max(-1, Math.min(1, -err * gain));
-    if (i % 20 === 0) samples.push({ i, x: p.x, z: p.z, steer, speedKmh: t.speedKmh, yaw: currentYaw });
-    window.__GAME__.setInput({ throttle, brake: 0, steer, handbrake: false });
+    const effectiveThrottle = t.speedKmh > cap ? 0 : throttle;
+    if (i % 20 === 0) samples.push({ i, x: p.x, z: p.z, steer, speedKmh: t.speedKmh, yaw: currentYaw, effectiveThrottle });
+    window.__GAME__.setInput({ throttle: effectiveThrottle, brake: 0, steer, handbrake: false });
     window.__GAME__.stepN(1);
   }
   const finalTelemetry = window.__GAME__.telemetry;
@@ -205,10 +220,14 @@ async function main() {
     await evalExpr(DRIVE_TOWARD_SNIPPET);
 
     // Phase 1: steer toward the sapling slalom's first tree (world/features/trees/tuning.ts's
-    // SAPLING_SITES[0] = (-42,6)) -- calibrated offline against the headless sim harness (same
-    // deterministic physics) to reliably reach the west-zone tree line within ~230 steps.
+    // SAPLING_SITES[0] = (-42,6)) -- originally calibrated to reliably reach the west-zone tree line
+    // within ~230 steps, but the vehicle retune (commit e4b9790, real grip 1.05, faster 0-100) means
+    // this now needs more steps to cover the same ~42m turn-and-approach at a comparably controllable
+    // speed (confirmed: an unmodified 260-step budget now stops ~14m short, not overshooting/spinning --
+    // this phase was never the retune's overshoot/spin hazard, phase 2's retry loop below was). Budget
+    // raised to 340 steps; a speed cap is passed defensively but rarely binds here.
     console.log('[verify-trees] phase 1: driving toward the sapling slalom...');
-    driveResult1 = await evalExpr('window.__driveToward(-42, 6, 260, 4, 0.5, 1.5)');
+    driveResult1 = await evalExpr('window.__driveToward(-42, 6, 340, 4, 0.5, 1.5, 50)');
     console.log('[verify-trees] phase 1 result:', JSON.stringify(driveResult1));
 
     treesSnapshotAfterSlalom = await evalExpr('window.__GAME__.features.trees.snapshot()');
@@ -223,27 +242,33 @@ async function main() {
     writeFileSync(path.join(OUT_DIR, 'feature-trees-line.png'), Buffer.from(shot1.data, 'base64'));
     console.log('[verify-trees] wrote feature-trees-line.png');
 
-    // Phase 2: continue steering toward the mid tree (MID_SITES[0] = (-55,20)) -- calibrated offline
-    // to reliably fell it (weld breaks) by ~step 340 from spawn; phase 1 already covered ~260 of
-    // those steps on a compatible heading, so a further ~200 steps of continued proportional steering
-    // is plenty of margin. The real browser also runs its own live rAF render loop concurrently with
-    // these scripted steps, which can tick a handful of EXTRA ambient physics steps (using whatever
-    // input was last set) during the CDP round-trips/sleeps around the screenshot above -- harmless
-    // jitter most of the time, but enough to occasionally leave the controller's final approach a
-    // little short of an actual collision. Guard against that empirically-observed flakiness with a
-    // bounded retry: re-approach + a guaranteed straight full-throttle "ram" burst, up to 3 times,
-    // stopping as soon as the mid tree's weld has actually broken.
+    // Phase 2: continue steering toward the mid tree (MID_SITES[0] = (-55,20)) -- originally calibrated
+    // to reliably fell it (weld breaks) by ~step 340 from spawn, with a bounded retry (re-approach + a
+    // guaranteed straight full-throttle "ram" burst) guarding against occasional ambient-stepping
+    // jitter leaving the final approach a little short.
+    //
+    // POST-RETUNE FIX (commit e4b9790: real grip 1.05, 0-100 in 5.8s, 235km/h top speed): that blind
+    // "full throttle for 60 steps, heading be damned" ram burst is exactly the failure mode the retune
+    // exposed -- reproduced directly: the single driveToward(-55,20,...) call above already lands
+    // reasonably close and under control (speed in the 35-45km/h band, same profile the ORIGINAL
+    // calibration relied on -- see the committed console-report-trees.json's driveResult2 samples), but
+    // the retry's blind full-throttle burst, on this MUCH more powerful drivetrain, rockets the car to
+    // 90-100km/h in those same 60 steps regardless of which way it's currently pointed. At that speed
+    // the P-controller's clamped +-1 steer can't pivot fast enough to correct, so instead of re-aligning
+    // it just carves an ever-widening full-lock circle -- confirmed spiraling from -55,20 out to beyond
+    // -160,-18 (over 100m off course) across 3 compounding retries in one repro run, never touching the
+    // tree. Fixed by dropping the blind ram burst entirely: retries now just re-run the SAME
+    // proportional controller (still capped at 50km/h -- see DRIVE_TOWARD_SNIPPET's top comment) toward
+    // the same target, which lets it curve back in under control instead of rocketing away.
     console.log('[verify-trees] phase 2: driving on into the mid tree...');
     await evalExpr('window.__GAME__.setFixedAngle(null); "ok"'); // back to chase cam while driving
-    driveResult2 = await evalExpr('window.__driveToward(-55, 20, 220, 2, 0.5, 1.5)');
+    driveResult2 = await evalExpr('window.__driveToward(-55, 20, 300, 2, 0.5, 1.5, 50)');
     console.log('[verify-trees] phase 2 result:', JSON.stringify(driveResult2));
 
     treesSnapshotAfterMid = await evalExpr('window.__GAME__.features.trees.snapshot()');
-    for (let attempt = 0; attempt < 3 && !treesSnapshotAfterMid.mids.some((m) => m.broken); attempt++) {
-      console.log(`[verify-trees] phase 2 retry ${attempt}: mid tree not yet broken, ramming again...`);
-      await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }); 'ok'");
-      await evalExpr('window.__GAME__.stepN(60); "ok"');
-      const retryResult = await evalExpr('window.__driveToward(-55, 20, 120, 1, 0.6, 2)');
+    for (let attempt = 0; attempt < 4 && !treesSnapshotAfterMid.mids.some((m) => m.broken); attempt++) {
+      console.log(`[verify-trees] phase 2 retry ${attempt}: mid tree not yet broken, re-approaching (capped speed, no blind ram)...`);
+      const retryResult = await evalExpr('window.__driveToward(-55, 20, 150, 1, 0.55, 1.8, 50)');
       console.log(`[verify-trees] phase 2 retry ${attempt} result:`, JSON.stringify(retryResult));
       treesSnapshotAfterMid = await evalExpr('window.__GAME__.features.trees.snapshot()');
     }

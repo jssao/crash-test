@@ -1,31 +1,26 @@
 {
   "consoleErrors": [],
-  "consoleWarnings": [
-    "[panelVisuals] \"hood\" precomputed offset disagrees with the live capture at reparent time (posErr=5.128m, angleErr=2.41deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"doorR\" precomputed offset disagrees with the live capture at reparent time (posErr=5.465m, angleErr=1.45deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"roof\" precomputed offset disagrees with the live capture at reparent time (posErr=5.489m, angleErr=1.45deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"doorL\" precomputed offset disagrees with the live capture at reparent time (posErr=5.369m, angleErr=1.77deg) -- car-map.ts may be stale for this GLB."
-  ],
+  "consoleWarnings": [],
   "pageErrors": [],
   "hooksBefore": {
     "detachedCount": 0
   },
   "hooksAfter": {
-    "detachedCount": 5,
+    "detachedCount": 11,
     "states": {
-      "engineBlock": "attached",
+      "engineBlock": "broken",
       "turboDownpipe": "broken",
       "intercooler": "broken",
       "radiatorFan": "broken",
-      "upperHose": "attached",
-      "lowerHose": "attached",
+      "upperHose": "broken",
+      "lowerHose": "broken",
       "intakeAssembly": "broken",
       "battery": "broken",
       "brakeBoosterMC": "attached",
-      "strutBrace": "attached",
+      "strutBrace": "broken",
       "alternator": "attached",
-      "coolantReservoir": "attached",
-      "fuseBox": "attached",
+      "coolantReservoir": "broken",
+      "fuseBox": "broken",
       "driverSeat": "attached",
       "passengerSeat": "attached",
       "rearBench": "attached",
@@ -57,5 +52,5 @@
   },
   "detachedEnough": true,
   "hoodOpen": true,
-  "timestamp": "2026-07-09T12:54:38.867Z"
+  "timestamp": "2026-07-09T13:54:10.271Z"
 }

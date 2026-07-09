@@ -1,11 +1,6 @@
 {
   "consoleErrors": [],
-  "consoleWarnings": [
-    "[panelVisuals] \"hood\" precomputed offset disagrees with the live capture at reparent time (posErr=22.103m, angleErr=2.44deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"doorL\" precomputed offset disagrees with the live capture at reparent time (posErr=22.411m, angleErr=0.33deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"doorR\" precomputed offset disagrees with the live capture at reparent time (posErr=22.351m, angleErr=0.10deg) -- car-map.ts may be stale for this GLB.",
-    "[panelVisuals] \"roof\" precomputed offset disagrees with the live capture at reparent time (posErr=22.349m, angleErr=0.12deg) -- car-map.ts may be stale for this GLB."
-  ],
+  "consoleWarnings": [],
   "pageErrors": [],
   "bodyCountBefore": 343,
   "seatStatesBefore": [
@@ -56,9 +51,9 @@
       "ejected": true,
       "restraintForceN": null,
       "pelvisPos": {
-        "x": 0.32350459694862366,
-        "y": 0.9316123723983765,
-        "z": 24.033926010131836
+        "x": 0.31350675225257874,
+        "y": 0.937095046043396,
+        "z": 24.045869827270508
       }
     },
     {
@@ -66,9 +61,9 @@
       "ejected": true,
       "restraintForceN": null,
       "pelvisPos": {
-        "x": -0.523769199848175,
-        "y": 0.7983511686325073,
-        "z": 23.355804443359375
+        "x": -0.5263836979866028,
+        "y": 0.794475793838501,
+        "z": 23.329683303833008
       }
     },
     {
@@ -76,9 +71,9 @@
       "ejected": true,
       "restraintForceN": null,
       "pelvisPos": {
-        "x": 0.8820675015449524,
-        "y": 0.7508280873298645,
-        "z": 23.01516342163086
+        "x": 0.670295774936676,
+        "y": 0.9239454865455627,
+        "z": 23.374313354492188
       }
     },
     {
@@ -86,11 +81,11 @@
       "ejected": true,
       "restraintForceN": null,
       "pelvisPos": {
-        "x": -0.49278557300567627,
-        "y": 0.7864144444465637,
-        "z": 22.560626983642578
+        "x": -0.5597965717315674,
+        "y": 0.12558405101299286,
+        "z": 22.171314239501953
       }
     }
   ],
-  "timestamp": "2026-07-09T12:58:31.642Z"
+  "timestamp": "2026-07-09T13:54:34.549Z"
 }

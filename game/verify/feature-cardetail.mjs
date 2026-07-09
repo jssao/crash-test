@@ -200,16 +200,24 @@ async function main() {
       if (hooksAfter.detachedCount >= 5) break;
     }
 
-    // Shot 1: hood-off engine-bay close-up -- fixed 3/4-front angle (the crash/hood is at the car's
-    // front, which the default chase camera never shows), same convention as shoot-crash.mjs.
+    // Shot 1: hood-off engine-bay close-up -- setOrbitView() (verify hook added in commit 7fbe0d1) pulls
+    // the orbit way in (radius ~4m, close to the 3.5-4.5m spec range) and raises it (height 2.8m against
+    // that small radius is a steep, angled-from-above look) with a LOW targetHeight (0.45m, roughly bay
+    // height rather than roof height) so the shot looks DOWN INTO the open bay instead of just at the
+    // car's silhouette from a distance -- fixed 3/4-front angle (the crash/hood is at the car's front,
+    // which the default chase camera never shows), same angle convention as shoot-crash.mjs.
+    await evalExpr('window.__GAME__.setOrbitView({ radius: 4, height: 3.2, targetHeight: 0.3 }); "ok"');
     await evalExpr(`window.__GAME__.setFixedAngle(${Math.PI / 3}); 'ok'`);
     await sleep(800);
     const shotEngineBay = await c.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(path.join(OUT_DIR, 'screenshot-cardetail-enginebay.png'), Buffer.from(shotEngineBay.data, 'base64'));
     console.log('[verify-cardetail] wrote screenshot-cardetail-enginebay.png');
 
-    // Shot 2: wider post-crash scatter -- a different orbit angle so scattered debris (which may have
-    // travelled meters from the car) is more likely to be in frame alongside the wrecked car.
+    // Shot 2: wider post-crash scatter -- a bigger radius/height than the engine-bay close-up (and
+    // slightly bigger than the game's own default orbit, radius 9/height 3.2) plus a different angle, so
+    // scattered debris (which may have travelled meters from the car) is more likely to be in frame
+    // alongside the wrecked car.
+    await evalExpr('window.__GAME__.setOrbitView({ radius: 11, height: 5, targetHeight: 0.6 }); "ok"');
     await evalExpr(`window.__GAME__.setFixedAngle(${(2 * Math.PI) / 3}); 'ok'`);
     await sleep(600);
     const shotScatter = await c.send('Page.captureScreenshot', { format: 'png' });
