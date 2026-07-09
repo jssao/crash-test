@@ -1,0 +1,13 @@
+{
+  "crash60": {
+    "detachedCount": 8,
+    "hoodState": "broken"
+  },
+  "crash150": {
+    "detachedCount": 9
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "qualityLevel": "high",
+  "timestamp": "2026-07-09T20:57:52.073Z"
+}

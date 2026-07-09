@@ -1,19 +1,19 @@
 {
   "spawn": {
-    "renderCalls": 790,
-    "triangles": 803637,
+    "renderCalls": 922,
+    "triangles": 813589,
     "featureBodyCount": 419,
     "destructibleBodyCount": 131
   },
   "midCrashChase": {
-    "renderCalls": 790,
-    "triangles": 803637
+    "renderCalls": 1110,
+    "triangles": 828149
   },
   "midCrashWideOrbit": {
-    "renderCalls": 790,
-    "triangles": 803637
+    "renderCalls": 1032,
+    "triangles": 827085
   },
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-09T20:23:20.404Z"
+  "timestamp": "2026-07-09T20:55:25.562Z"
 }

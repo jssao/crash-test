@@ -60,20 +60,28 @@ function buildEngineMetalMaterial(): THREE.MeshStandardMaterial {
 	return new THREE.MeshStandardMaterial({ map, metalness: 0.7, roughness: 0.5 });
 }
 
-/** Aluminum radiator core with horizontal fin stripes (guarded; flat color if no DOM). */
+/** Aluminum radiator/intercooler core: horizontal fin louvres crossed with faint vertical tube
+ * lines (a real bar-and-plate core's tubes run perpendicular to its fins) -- IMPROVED from the
+ * original flat horizontal-stripe-only version (higher res, crisper louvre contrast, tube lines
+ * added) per this task's brief. Guarded; flat color if no DOM. Shared by radiatorFan AND
+ * intercooler (both are bar-and-plate aluminum cores -- see index.ts). */
 function buildRadiatorMaterial(): THREE.MeshStandardMaterial {
-	const base = { r: 184, g: 190, b: 194 };
+	const base = { r: 188, g: 193, b: 197 };
 	if (!hasDom()) return new THREE.MeshStandardMaterial({ color: (base.r << 16) | (base.g << 8) | base.b, metalness: 0.8, roughness: 0.35 });
-	const size = 128;
+	const size = 256;
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = size;
 	const ctx = canvas.getContext('2d')!;
 	const img = ctx.createImageData(size, size);
+	const rand = mulberry32(777);
 	for (let y = 0; y < size; y++) {
-		const onFin = y % 6 < 2;
+		const onFin = y % 10 < 3; // crisper, tighter louvre period than the original y%6<2
 		for (let x = 0; x < size; x++) {
+			const onTube = x % 22 < 2; // faint vertical tube lines, perpendicular to the fins
 			const p = (y * size + x) * 4;
-			const shade = onFin ? 0.62 : 1.0;
+			let shade = onFin ? 0.55 : 1.0;
+			if (onTube) shade *= 0.85;
+			shade += (rand() - 0.5) * 0.03; // tiny speckle so it doesn't read as a flat procedural stripe
 			img.data[p] = clamp8(base.r * shade);
 			img.data[p + 1] = clamp8(base.g * shade);
 			img.data[p + 2] = clamp8(base.b * shade);
@@ -84,7 +92,7 @@ function buildRadiatorMaterial(): THREE.MeshStandardMaterial {
 	const map = new THREE.CanvasTexture(canvas);
 	map.colorSpace = THREE.SRGBColorSpace;
 	map.wrapS = map.wrapT = THREE.RepeatWrapping;
-	map.repeat.set(1, 6);
+	map.repeat.set(2, 8);
 	map.needsUpdate = true;
 	return new THREE.MeshStandardMaterial({ map, metalness: 0.8, roughness: 0.35 });
 }
@@ -111,6 +119,13 @@ const FLAT_PALETTE: Record<string, FlatEntry> = {
 	lensClear: { color: 0xdfe9f0, metalness: 0.0, roughness: 0.1, transparent: true, opacity: 0.55 },
 	lensRed: { color: 0x7a1010, metalness: 0.0, roughness: 0.2, transparent: true, opacity: 0.65 },
 	paintGeneric: { color: 0x555555, metalness: 0.4, roughness: 0.4 },
+	// Added for the shaped-mesh pass (game/src/world/features/cardetail/index.ts's per-component
+	// builders in shapes.ts) -- small realism additions beyond the original flat palette.
+	chromeBright: { color: 0xd7dde2, metalness: 1.0, roughness: 0.08 }, // tailpipe tip, mirror/headlight bezels
+	aluAnodizedBlue: { color: 0x2f5f8a, metalness: 0.85, roughness: 0.3 }, // strut brace, charge piping
+	labelYellow: { color: 0xcaa515, metalness: 0.0, roughness: 0.6 }, // battery/fuse-box warning decals
+	plasticTranslucentBlue: { color: 0x3f6f9e, metalness: 0.0, roughness: 0.2, transparent: true, opacity: 0.6 }, // washer-fluid tank
+	stitchRed: { color: 0x8a1414, metalness: 0.0, roughness: 0.55 }, // seat contrast stitching
 };
 
 export type CarDetailMaterials = Record<string, THREE.MeshStandardMaterial>;

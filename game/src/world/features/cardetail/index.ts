@@ -16,6 +16,7 @@ import { add, IDENTITY_Q, length, rotateVector, sub, type V3 } from '../../../ve
 import { CAR_GROUP_INDEX } from '../../../vehicle/tuning';
 import { InterpolatedTransform } from '../../../core/loop';
 import { buildCarDetailMaterials, disposeCarDetailMaterials, type CarDetailMaterials } from './materials';
+import { SHAPE_BUILDERS } from './shapes';
 import {
 	BREAKS_EASILY_FORCE_N,
 	BREAKS_EASILY_TORQUE_NM,
@@ -104,25 +105,41 @@ function createShapeFor(body: Body, spec: CarDetailSpec, groupIndex: number, bod
 	});
 }
 
-function buildMeshFor(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Object3D {
+/** Fallback proxy mesh (the ORIGINAL flat box/capsule look) -- only used if a spec.id ever falls
+ * through shapes.ts's SHAPE_BUILDERS table (should never happen; every one of the 39 ids has a
+ * dedicated builder, see shapes.ts's dispatch table doc comment), so this stays as a safety net
+ * rather than a silently-invisible part. */
+function buildFallbackProxy(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Object3D {
 	const material = materials[spec.matKey] ?? materials.paintGeneric;
 	if (spec.phys === 'box') {
 		const { hx, hy, hz } = spec.dims as { hx: number; hy: number; hz: number };
-		const geo = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
-		return new THREE.Mesh(geo, material);
+		return new THREE.Mesh(new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2), material);
 	}
 	const { length: len, radius } = spec.dims as { length: number; radius: number };
-	const geo = new THREE.CapsuleGeometry(radius, Math.max(len - 2 * radius, 0.001), 4, 8);
-	if (spec.phys === 'capsuleX') geo.rotateZ(Math.PI / 2);
-	else geo.rotateX(Math.PI / 2);
-	const mesh = new THREE.Mesh(geo, material);
-	if (spec.id === 'steeringColumn') {
-		// Small cosmetic addition: a wheel rim disc at the +Z (forward-most, i.e. cabin-facing) end.
-		const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.018, 8, 20), materials.plasticBlackGloss);
-		wheel.rotateX(Math.PI / 2);
-		wheel.position.set(0, 0, len / 2);
-		mesh.add(wheel);
-	}
+	return new THREE.Mesh(new THREE.CapsuleGeometry(radius, Math.max(len - 2 * radius, 0.001), 4, 8), material);
+}
+
+/** Builds this component's SHAPED visual mesh (shapes.ts -- ribbed valve covers, spiral-volute
+ * turbos, finned radiator cores, curved hoses with clamps, seat base+backrest+bolsters, torus+
+ * spokes steering wheels, etc., per docs/build-log/specs/engine-bay-spec.md's per-component
+ * "real-world look"). Every builder in shapes.ts works in a CANONICAL local frame (box specs: the
+ * spec's own X=lateral/Y=up/Z=forward frame directly; capsule specs: length along +Y, matching
+ * CapsuleGeometry/CylinderGeometry's default axis) -- this function applies the same final wrapper
+ * rotation the original generic capsule code used (capsuleZ -> rotateX(PI/2), capsuleX ->
+ * rotateZ(PI/2)) so every builder never has to think in Z-/X-aligned terms itself. Visual meshes may
+ * exceed their own collision box/capsule slightly (locked in tuning.ts) -- these are welded parts;
+ * collision fidelity is secondary to looks, per this task's brief. */
+function buildMeshFor(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Object3D {
+	const builder = SHAPE_BUILDERS[spec.id];
+	const mesh = builder ? builder(spec, materials) : buildFallbackProxy(spec, materials);
+	if (spec.phys === 'capsuleZ') mesh.rotateX(Math.PI / 2);
+	else if (spec.phys === 'capsuleX') mesh.rotateZ(Math.PI / 2);
+	mesh.traverse((obj) => {
+		if (obj instanceof THREE.Mesh) {
+			obj.castShadow = true;
+			obj.receiveShadow = true;
+		}
+	});
 	return mesh;
 }
 
