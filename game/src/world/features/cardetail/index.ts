@@ -10,7 +10,7 @@
 // directive on top of the spec's own scatter requirement.
 
 import * as THREE from 'three';
-import { Body, BodyType, Shape, WeldJoint } from '../../../../../src/ts/index.js';
+import { Body, BodyType, forgetHandle, Shape, WeldJoint } from '../../../../../src/ts/index.js';
 import type { FeatureContext, WorldFeature } from '../feature';
 import { add, IDENTITY_Q, length, rotateVector, sub, type V3 } from '../../../vehicle/mathUtil';
 import { CAR_GROUP_INDEX } from '../../../vehicle/tuning';
@@ -259,7 +259,15 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 	function destroyAll(): void {
 		for (const h of handles) {
 			if (h.weld) {
-				h.weld.destroy();
+				// CHASSIS-ATTACHED-JOINT LIFECYCLE HAZARD (same as occupants/physics.ts's doc comment):
+				// every cardetail weld attaches to the CHASSIS, and by the time reset() fires,
+				// doCarRepair()'s destroyVehicle() has already natively freed every chassis-attached
+				// joint as a side effect -- calling .destroy() here double-frees native memory (wasm
+				// "memory access out of bounds", 100% repro on resetWorld(), permanently poisons the
+				// module). forgetHandle() drops JS registry bookkeeping ONLY; the native joint is freed
+				// either by that chassis teardown (already happened) or by h.body.destroy() just below
+				// (a joint dies with EITHER attached body), so this leaks nothing in both reset kinds.
+				forgetHandle(h.weld.handle, 'joint');
 				h.weld = null;
 			}
 			h.shape.destroy(false);

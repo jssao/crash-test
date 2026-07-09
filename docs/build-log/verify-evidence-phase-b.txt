@@ -1,0 +1,54 @@
+=== GATE EVIDENCE: PHASE B (fresh orchestrator runs, Thu Jul  9 09:34:06 CDT 2026) ===
+--- git log ---
+2acb9c3 Joint.destroy(wakeAttached=false) hardening; correct buildings OOB misdiagnosis
+1ac7d0e verify: fix buildings drive-controller sign bug, harden trees for retuned car, add close-up framing
+7fbe0d1 panelVisuals: kill spurious stale-pose warning + reparent flicker; add setOrbitView verify hook
+f88d87d Add 'occupants' WorldFeature: 4 seated ragdoll passengers with breakable restraints
+6b11267 Add 'cardetail' WorldFeature: 39 weld-attached engine-bay/interior/underbody parts
+e4b9790 Vehicle deep-pass: root-cause friction deficit, honest 235km/h top speed, kicker-jump robustness
+9be6eb5 Add 'trees' world feature: 3 physics tree classes the car can crash into
+16ce70e Add 'buildings' WorldFeature: destructible east-side structures (shed, house-corner, brick wall, fences)
+e8521da Wire spherical joint, joint break thresholds, runtime shape filter, revolute limits
+99dfe31 WorldFeature scaffold: zero-shared-file content integration for Phase B
+
+--- root npm test ---
+ Test Files  12 passed (12)
+      Tests  17 passed (17)
+
+--- game test:sim ---
+ Test Files  48 passed (48)
+      Tests  72 passed (72)
+
+--- game build ---
+✓ built in 275ms
+
+--- feature verifies (Brave CDP) ---
+[feature-cardetail]
+[verify-cardetail] hooks before: {"detachedCount":0}
+[verify-cardetail] crash(110) hooks: {"detachedCount":0,"states":{"engineBlock":"attached","turboDownpipe":"attached","intercooler":"attached","radiatorFan":"attached","upperHose":"attached","lowerHose":"attached","intakeAssembly":"attached","battery":"attached","brakeBoosterMC":"attached","strutBrace":"attached","alternator":"attached","coolantReservoir":"attached","fuseBox":"attached","driverSeat":"attached","passengerSeat":"attached","rearBench":"attached","dashboard":"attached","steeringColumn":"attached","centerConsole":"attached","pedalCluster":"attached","rearviewMirror":"attached","catConverter":"attached","mufflerTailpipe":"attached","fuelTank":"attached","frontSubframe":"attached","rearSubframe":"attached","driveshaft":"attached","flControlArm":"attached","frControlArm":"attached","rlControlArm":"attached","rrControlArm":"attached","frontBumperBeam":"attached","rearBumperBeam":"attached","headlightL":"attached","headlightR":"attached","taillightL":"attached","taillightR":"attached","mirrorL":"attached","mirrorR":"attached"},"hoodState":"broken"}
+[verify-cardetail] crash(140) hooks: {"detachedCount":11,"states":{"engineBlock":"broken","turboDownpipe":"broken","intercooler":"broken","radiatorFan":"broken","upperHose":"broken","lowerHose":"broken","intakeAssembly":"broken","battery":"broken","brakeBoosterMC":"attached","strutBrace":"broken","alternator":"attached","coolantReservoir":"broken","fuseBox":"broken","driverSeat":"attached","passengerSeat":"attached","rearBench":"attached","dashboard":"attached","steeringColumn":"attached","centerConsole":"attached","pedalCluster":"attached","rearviewMirror":"attached","catConverter":"attached","mufflerTailpipe":"attached","fuelTank":"attached","frontSubframe":"attached","rearSubframe":"attached","driveshaft":"attached","flControlArm":"attached","frControlArm":"attached","rlControlArm":"attached","rrControlArm":"attached","frontBumperBeam":"attached","rearBumperBeam":"attached","headlightL":"attached","headlightR":"attached","taillightL":"attached","taillightR":"attached","mirrorL":"attached","mirrorR":"attached"},"hoodState":"broken"}
+[verify-cardetail] console errors captured: 0
+[verify-cardetail] uncaught page exceptions: 0
+[feature-occupants]
+[verify-occupants] seatStatesBefore= [{"seatKey":"frontLeft","ejected":false,"restraintForceN":400.57428897348836,"pelvisPos":{"x":0.42649465799331665,"y":0.5074959397315979,"z":0.5441036820411682}},{"seatKey":"frontRight","ejected":false,"restraintForceN":400.922396083901,"pelvisPos":{"x":-0.4265352487564087,"y":0.5074900388717651,"z":0.5440985560417175}},{"seatKey":"rearLeft","ejected":false,"restraintForceN":386.8482037571401,"pelvisPos":{"x":0.4135221838951111,"y":0.4537607431411743,"z":-1.0558260679244995}},{"seatKey":"rearRight","ejected":false,"restraintForceN":390.7580063092703,"pelvisPos":{"x":-0.42646950483322144,"y":0.4537486135959625,"z":-1.0558291673660278}}]
+[verify-occupants] seatStatesAfter= [{"seatKey":"frontLeft","ejected":true,"restraintForceN":null,"pelvisPos":{"x":0.20482438802719116,"y":0.8085564970970154,"z":24.048038482666016}},{"seatKey":"frontRight","ejected":true,"restraintForceN":null,"pelvisPos":{"x":-0.5887624025344849,"y":0.6949514746665955,"z":23.32280731201172}},{"seatKey":"rearLeft","ejected":true,"restraintForceN":null,"pelvisPos":{"x":0.7440783977508545,"y":0.880964457988739,"z":23.025062561035156}},{"seatKey":"rearRight","ejected":true,"restraintForceN":null,"pelvisPos":{"x":-0.5309954881668091,"y":0.8906832337379456,"z":22.762062072753906}}]
+[verify-occupants] console errors captured: 0
+[verify-occupants] uncaught page exceptions: 0
+[verify-occupants] ejectedAfter=frontLeft,frontRight,rearLeft,rearRight
+[feature-trees]
+[verify-trees] trees snapshot after slalom: {"saplings":[{"id":"sapling-0","broken":false},{"id":"sapling-1","broken":false},{"id":"sapling-2","broken":false},{"id":"sapling-3","broken":false},{"id":"sapling-4","broken":false},{"id":"sapling-5","broken":false},{"id":"far-sapling-0","broken":false}],"mids":[{"id":"mid-0","broken":false},{"id":"mid-1","broken":false},{"id":"mid-2","broken":false},{"id":"mid-3","broken":false},{"id":"far-mid-0","broken":false}],"larges":[{"id":"large-0","branchesBroken":0,"branchesTotal":3},{"id":"large-1","branchesBroken":0,"branchesTotal":3},{"id":"large-2","branchesBroken":0,"branchesTotal":3},{"id":"far-large-0","branchesBroken":0,"branchesTotal":3}]}
+[verify-trees] trees snapshot after mid-tree approach: {"saplings":[{"id":"sapling-0","broken":true},{"id":"sapling-1","broken":false},{"id":"sapling-2","broken":false},{"id":"sapling-3","broken":false},{"id":"sapling-4","broken":false},{"id":"sapling-5","broken":false},{"id":"far-sapling-0","broken":false}],"mids":[{"id":"mid-0","broken":true},{"id":"mid-1","broken":false},{"id":"mid-2","broken":false},{"id":"mid-3","broken":false},{"id":"far-mid-0","broken":false}],"larges":[{"id":"large-0","branchesBroken":0,"branchesTotal":3},{"id":"large-1","branchesBroken":0,"branchesTotal":3},{"id":"large-2","branchesBroken":0,"branchesTotal":3},{"id":"far-large-0","branchesBroken":0,"branchesTotal":3}]}
+[verify-trees] console errors captured: 0
+[verify-trees] uncaught page exceptions: 0
+[verify-trees] anySaplingBroken=true anyMidBroken=true
+[feature-buildings]
+[verify-buildings] broken joints before any crash (expect 0): 0
+[verify-buildings] pos at vantage= {"x":44.260337829589844,"y":0.24698948860168457,"z":13.353165626525879} brokenJoints= 0
+[verify-buildings] mid-breach pos= {"x":67.93106842041016,"y":0.2550566494464874,"z":19.089658737182617} brokenJoints= 36
+[verify-buildings] bonus (shed/drywall) broken-joint counts: {"shed":0,"houseCorner":0}
+[verify-buildings] after resetWorld(): brokenJoints=0 (expect 0) bodyCount=216 (expect 216)
+[shoot-alignment]
+[shoot-alignment] afterHardCrash telemetry: {"hood":"broken","doorL":"loosened","doorR":"broken","hatch":"attached","roof":"loosened"}
+[shoot-alignment] console errors: 0
+[shoot-alignment] page exceptions: 0
+[shoot-alignment] PASS

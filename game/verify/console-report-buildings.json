@@ -2,9 +2,7 @@
   "consoleErrors": [],
   "consoleWarnings": [],
   "pageErrors": [],
-  "evalExceptions": [
-    "RuntimeError: memory access out of bounds\n    at http://localhost:4197/assets/box3d.wasm:wasm-function[176]:0x4c122\n    at http://localhost:4197/assets/box3d.wasm:wasm-function[256]:0x5a2e0\n    at ld.destroy (http://localhost:4197/assets/index-DUrZLRfh.js:4108:67504)\n    at u (http://localhost:4197/assets/index-DUrZLRfh.js:4167:23242)\n    at Object.reset (http://localhost:4197/assets/index-DUrZLRfh.js:4167:23799)\n    at Object.reset (http://localhost:4197/assets/index-DUrZLRfh.js:4167:45238)\n    at ce (http://localhost:4197/assets/index-DUrZLRfh.js:4167:48468)\n    at Object.le [as resetWorld] (http://localhost:4197/assets/index-DUrZLRfh.js:4167:48495)\n    at <anonymous>:1:17"
-  ],
+  "evalExceptions": [],
   "bodyCountBefore": 216,
   "brokenBeforeCrash": 0,
   "brokenAfterCrash": 36,
@@ -310,5 +308,5 @@
       }
     ]
   },
-  "timestamp": "2026-07-09T14:21:57.162Z"
+  "timestamp": "2026-07-09T14:35:33.251Z"
 }
