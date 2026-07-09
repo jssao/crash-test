@@ -1,0 +1,55 @@
+=== FINAL GATE EVIDENCE: RUN 2 (fresh orchestrator runs, Thu Jul  9 10:58:04 CDT 2026) ===
+--- git log (RUN 2 commits) ---
+64c5318 Fix test-wall handle leak; root-cause+regression-test the resetCar handle-count investigation
+7073db7 Add ENDURANCE SOAK scripts + artifacts (game/verify/playtest-soak/)
+264b951 Add Phase D scenario battery (8 scenarios) + sapling bend-phase sim test
+a912435 Full-world perf gate (PLAN-2 item 11): profile ~520-body worst-case, gate passes with big margin
+c572d43 Fix resetWorld wasm OOB: cardetail chassis-attached-weld double-destroy; Phase B evidence
+2acb9c3 Joint.destroy(wakeAttached=false) hardening; correct buildings OOB misdiagnosis
+1ac7d0e verify: fix buildings drive-controller sign bug, harden trees for retuned car, add close-up framing
+7fbe0d1 panelVisuals: kill spurious stale-pose warning + reparent flicker; add setOrbitView verify hook
+f88d87d Add 'occupants' WorldFeature: 4 seated ragdoll passengers with breakable restraints
+6b11267 Add 'cardetail' WorldFeature: 39 weld-attached engine-bay/interior/underbody parts
+e4b9790 Vehicle deep-pass: root-cause friction deficit, honest 235km/h top speed, kicker-jump robustness
+9be6eb5 Add 'trees' world feature: 3 physics tree classes the car can crash into
+16ce70e Add 'buildings' WorldFeature: destructible east-side structures (shed, house-corner, brick wall, fences)
+e8521da Wire spherical joint, joint break thresholds, runtime shape filter, revolute limits
+99dfe31 WorldFeature scaffold: zero-shared-file content integration for Phase B
+02f3cd7 Ledger PLAN-2 + FIXROUND-2 closeout: recalibrate straight-line bar (panel-inertia fix), evidence, engine-bay spec
+5fb6b9f Vehicle dynamics foundation: gate airborne assists, fix drift, bound top speed
+1f0b38c Fix panel/wheel visual-transform: rotate panel bodies to match GLB node frame, strip wheel authoring garbage
+b6964f0 fix(native): decode file: URLs before dynamic import to fix space-in-path failures
+4390710 Rename project folder box3d-js -> 'crash test'; de-loom docs/loom -> docs/build-log
+304d810 game: fix reverse (S key), inverted steering, and cocked front wheels
+347ae3c Ledger: GATE-GAME PASS (pass 2) — RUN COMPLETE, all 12 items met
+
+--- root npm test ---
+ Test Files  12 passed (12)
+      Tests  17 passed (17)
+
+--- game test:sim ---
+ Test Files  50 passed (50)
+      Tests  75 passed (75)
+
+--- game build ---
+✓ built in 277ms
+
+--- perf bench full (item 11 physics gate) ---
+[perf-bench-full] SETTLE: did NOT reach near-zero within 1200 steps (20.0s) -- final awake={"total":73,"destructibles":0,"trees":1,"buildings":0,"cardetail":35,"occupants":37}
+
+[perf-bench-full] === SUMMARY ===
+  IDLE final awake (t=5s): 87
+  CHAOS: avg=0.580ms p95=1.397ms max=2.683ms over 500 steps -- PASS (<8ms avg required)
+  SETTLE: did not reach near-zero within 1200 steps
+
+--- perf headed fps (item 11 render gate) ---
+[perf-headed] MID-CRASH fps probe: {"frames":361,"elapsedMs":3010.600000023842,"fps":119.9096525600017}
+[perf-headed] REQUIRED mid-crash fps >= 55 (real GPU, headed): PASS (actual=119.9)
+[perf-headed] console errors: 0 page errors: 0
+[perf-headed] wrote /Users/jesuscalderon/Documents/crash test/game/verify/console-report-perf-headed.json
+
+--- alignment + driving verifies ---
+[shoot-alignment] wrote console-report-alignment.json
+[shoot-alignment] PASS
+[verify-driving] speed before=0.0 after=41.8 droveForward=true
+[verify-driving] yaw delta after 2s steer=0.25 turn: -0.7743 rad (REQUIRED >0.15): PASS
