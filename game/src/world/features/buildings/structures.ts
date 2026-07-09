@@ -17,6 +17,8 @@ import {
 	BRICK_ANGULAR_DAMPING,
 	BRICK_BREAK_FORCE_N,
 	BRICK_BREAK_TORQUE_NM,
+	BRICK_FOOTING_BREAK_FORCE_N,
+	BRICK_FOOTING_BREAK_TORQUE_NM,
 	BRICK_FRICTION,
 	BRICK_HALF_EXTENTS,
 	BRICK_LINEAR_DAMPING,
@@ -482,7 +484,7 @@ export function buildBrickWall(world: World): Structure {
 		// for row 0).
 		if (r === 0) {
 			for (const brick of rowBricks) {
-				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: brick.pos.x, y: 0, z: c.z }, BRICK_BREAK_FORCE_N, BRICK_BREAK_TORQUE_NM, BRICK_PROFILE);
+				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: brick.pos.x, y: 0, z: c.z }, BRICK_FOOTING_BREAK_FORCE_N, BRICK_FOOTING_BREAK_TORQUE_NM, BRICK_PROFILE);
 			}
 		} else {
 			const below = rows[r - 1];
@@ -630,6 +632,10 @@ export function pollStructureBreaks(structure: Structure): number {
 			brokenThisCall++;
 			continue;
 		}
+
+		// Break-only (masonry): the weld stays rigid until it cracks -- it never enters the soft yield
+		// stage, so the wall cracks crisply in clumps instead of wobbling as a jelly blob (issue #3).
+		if (p.breakOnly) continue;
 
 		if (record.stage === 'rigid') {
 			const yieldF = record.spec.forceThresholdN * p.yieldForceFrac;

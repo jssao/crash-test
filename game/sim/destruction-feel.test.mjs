@@ -20,11 +20,12 @@ import {
 	buildBrickWall,
 	buildFenceLine,
 	buildHouseCorner,
+	buildShed,
 	pollStructureBreaks,
 	resetStructure,
 	totalYieldedJointCount,
 } from '../src/world/features/buildings/structures.ts';
-import { BRICK_WALL_CENTER, FENCE_CONFIGS } from '../src/world/features/buildings/tuning.ts';
+import { BRICK_WALL_CENTER, FENCE_CONFIGS, SHED_CENTER } from '../src/world/features/buildings/tuning.ts';
 import { createTreesWorld, stepTreesWorld, trunkTiltDeg } from '../src/world/features/trees/bodies.ts';
 import { MID_SITES } from '../src/world/features/trees/tuning.ts';
 
@@ -89,33 +90,38 @@ async function impactSignature(build, centerX, approachZ, kind, speedKmh, steps 
 }
 
 describe('destruction-feel: buildings bend-then-break + staged debris', () => {
-	it('brick wall: a 30km/h nudge BULGES (welds yield, ~nothing flies); a 120km/h hit SPRAYS -- measurably distinct', async () => {
+	it('brick wall: a 30km/h nudge CRACKS in clumps (no jelly wobble); a 120km/h hit SHATTERS -- measurably distinct', async () => {
+		// RECALIBRATED for the crisp break-only masonry model (playtest issue #3). The old model
+		// plastically YIELDED the mortar lattice so the whole wall wobbled as a soft blob (the user's
+		// exact complaint: "stuck together in a weird way ... moves as one wobbly blob"). Masonry welds
+		// are now break-ONLY: rigid until they crack. So a brick wall NEVER bends -- bentJoints is 0 at
+		// every speed. The low/high distinction is carried by HOW MANY mortar joints crack (and how fast
+		// debris flies), and low-speed damage tumbles as CLUMPS (many bricks move while few joints break,
+		// i.e. connected 2-4-brick chunks fall together) rather than shattering into individual bricks.
 		const low = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 30);
 		const high = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 120);
 		console.log(
-			`[brick bulge-vs-spray] low(30): broken=${low.brokenJoints} bent=${low.bentJoints} moved>0.3=${low.moved03} peakDebris=${low.peakDebrisSpeed.toFixed(1)}m/s meanDisp=${low.meanDisp.toFixed(2)}m | ` +
+			`[brick crack-vs-shatter] low(30): broken=${low.brokenJoints} bent=${low.bentJoints} moved>0.3=${low.moved03} peakDebris=${low.peakDebrisSpeed.toFixed(1)}m/s meanDisp=${low.meanDisp.toFixed(2)}m | ` +
 				`high(120): broken=${high.brokenJoints} bent=${high.bentJoints} peakDebris=${high.peakDebrisSpeed.toFixed(1)}m/s meanDisp=${high.meanDisp.toFixed(2)}m`,
 		);
 
-		// LOW = a bulge/slump: the wall plastically YIELDS far more than it breaks, and (the headline
-		// requirement) essentially nothing is flung -- the wall stays standing.
-		expect(low.bentJoints).toBeGreaterThanOrEqual(20);
-		expect(low.bentJoints).toBeGreaterThan(low.brokenJoints * 4);
-		expect(low.brokenJoints).toBeLessThanOrEqual(6);
-		expect(low.moved03).toBeLessThanOrEqual(2); // ~nothing flies at a low nudge (baseline flung 105/120)
-		expect(low.peakDebrisSpeed).toBeLessThan(12);
+		// HEADLINE FIX: masonry never wobbles -- no plastic-yield stage at any speed.
+		expect(low.bentJoints).toBe(0);
+		expect(high.bentJoints).toBe(0);
 
-		// HIGH = a spray: many welds break and debris genuinely flies.
-		expect(high.brokenJoints).toBeGreaterThanOrEqual(20);
-		expect(high.peakDebrisSpeed).toBeGreaterThan(15);
+		// LOW = crack-in-CLUMPS: far more bricks move than joints break (the wall topples/sheds as a few
+		// connected chunks), and debris is slow.
+		expect(low.moved03).toBeGreaterThan(low.brokenJoints * 3); // clumps, not a shatter
+		expect(low.peakDebrisSpeed).toBeLessThan(13);
 
-		// The two signatures are MEASURABLY distinct (the whole point of the design work). NOTE: the
-		// ABSOLUTE high-energy spread (meanDisp) is chaotic and shifts a lot with WASM-allocator state
-		// carried between worlds in a full suite run, so the margin here is deliberately modest -- the
-		// robust separators are the break count and the low-vs-high debris SPEED ratio above.
+		// HIGH = SHATTER: many mortar joints crack and debris genuinely flies.
+		expect(high.brokenJoints).toBeGreaterThanOrEqual(60);
+		expect(high.peakDebrisSpeed).toBeGreaterThan(18);
+
+		// The two signatures are MEASURABLY distinct: HIGH cracks many more joints and flings debris far
+		// faster than LOW (the robust separators; absolute spread is chaotic under suite allocator state).
 		expect(high.brokenJoints).toBeGreaterThan(low.brokenJoints * 4);
-		expect(high.peakDebrisSpeed).toBeGreaterThan(low.peakDebrisSpeed * 2.5);
-		expect(high.meanDisp).toBeGreaterThan(low.meanDisp + 1.5);
+		expect(high.peakDebrisSpeed).toBeGreaterThan(low.peakDebrisSpeed * 2);
 	});
 
 	it('brick wall: low/mid/high produce a strictly increasing debris velocity + spread signature', async () => {
@@ -126,19 +132,18 @@ describe('destruction-feel: buildings bend-then-break + staged debris', () => {
 			`[brick staged] peakDebrisSpd 30=${lo.peakDebrisSpeed.toFixed(1)} 70=${mid.peakDebrisSpeed.toFixed(1)} 120=${hi.peakDebrisSpeed.toFixed(1)} m/s | ` +
 				`broken 30=${lo.brokenJoints} 70=${mid.brokenJoints} 120=${hi.brokenJoints} | meanDisp 30=${lo.meanDisp.toFixed(2)} 70=${mid.meanDisp.toFixed(2)} 120=${hi.meanDisp.toFixed(2)} m`,
 		);
-		// Debris VELOCITY signature: the low nudge is a different regime from mid/high spray. (Mid vs
-		// high debris SPEED saturates near the car's own speed, so they aren't separated by a fixed
-		// margin -- the mid-vs-high separation is carried by SPREAD + break count below.)
-		expect(mid.peakDebrisSpeed).toBeGreaterThan(lo.peakDebrisSpeed + 8);
-		expect(hi.peakDebrisSpeed).toBeGreaterThan(lo.peakDebrisSpeed + 8);
-		// SPREAD signature: both spray regimes displace far more than the low nudge (which barely moves,
-		// meanDisp ~0). The mid-vs-high spread ORDERING is chaotic under suite-ordering allocator state,
-		// so the fine mid<high separation is carried by the break count below, not by meanDisp.
-		expect(mid.meanDisp).toBeGreaterThan(lo.meanDisp + 0.5);
-		expect(hi.meanDisp).toBeGreaterThan(lo.meanDisp + 1);
-		// Break count: strictly rising (robust).
+		// Debris VELOCITY signature rises monotonically low -> mid -> high (crisp cracking: more energy
+		// cracks more joints and flings the freed bricks faster). Margins are modest because the
+		// break-only model puts debris speed nearer the car's own speed than the old soft-yield model did.
+		expect(mid.peakDebrisSpeed).toBeGreaterThan(lo.peakDebrisSpeed + 3);
+		expect(hi.peakDebrisSpeed).toBeGreaterThan(mid.peakDebrisSpeed + 3);
+		// BREAK COUNT is the robust staging signal (playtest issue #3: "keep the staging via how MANY
+		// joints crack"): strictly rising with impact energy.
 		expect(mid.brokenJoints).toBeGreaterThan(lo.brokenJoints);
-		expect(hi.brokenJoints).toBeGreaterThanOrEqual(mid.brokenJoints);
+		expect(hi.brokenJoints).toBeGreaterThan(mid.brokenJoints);
+		// Both spray regimes displace materially more than the low nudge.
+		expect(mid.meanDisp).toBeGreaterThan(lo.meanDisp);
+		expect(hi.meanDisp).toBeGreaterThan(lo.meanDisp);
 	});
 
 	it('fence: staged debris velocity rises with impact energy (low/mid/high distinct)', async () => {
@@ -160,12 +165,15 @@ describe('destruction-feel: buildings bend-then-break + staged debris', () => {
 		expect(hi.meanDisp).toBeGreaterThan(lo.meanDisp);
 	});
 
-	it('reset clears plastic-yield: a bent (but unbroken) wall returns fully rigid', async () => {
+	it('reset clears plastic-yield: a bent (but unbroken) ductile frame returns fully rigid', async () => {
+		// Uses the SHED (a ductile wood stud frame -- WOOD_STUD_PROFILE still yields lean-then-break)
+		// rather than the brick wall, which is now break-only masonry and never yields (issue #3). A gentle
+		// 20km/h nudge leans several stud welds without breaking any; reset must clear that yield state.
 		const world = await makeWorld();
 		try {
-			const s = buildBrickWall(world);
-			const vehicle = createVehicle(world, { x: BRICK_WALL_CENTER.x, y: 0.5, z: 8 });
-			launch(vehicle, 30);
+			const s = buildShed(world);
+			const vehicle = createVehicle(world, { x: SHED_CENTER.x, y: 0.5, z: SHED_CENTER.z - 8 });
+			launch(vehicle, 20);
 			for (let i = 0; i < 160; i++) {
 				stepVehicle(vehicle, COAST, FIXED_DT);
 				world.step(FIXED_DT, FIXED_SUBSTEPS);

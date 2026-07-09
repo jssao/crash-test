@@ -52,28 +52,47 @@ export const PIPE_LINEAR_DAMPING = 0.05;
 export const FENCE_ANGULAR_DAMPING = 1.2;
 export const FENCE_LINEAR_DAMPING = 0.08;
 
-export const WOOD_STUD_MASS_KG = 3;
-export const WOOD_PLANK_MASS_KG = 4;
+// Softwood framing. Mass toward a kiln-dried density (~470 kg/m^3): a 2.2-2.4m 58mm-square stud is
+// ~3.5kg. See docs/build-log/specs/materials-truth.md (a real 2x4 is 38x89mm; modelled as an
+// equal-cross-sectional-area 58mm square to avoid a rectangular-stud refactor).
+export const WOOD_STUD_MASS_KG = 3.5;
+export const WOOD_PLANK_MASS_KG = 5; // ~19mm cladding board (kept moderate so the shed stays smashable)
 export const WOOD_FRICTION = 0.7; // was 0.6 -- freed planks/studs clatter to rest instead of sliding forever
 export const WOOD_RESTITUTION = 0.12; // wood clatters (a little bounce), not a dead thud
 /** Studs/planks: low-medium weld strength -- a stud frame yields well before masonry. */
 export const WOOD_BREAK_FORCE_N = 3500;
 export const WOOD_BREAK_TORQUE_NM = 1800;
 
-export const DRYWALL_PANEL_MASS_KG = 7;
+// Gypsum wallboard: 12.7mm (1/2") thick. A real 1.2x2.4m sheet is ~26kg (9 kg/m^2); kept lighter here
+// (a gameplay call, same as the legacy wall blocks) so "the car punches through easily" stays true --
+// documented in materials-truth.md. Half-thickness fixed from 24mm to the real 12.7mm.
+export const DRYWALL_PANEL_MASS_KG = 12;
 export const DRYWALL_FRICTION = 0.34; // was 0.4 -- lower so burst drywall sheets flutter-slide flat
 export const DRYWALL_RESTITUTION = 0.0; // drywall doesn't bounce
-/** Lowest threshold in the whole feature -- "the car punches through easily" per spec. */
-export const DRYWALL_BREAK_FORCE_N = 900;
-export const DRYWALL_BREAK_TORQUE_NM = 450;
+/** Lowest threshold in the whole feature -- "the car punches through easily" per spec. Nudged up with
+ * the heavier (truer) panel mass so panels still detach on a real hit without the car stalling. */
+export const DRYWALL_BREAK_FORCE_N = 1100;
+export const DRYWALL_BREAK_TORQUE_NM = 520;
 
-export const BRICK_MASS_KG = 2.6;
+// Real fired-clay brick: 194 x 92 x 57 mm, 2.7 kg (density ~2655 kg/m^3) -- see
+// docs/build-log/specs/materials-truth.md. Was a 400 x 200 x 200 mm block at 2.6 kg, i.e. 162 kg/m^3
+// (styrofoam!) -- the single largest truth deviation in the sandbox.
+export const BRICK_MASS_KG = 2.7;
 export const BRICK_FRICTION = 0.9; // was 0.75 -- bricks thud and tumble to rest quickly, not skate
 export const BRICK_RESTITUTION = 0.0; // masonry does not bounce
-/** High per-joint threshold -- individually strong, but a real car impact exceeds it along a wide
- * front so many bricks still cascade free ("the box3d showcase" per spec). */
-export const BRICK_BREAK_FORCE_N = 6000;
-export const BRICK_BREAK_TORQUE_NM = 2200;
+/** Per-mortar-joint threshold between adjacent bricks. A real car impact exceeds it along a wide front
+ * so many joints crack and bricks cascade free; away from the impact zone joints survive and 2-4
+ * welded bricks tumble as a CLUMP (playtest issue #3: mortar cracks crisply in clumps, no global jelly
+ * wobble). */
+export const BRICK_BREAK_FORCE_N = 3200;
+export const BRICK_BREAK_TORQUE_NM = 650;
+/** Bottom-course brick-to-FOOTING welds are much stronger than brick-to-brick mortar. A thin
+ * single-wythe wall would otherwise just tip over as one rigid slab at any speed (the base is its only
+ * anchor); a strong base means a low-speed hit instead cracks the inter-brick joints LOCALLY near the
+ * impact (a chunk sheds, the rest stands), and only a hard hit overwhelms the base and takes the whole
+ * wall. This is what restores the low/mid/high staging with real (small, light) bricks. */
+export const BRICK_FOOTING_BREAK_FORCE_N = 11000;
+export const BRICK_FOOTING_BREAK_TORQUE_NM = 2600;
 
 export const PIPE_MASS_KG = 4;
 export const PIPE_FRICTION = 0.3;
@@ -117,19 +136,27 @@ export interface YieldProfile {
 	readonly ductileBreakMult: number;
 	readonly breakSpeedCapMs: number;
 	readonly breakSpinCapRad: number;
+	/** When true the weld NEVER enters the soft plastic-yield stage -- it stays fully rigid until it
+	 * cracks (break-only). This is what mortar joints do: they crack crisply, they do not wobble. Set
+	 * for masonry so the brick wall no longer moves as one compliant jelly blob (playtest issue #3);
+	 * ductile materials (studs/posts) leave this false and keep the lean-then-break yield model. */
+	readonly breakOnly?: boolean;
 }
 
-/** Masonry: brittle, but yields a little first so a low-speed hit bulges/slumps a course rather than
- * detonating the whole wall. Cap keeps the spray from rocketing. */
+/** Masonry: BRITTLE and break-ONLY. A mortar joint is rigid until it cracks, then it's gone -- no soft
+ * intermediate stage, so the wall never wobbles as a jelly blob. Low-speed hits crack a handful of
+ * joints locally (a chunk breaks off); high-speed hits crack many (a spray). Staging is carried by HOW
+ * MANY joints crack, not by wobble (playtest issue #3). Cap keeps the spray from rocketing. */
 export const BRICK_PROFILE: YieldProfile = {
-	yieldForceFrac: 0.4,
-	yieldTorqueFrac: 0.4,
-	yieldLinearHertz: 14,
-	yieldAngularHertz: 10,
-	yieldDampingRatio: 0.8,
+	yieldForceFrac: 1.0, // unused (breakOnly) -- kept for the shared shape
+	yieldTorqueFrac: 1.0,
+	yieldLinearHertz: 0,
+	yieldAngularHertz: 0,
+	yieldDampingRatio: 1.0,
 	ductileBreakMult: 1.0,
-	breakSpeedCapMs: 7.5,
-	breakSpinCapRad: 16,
+	breakSpeedCapMs: 6.0,
+	breakSpinCapRad: 14,
+	breakOnly: true,
 };
 
 /** Drywall: near-brittle (punches through easily, per spec) -- barely softens before bursting. */
@@ -190,8 +217,8 @@ export const SHED_WIDTH_M = 3.6; // along X
 export const SHED_DEPTH_M = 3.0; // along Z
 export const SHED_WALL_HEIGHT_M = 2.2;
 export const SHED_STUD_SPACING_M = 0.9;
-export const SHED_STUD_HALF_CROSS_M = 0.04; // 8cm square studs
-export const SHED_PLANK_THICKNESS_HALF_M = 0.02; // 4cm plank
+export const SHED_STUD_HALF_CROSS_M = 0.029; // 58mm square = a real 2x4's cross-sectional area (38x89mm)
+export const SHED_PLANK_THICKNESS_HALF_M = 0.0095; // 19mm cladding board (was 40mm)
 export const SHED_ROOF_HEIGHT_M = 1.0; // ridge rise above the wall top
 export const SHED_ROOF_PANEL_SPLITS = 3; // panels per roof slope
 
@@ -205,8 +232,8 @@ export const CORNER_POINT: V3 = { x: 55, y: 0, z: 20 };
 export const CORNER_SEGMENT_LENGTH_M = 4;
 export const CORNER_WALL_HEIGHT_M = 2.4;
 export const CORNER_STUD_SPACING_M = 0.6;
-export const CORNER_STUD_HALF_CROSS_M = 0.045;
-export const CORNER_DRYWALL_HALF_THICKNESS_M = 0.012;
+export const CORNER_STUD_HALF_CROSS_M = 0.029; // 58mm square = a real 2x4's cross-section area (38x89mm)
+export const CORNER_DRYWALL_HALF_THICKNESS_M = 0.00635; // real 12.7mm (1/2") board (was 24mm)
 export const CORNER_DRYWALL_SHEET_WIDTH_M = 1.2;
 export const CORNER_PIPE_COUNT = 3;
 
@@ -216,10 +243,16 @@ export const CORNER_PIPE_COUNT = 3;
 // ---------------------------------------------------------------------------------------------
 
 export const BRICK_WALL_CENTER: V3 = { x: 68, y: 0, z: 20 };
-export const BRICK_WALL_LENGTH_M = 6; // along X
-export const BRICK_HALF_EXTENTS: V3 = { x: 0.2, y: 0.1, z: 0.1 }; // 0.4 x 0.2 x 0.2m brick
-export const BRICK_WALL_COLUMNS = 15; // 15 * 0.4m = 6m
-export const BRICK_WALL_ROWS = 8; // 8 * 0.2m = 1.6m tall
+// Real brick 194 x 92 x 57 mm (laid flat: 194 length along the wall X, 57 course height Y, 92 depth
+// through the wall Z -- single-wythe). A full 6m x 1.6m masonry wall of these is ~850 bricks (past the
+// physics/perf budget), so this is a compact garden wall: 10 cols x 16 courses = 160 bricks,
+// ~1.94m long x 0.91m tall -- tall enough that a low-speed hit reaches only the lower courses (real
+// staging: a nudge sheds a chunk, a fast car plows through). See
+// docs/build-log/specs/materials-truth.md for the size trade-off rationale.
+export const BRICK_HALF_EXTENTS: V3 = { x: 0.097, y: 0.0285, z: 0.046 };
+export const BRICK_WALL_COLUMNS = 10; // 10 * 0.194m = 1.94m long
+export const BRICK_WALL_ROWS = 16; // 16 * 0.057m = 0.912m tall
+export const BRICK_WALL_LENGTH_M = BRICK_WALL_COLUMNS * BRICK_HALF_EXTENTS.x * 2; // 1.94m, keeps footing/columns consistent
 
 // ---------------------------------------------------------------------------------------------
 // 4) Fence lines -- posts + 2 rails per span, low thresholds. Two parallel lines across the same
