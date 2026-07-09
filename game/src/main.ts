@@ -11,7 +11,11 @@ import {
   type QualityLevel,
 } from './render/quality';
 import { buildScene } from './scene/buildScene';
-import { createOrbitUpdater } from './scene/cameraOrbit';
+import {
+  createOrbitUpdater,
+  createUserOrbitController,
+  sphericalFromCylindrical,
+} from './scene/cameraOrbit';
 import { detachWheelVisuals, applyWheelVisual, type WheelVisual } from './scene/wheels';
 import {
   createVehicle,
@@ -36,6 +40,7 @@ import {
   consumeFpsToggleRequested,
   consumeHelpToggleRequested,
 } from './input/keyboard';
+import { installPointerInput, consumeDragDelta, consumeZoomDelta } from './input/pointer';
 import { ChaseCamera } from './camera/chase';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageTelemetry, type DamageEvent } from './damage/system';
 import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBindings } from './scene/carDeformables';
@@ -87,6 +92,49 @@ declare global {
       /** VERIFY HOOK: reconfigure the orbit camera (close-ups for screenshots -- verify scripts
        * pair this with setFixedAngle()). Omitted fields keep the current value. */
       setOrbitView: (opts: { radius?: number; height?: number; targetHeight?: number }) => void;
+      /** VERIFY HOOK (read-only): live camera-orbit state for camera-drag.mjs -- exposes the current
+       * mode, whether the click-drag user-orbit controller has taken over from the auto-spin (see
+       * scene/cameraOrbit.ts), its damped azimuth/polar/radius, and the camera's world position, so a
+       * synthetic-drag test can assert those values actually changed without reaching into three.js
+       * internals itself. */
+      cameraDebug: () => {
+        mode: 'chase' | 'orbit';
+        userOrbitActive: boolean;
+        azimuth: number;
+        polar: number;
+        radius: number;
+        position: [number, number, number];
+      };
+      /** VERIFY/DIAGNOSTIC HOOK (read-only): per-panel visual-vs-body pose snapshot. Exposes the
+       * VISUAL layer the reset-integrity checks assert on (existing hooks only ever measured physics
+       * bodies/counts, never the rendered panel meshes). Returns, per PanelKey: the mesh's live
+       * world transform (pos/quat/scale, after updateWorldMatrix), its local transform + parent node
+       * name (to catch reparent-restore mistakes), the reparented flag, and the panel body's world
+       * pose (null once despawned). Forces a fresh world-matrix update so callers get frame-accurate
+       * values even between renders (scripted stepN batches). */
+      dumpPanelVisuals: () => {
+        /** Chassis body world pose, sampled in the SAME synchronous call as the panels below so a
+         * caller can express each panel's visual pose in the chassis frame atomically (immune to the
+         * real-time animation loop stepping physics between two separate CDP evals). */
+        chassis: { pos: [number, number, number]; quat: [number, number, number, number] };
+        panels: Record<
+          string,
+          {
+            parent: string | null;
+            reparented: boolean;
+            worldPos: [number, number, number];
+            worldQuat: [number, number, number, number];
+            worldScale: [number, number, number];
+            localPos: [number, number, number];
+            localQuat: [number, number, number, number];
+            localScale: [number, number, number];
+            bodyPos: [number, number, number] | null;
+            bodyQuat: [number, number, number, number] | null;
+            state: string;
+            despawned: boolean;
+          }
+        >;
+      };
     };
   }
 }
@@ -238,6 +286,10 @@ async function main() {
 
   // ---- Input ----
   installKeyboardInput();
+  // Left-mouse-drag anywhere over #app orbits the camera, wheel zooms it (see input/pointer.ts's doc
+  // comment on why #app -- the stable container -- is the hit-target rather than the canvas, which
+  // gets replaced on antialias-driven quality changes).
+  installPointerInput(appEl);
   let externalInput: Partial<VehicleInput> | null = null;
 
   function currentInput(): VehicleInput {
@@ -262,6 +314,11 @@ async function main() {
     targetHeight: 0.6,
   };
   let updateOrbit = createOrbitUpdater(camera, orbitOpts);
+  // User-driven orbit (click-drag azimuth/polar + wheel-zoom radius): a separate opt-in layer on top
+  // of updateOrbit's auto-spin (see scene/cameraOrbit.ts's doc comment) -- inactive (auto-spin plays)
+  // until the player's first drag/scroll, and reset back to inactive whenever the camera cycles away
+  // from and back into orbit mode (C, C), per spec.
+  const userOrbit = createUserOrbitController(sphericalFromCylindrical(orbitOpts.radius, orbitOpts.height));
 
   // ---- Quality (G5): pixelRatio + shadow map size are live-updatable; antialias is a WebGL context-
   // creation-time flag, so changing it recreates the renderer (forceContextLoss + a fresh
@@ -318,7 +375,7 @@ async function main() {
 
     for (const key of PANEL_KEYS) {
       const visual = panelVisuals[key];
-      if (visual) repairPanelVisual(visual, car.root);
+      if (visual) repairPanelVisual(visual);
     }
     for (const [meshId, mat] of originalGlassMaterials) {
       const mesh = findDeformableMesh(meshId);
@@ -457,6 +514,50 @@ async function main() {
       orbitOpts = { ...orbitOpts, ...opts };
       updateOrbit = createOrbitUpdater(camera, orbitOpts);
     },
+    cameraDebug: () => ({
+      mode: cameraMode,
+      userOrbitActive: userOrbit.active,
+      azimuth: userOrbit.azimuth,
+      polar: userOrbit.polar,
+      radius: userOrbit.radius,
+      position: [camera.position.x, camera.position.y, camera.position.z],
+    }),
+    dumpPanelVisuals: () => {
+      const panelsOut: Record<string, unknown> = {};
+      const wp = new THREE.Vector3();
+      const wq = new THREE.Quaternion();
+      const ws = new THREE.Vector3();
+      const ct = vehicle.chassis.getTransform();
+      for (const key of PANEL_KEYS) {
+        const visual = panelVisuals[key];
+        const panel = vehicle.panels[key];
+        if (!visual) {
+          panelsOut[key] = null;
+          continue;
+        }
+        visual.object.updateWorldMatrix(true, false);
+        visual.object.matrixWorld.decompose(wp, wq, ws);
+        const bodyPose = panel.despawned ? null : panel.body.getTransform();
+        panelsOut[key] = {
+          parent: visual.object.parent ? visual.object.parent.name || '(unnamed)' : null,
+          reparented: visual.reparented,
+          worldPos: [wp.x, wp.y, wp.z],
+          worldQuat: [wq.x, wq.y, wq.z, wq.w],
+          worldScale: [ws.x, ws.y, ws.z],
+          localPos: [visual.object.position.x, visual.object.position.y, visual.object.position.z],
+          localQuat: [visual.object.quaternion.x, visual.object.quaternion.y, visual.object.quaternion.z, visual.object.quaternion.w],
+          localScale: [visual.object.scale.x, visual.object.scale.y, visual.object.scale.z],
+          bodyPos: bodyPose ? [bodyPose.position.x, bodyPose.position.y, bodyPose.position.z] : null,
+          bodyQuat: bodyPose ? [bodyPose.rotation.x, bodyPose.rotation.y, bodyPose.rotation.z, bodyPose.rotation.w] : null,
+          state: panel.state,
+          despawned: panel.despawned,
+        };
+      }
+      return {
+        chassis: { pos: [ct.position.x, ct.position.y, ct.position.z], quat: [ct.rotation.x, ct.rotation.y, ct.rotation.z, ct.rotation.w] },
+        panels: panelsOut,
+      } as ReturnType<NonNullable<Window['__GAME__']>['dumpPanelVisuals']>;
+    },
   };
 
   resize();
@@ -491,7 +592,26 @@ async function main() {
 
     if (consumeCarResetRequested()) doCarRepair();
     if (consumeWorldResetRequested()) doWorldRepair();
-    if (consumeCameraToggleRequested()) cameraMode = cameraMode === 'chase' ? 'orbit' : 'chase';
+    if (consumeCameraToggleRequested()) {
+      cameraMode = cameraMode === 'chase' ? 'orbit' : 'chase';
+      if (cameraMode === 'orbit') {
+        // C-cycling back into orbit resumes auto-spin (per spec) -- seed the user-orbit controller
+        // from wherever the auto-spin view currently sits so a drag right after doesn't snap.
+        const elapsed = fixedAngle !== null ? fixedAngle / 0.12 : timer.getElapsed();
+        userOrbit.reset(sphericalFromCylindrical(orbitOpts.radius, orbitOpts.height, elapsed * orbitOpts.angularSpeed));
+      }
+    }
+    // Click-drag orbits the camera, wheel zooms it -- both switch into (or stay in) orbit mode,
+    // taking over from either chase or the auto-spin (see scene/cameraOrbit.ts's UserOrbitController).
+    // Only ever fed by real pointer input (input/pointer.ts), so setFixedAngle()/setOrbitView()-driven
+    // verify screenshots -- which never dispatch pointer events -- are completely unaffected.
+    const dragDelta = consumeDragDelta();
+    const zoomDelta = consumeZoomDelta();
+    if (dragDelta.azimuth !== 0 || dragDelta.polar !== 0 || zoomDelta !== 0) {
+      cameraMode = 'orbit';
+      if (dragDelta.azimuth !== 0 || dragDelta.polar !== 0) userOrbit.drag(dragDelta.azimuth, dragDelta.polar);
+      if (zoomDelta !== 0) userOrbit.zoom(zoomDelta);
+    }
     // Counter, not a boolean (see keyboard.ts's doc comment): apply one cycle per Q press recorded
     // since the last frame, so rapid presses aren't silently coalesced into a single cycle.
     const qualityCyclePresses = consumeQualityCycleRequested();
@@ -528,8 +648,12 @@ async function main() {
       const currentPos = vehicle.chassis.getPosition();
       carFocus.x = currentPos.x;
       carFocus.z = currentPos.z;
-      const elapsed = fixedAngle !== null ? fixedAngle / 0.12 : timer.getElapsed();
-      updateOrbit(elapsed, carFocus);
+      if (userOrbit.active) {
+        userOrbit.update(camera, carFocus, orbitOpts.targetHeight, dt);
+      } else {
+        const elapsed = fixedAngle !== null ? fixedAngle / 0.12 : timer.getElapsed();
+        updateOrbit(elapsed, carFocus);
+      }
     } else {
       const carPos = new THREE.Vector3();
       const carQuat = new THREE.Quaternion();

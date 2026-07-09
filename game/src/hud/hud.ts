@@ -115,6 +115,7 @@ export function createHud(mount: HTMLElement): HudController {
 			<div><span class="hud-help-key">R</span>repair car &nbsp; <span class="hud-help-key">Shift+R</span>repair + reset world</div>
 			<div><span class="hud-help-key">C</span>camera &nbsp; <span class="hud-help-key">Q</span>quality &nbsp;
 				<span class="hud-help-key">F</span>perf &nbsp; <span class="hud-help-key">?</span>this card</div>
+			<div><span class="hud-help-key">Drag</span>orbit camera &nbsp; <span class="hud-help-key">Wheel</span>zoom</div>
 		</div>
 	`;
 
