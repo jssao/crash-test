@@ -15,17 +15,39 @@
 //
 // This test asserts the SPECIFIC thing kicker-jump.test.mjs (catches air / lands upright / still
 // drivable) does not check numerically: that the chassis's pitch RATE is not artificially killed while
-// genuinely airborne. Same kicker-ramp launch script as kicker-jump.test.mjs (ground halfSize pinned
-// explicitly for the same reason -- see that test's comment).
+// genuinely airborne. Same kicker-ramp launch script as kicker-jump.test.mjs, including its yaw-angle
+// lane-centering correction and shared (unpinned) ground -- see that file's header comment (vehicle
+// deep-pass residual 3) for why the correction is yaw-based rather than position-based, and why the
+// ground half-size no longer needs pinning.
+// RE-CALIBRATED (vehicle deep-pass, GATE-A item 4 regression, root-caused): the friction fix (residual
+// 1) makes the kicker launch meaningfully harder/more heavily loaded at the moment of departure, which
+// stretched out the launch's own angular-rate RAMP-UP transient (chassis pitching up under a much
+// stronger torque-driven wheelie before leaving the ramp). The test's old fixed "early" reference index
+// (5th airborne sample) landed IN that ramp-up, not in the settled ballistic-flight regime -- so it
+// captured a still-rising, not-yet-representative rate. Separately (and independently), a REAL bug was
+// found and fixed in vehicle.ts's updateWheelGroundContact(): getSuspensionDeflection() lags true ground
+// departure by up to ~1 spring period when a wheel leaves the ground still heavily loaded, so the
+// anti-pitch/anti-roll/yaw-damping assists stayed at full authority for a genuine ~0.2-0.3s after the
+// rear wheels actually left the ramp, re-damping the airborne rotation this test exists to protect (see
+// vehicle.ts's doc comment on that fix, and game/sim/diag/airborne-pitch-check-*.test.mjs for the
+// measured mechanism). With BOTH fixed, "early" is now picked at the first sample where
+// telemetry.assistAuthority genuinely reaches 0 (the vehicle's own ground-truth "assists fully off, in
+// real free flight" signal) instead of a fixed sample count -- this directly targets the property GATE-A
+// item 4 requires (conservation once genuinely airborne) rather than a magic index tuned to the old,
+// gentler launch profile.
 import { describe, expect, it } from 'vitest';
 import { init, World } from '../../src/ts/index.ts';
-import { createGroundBody, createVehicle, stepVehicle } from '../src/vehicle/vehicle.ts';
+import { createGroundBody, createVehicle, stepVehicle, getTelemetry } from '../src/vehicle/vehicle.ts';
 import { FIXED_DT, FIXED_SUBSTEPS } from '../src/vehicle/tuning.ts';
 import { createDestructibleWorld } from '../src/world/bodies.ts';
 import { dot, LOCAL_UP, rotateVector } from '../src/vehicle/mathUtil.ts';
 
 function upDot(rotation) {
 	return dot(rotateVector(rotation, LOCAL_UP), { x: 0, y: 1, z: 0 });
+}
+
+function yawFromQuat(q) {
+	return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
 }
 
 function wheelHeights(vehicle) {
@@ -38,7 +60,7 @@ describe('airborne-momentum', () => {
 	it('pitch rate is not killed while genuinely airborne off the kicker ramp, and the car settles without flipping after landing', async () => {
 		const native = await init();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-		createGroundBody(world, 250); // see kicker-jump.test.mjs's identical override comment
+		createGroundBody(world); // shared default -- see kicker-jump.test.mjs's header comment
 		const vehicle = createVehicle(world);
 		createDestructibleWorld(world);
 
@@ -55,7 +77,8 @@ describe('airborne-momentum', () => {
 		const DRIVE_STEPS = 360;
 		for (let i = 0; i < DRIVE_STEPS; i++) {
 			const x = vehicle.chassis.getPosition().x;
-			const steer = Math.max(-0.2, Math.min(0.2, -x * 0.03));
+			const yaw = yawFromQuat(vehicle.chassis.getRotation());
+			const steer = Math.max(-0.3, Math.min(0.3, yaw * 5 + x * 0.01));
 			stepVehicle(vehicle, { throttle: 1, brake: 0, steer, handbrake: false }, FIXED_DT);
 			world.step(FIXED_DT, FIXED_SUBSTEPS);
 
@@ -65,12 +88,13 @@ describe('airborne-momentum', () => {
 			const rot = vehicle.chassis.getRotation();
 			const right = rotateVector(rot, { x: 1, y: 0, z: 0 });
 			const pitchRate = dot(av, right);
+			const assistAuthority = getTelemetry(vehicle).assistAuthority;
 			if (allAirborne) {
 				if (!airborne) {
 					airborne = true;
 					airStepIdx = 0;
 				}
-				log.push({ step: airStepIdx, pitchRate });
+				log.push({ step: airStepIdx, pitchRate, assistAuthority });
 				airStepIdx++;
 			} else if (airborne) {
 				airborne = false;
@@ -79,12 +103,18 @@ describe('airborne-momentum', () => {
 
 		expect(log.length).toBeGreaterThan(15); // genuinely caught sustained air (matches kicker-jump's bar)
 
-		// Skip the first few samples (launch-transient bounce settling) before picking the "early
-		// in-flight" reference point -- same rationale as kicker-jump.test.mjs's own SETTLE_STEPS use.
-		const earlyIdx = Math.min(5, log.length - 2);
+		// "early" reference: the first sample where the vehicle's OWN ground-authority gate has fully
+		// disengaged (assistAuthority === 0, see this file's header comment) -- the first point in the
+		// log genuinely representative of unassisted free flight, not a fixed sample count tuned to the
+		// old launch profile. Falls back to a late-log sample if authority never fully reaches 0 (should
+		// not happen for a real sustained jump, but keeps this well-defined either way).
+		let earlyIdx = log.findIndex((l) => l.assistAuthority === 0);
+		if (earlyIdx === -1) earlyIdx = Math.min(5, log.length - 2);
 		const early = Math.abs(log[earlyIdx].pitchRate);
 		const last = Math.abs(log[log.length - 1].pitchRate);
-		console.log(`[airborne-momentum] airborne samples=${log.length} early(idx=${earlyIdx})=${early.toFixed(4)} last=${last.toFixed(4)}`);
+		console.log(
+			`[airborne-momentum] airborne samples=${log.length} early(idx=${earlyIdx}, authority=${log[earlyIdx].assistAuthority})=${early.toFixed(4)} last=${last.toFixed(4)}`,
+		);
 
 		// FIX verification: pitch rate must retain a meaningful fraction of its early in-flight
 		// magnitude through to landing -- NOT collapse toward 0 the way the pre-fix bug did (measured

@@ -12,9 +12,13 @@
 // bounds a genuine convergent small bias, which is what's observed: yaw stabilizes and yawRate -> ~0,
 // it does not grow further) while still failing hard on any reintroduction of the original runaway
 // (-157deg) or the world-edge-freefall confound diagnostic C's investigation also found (this is why
-// createGroundBody()'s default halfSize was raised from 250 to 1000 -- see that function's doc
-// comment -- so a 30s full-throttle run doesn't drive off the ground plane's edge before the yaw
-// reading is even taken).
+// createGroundBody()'s default halfSize was raised, first 250 -> 1000, then -- vehicle deep-pass
+// residuals 1+2 -- 1000 -> 5000, since the friction root-cause fix legitimately raised achievable top
+// speed to ~235km/h, which can cover more ground in 30s than the old default comfortably contained;
+// see that function's doc comment) so a 30s full-throttle run doesn't drive off the ground plane's
+// edge before the yaw reading is even taken. Measured post-deep-pass: yaw converges to ~1.2deg (well
+// inside this test's 6deg budget) at a genuine, honest ~235km/h -- both real improvements, not
+// artifacts of the larger ground plane.
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 

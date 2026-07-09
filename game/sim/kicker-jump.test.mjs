@@ -6,6 +6,28 @@
 // file's LAYOUT doc comment). This test scripts a straight full-throttle run from spawn and asserts
 // the car actually catches air off the kicker (all 4 wheels simultaneously well above rest height for
 // a sustained window, not just a single-step bump) and remains drivable after landing.
+//
+// LANE-CENTERING CORRECTION (vehicle deep-pass, residual 3 "kicker ground-extent sensitivity"): this
+// used to be a small proportional correction on LATERAL POSITION (steer = -x*0.03). ROOT-CAUSED here:
+// game/sim/diag/ground-extent-repro.test.mjs proves the underlying per-step chassis state is already
+// bit-different from literally step 0 (a ~1e-7 position / ~1e-5 rad/s yaw-rate seed) purely from
+// changing the STATIC ground body's half-size -- with the car nowhere near that edge, before it has
+// even moved. That tiny numerical seed (plausibly a float32 precision/solver-iteration-order artifact
+// from the ground shape's own vertex-generation math at different absolute scales; vendor/box3d is out
+// of scope to instrument further) then amplifies through this vehicle's already-documented chaotic
+// traction-taper feedback (tuning.ts's TRACTION_SLIP_ALLOWANCE_RAD_S doc comment) into a macroscopic
+// difference by the time the car reaches the ramp (measured: ~0.7m divergence by t=4s between
+// halfSize=250 vs 1000, ~1.8m vs 10000) -- a genuine sensitive-dependence-on-initial-conditions
+// mechanism, not a "wrong physics" bug, and not something a vendor-untouched fix can remove outright.
+// A position-based P correction reacts to yaw bias only AFTER it has already become position drift
+// (effectively an extra integration lag on top of an already-chaotic loop), which measurably made
+// things WORSE post-friction-fix (game/sim/diag/kicker-instrument-2/3.test.mjs: gain sweeps large
+// enough to matter flip sign/magnitude near-randomly, several meters off centerline). Correcting
+// YAW ANGLE directly instead (the actual root disturbance, one derivative earlier) is dramatically
+// more robust: game/sim/diag/kicker-instrument-4/5.test.mjs swept a wide range of gains AND ground
+// half-sizes (250/1000/5000/10000) and found sub-2cm lane deviation at the ramp in every case -- this
+// is the fix that lets the ground-halfSize PIN be removed (uses createGroundBody()'s shared default,
+// see vehicle.ts) rather than special-casing this test's world.
 import { describe, expect, it } from 'vitest';
 import { init, World } from '../../src/ts/index.ts';
 import { createGroundBody, createVehicle, stepVehicle } from '../src/vehicle/vehicle.ts';
@@ -15,6 +37,10 @@ import { dot, LOCAL_UP, rotateVector } from '../src/vehicle/mathUtil.ts';
 
 function upDot(rotation) {
 	return dot(rotateVector(rotation, LOCAL_UP), { x: 0, y: 1, z: 0 });
+}
+
+function yawFromQuat(q) {
+	return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
 }
 
 let cachedNative = null;
@@ -33,12 +59,10 @@ describe('kicker-jump', () => {
 	it('a straight full-throttle run from spawn catches air off the kicker ramp and lands drivable', async () => {
 		const native = await loadNative();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-		// Explicit (smaller) halfSize: this scenario's whole run stays within ~90m of spawn, and an
-		// explicit override here decouples it from createGroundBody()'s shared default (raised for
-		// OTHER long-duration/high-speed sim tests, see that function's doc comment in vehicle.ts) --
-		// empirically, this box3d model is sensitive enough to the ground shape's exact extent that a
-		// too-large ground here measurably changed this run's trajectory and made it miss the ramp.
-		createGroundBody(world, 250);
+		// Shared default ground (see vehicle.ts's createGroundBody() doc comment) -- no longer pinned
+		// to a smaller explicit halfSize now that the yaw-based lane correction below is robust across
+		// ground sizes (see this file's header comment, residual 3).
+		createGroundBody(world);
 		const vehicle = createVehicle(world);
 		createDestructibleWorld(world);
 
@@ -57,18 +81,18 @@ describe('kicker-jump', () => {
 		let everCaughtAir = false;
 
 		// Straight full-throttle for up to 6s -- comfortably enough to reach the kicker (43m ahead) and
-		// clear its ~2m length at any plausible speed, plus land. A very mild proportional steer
-		// correction keeps the car centered on the kicker's lane (x=0): a long full-throttle RWD launch
-		// with LITERALLY zero steering input drifts several meters off-center over ~45m from a small
-		// persistent yaw bias (verified directly -- by z=43 the chassis had drifted to x=-3.25, already
-		// outside the kicker's own 2.4m width), same as how a real (attentive) player would make small
-		// corrections to stay centered on a lane rather than holding the wheel dead level for a 45m
-		// sprint -- this does not touch the "reachable in a straight line" fix itself (the correction
-		// gain is small and only offsets natural drift, not a deliberate turn).
+		// clear its ~2m length at any plausible speed, plus land. A mild yaw-angle correction (see this
+		// file's header comment, residual 3) keeps the car centered on the kicker's lane (x=0): a long
+		// full-throttle RWD launch with LITERALLY zero steering input drifts off-center over ~45m from a
+		// small persistent yaw bias, same as how a real (attentive) player would make small corrections
+		// to stay centered on a lane rather than holding the wheel dead level for a 45m sprint -- this
+		// does not touch the "reachable in a straight line" fix itself (the correction gains are small
+		// and only offset natural drift, not a deliberate turn).
 		const DRIVE_STEPS = 360;
 		for (let i = 0; i < DRIVE_STEPS; i++) {
 			const x = vehicle.chassis.getPosition().x;
-			const steer = Math.max(-0.2, Math.min(0.2, -x * 0.03));
+			const yaw = yawFromQuat(vehicle.chassis.getRotation());
+			const steer = Math.max(-0.3, Math.min(0.3, yaw * 5 + x * 0.01));
 			stepVehicle(vehicle, { throttle: 1, brake: 0, steer, handbrake: false }, FIXED_DT);
 			world.step(FIXED_DT, FIXED_SUBSTEPS);
 

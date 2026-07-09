@@ -8,32 +8,31 @@
 // that ~680 km/h figure does not reproduce as a genuine on-ground runaway -- it reproduces as the car
 // driving off a too-small ground plane's finite edge into unconstrained freefall, which trivially
 // explains both the reported speed (gravity alone adds ~10m/s every second falling) and the reported
-// contact loss. createGroundBody()'s shared default half-size was raised from 250 to 1000m for this
-// reason (see that function's doc comment), but THIS test's own duration/speed still needs more room
-// than that shared default comfortably provides (a sustained ~110km/h cruise covers >1km over the
-// window below) -- so it builds its own world directly (like kicker-jump.test.mjs) with an explicit,
-// generous ground half-size, rather than going through harness.mjs's createSim().
+// contact loss. createGroundBody()'s shared default half-size was raised for this reason (see that
+// function's doc comment), but THIS test's own duration/speed still needs more room than that shared
+// default comfortably provides -- so it builds its own world directly (like kicker-jump.test.mjs) with
+// an explicit, generous ground half-size, rather than going through harness.mjs's createSim().
 //
-// With genuine on-ground driving confirmed for the whole run, the car's ACTUAL settled top speed
-// (engine-torque-curve peak vs. aero drag + the pre-existing traction taper, unchanged from this pass)
-// is a stable ~105-120 km/h in 3rd gear -- well under the spec's aspirational 180-240 km/h band.
-// Reaching that band would need a powertrain retune (more torque headroom or taller gearing), which
-// was out of this pass's safely-verifiable budget (this system is extremely non-monotonic/chaotic
-// under small tuning changes -- see TRACTION_SLIP_ALLOWANCE_RAD_S's doc comment for direct
-// measurements of that). This test asserts what IS true and load-bearing: the car reaches a genuinely
-// BOUNDED, non-runaway top speed and keeps all 4 wheels grounded throughout -- not the specific
-// 180-240 km/h figure, which is flagged as an honest gap in the return for this work, not silently
-// asserted.
+// VEHICLE DEEP-PASS (residuals 1+2, friction root-cause + powertrain): with the panel<->ground
+// parasitic-drag bug fixed (damage/panels.ts) and WHEEL_FRICTION brought down to a physically-ordinary
+// 1.05 (tuning.ts), the car's genuine settled top speed rose from the old ~105-120km/h to ~230-240km/h
+// -- a real force-balance settle in gear 5 at ~5400rpm (well below redline, not a gear/redline-limit
+// artifact -- see game/sim/diag/topspeed-instrument*.test.mjs) -- landing inside the spec's 180-240
+// km/h target band WITHOUT any gearing/torque-curve change (AERO_DRAG_COEFF_AREA_M2 alone was raised to
+// the spec's own suggested 0.65 sports-coupe value now that it isn't fighting the straight-line test's
+// margin -- see that constant's doc comment). Ground half-size raised 3000 -> 8000 to comfortably
+// contain this run at the new, honest, much higher settle speed (measured: this 45s run covers
+// ~2500-3000m one-way at ~235km/h cruise -- the old 3000m half-size left almost no margin).
 import { describe, expect, it } from 'vitest';
 import { init, World } from '../../src/ts/index.ts';
 import { createGroundBody, createVehicle, stepVehicle, getTelemetry } from '../src/vehicle/vehicle.ts';
 import { FIXED_DT, FIXED_SUBSTEPS } from '../src/vehicle/tuning.ts';
 
 describe('top-speed-bounded', () => {
-	it('45s full throttle settles to a bounded, non-runaway top speed with suspension in contact throughout', async () => {
+	it('45s full throttle settles to a bounded top speed (inside the 180-240km/h target band) with suspension in contact throughout', async () => {
 		const native = await init();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-		createGroundBody(world, 3000); // generous -- this run can cover >1km at its settled cruise speed
+		createGroundBody(world, 8000); // generous -- this run can cover ~3000m at its settled cruise speed
 		const vehicle = createVehicle(world);
 
 		let minGroundedCount = 4;
@@ -56,9 +55,10 @@ describe('top-speed-bounded', () => {
 				`last5s range=[${settledMin.toFixed(1)},${settledMax.toFixed(1)}] minGroundedCount=${minGroundedCount}`,
 		);
 
-		// Genuinely bounded: nowhere close to the old ~680km/h runaway (a wide, deliberately generous
-		// ceiling -- this is a "didn't run away" check, not a tight target).
-		expect(maxSpeedKmh).toBeLessThan(200);
+		// Honest target band (spec's own 180-240km/h aspirational range) -- now genuinely achieved, not
+		// just "didn't run away" (see this file's header comment for the measured settle mechanics).
+		expect(maxSpeedKmh).toBeGreaterThanOrEqual(180);
+		expect(maxSpeedKmh).toBeLessThan(240);
 		// Settled (not still monotonically climbing by the end): the last-5s range is tight.
 		expect(settledMax - settledMin).toBeLessThan(15);
 		// Suspension stayed in contact the entire run (no airborne/skipping regime).

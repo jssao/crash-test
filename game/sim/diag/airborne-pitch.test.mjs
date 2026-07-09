@@ -13,6 +13,10 @@ function upDot(rotation) {
 	return dot(rotateVector(rotation, LOCAL_UP), { x: 0, y: 1, z: 0 });
 }
 
+function yawFromQuat(q) {
+	return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+}
+
 let cachedNative = null;
 async function loadNative() {
 	if (cachedNative === null) cachedNative = init();
@@ -29,8 +33,9 @@ describe('DIAG airborne-pitch', () => {
 	it('logs angular velocity through the kicker-ramp flight', async () => {
 		const native = await loadNative();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
-		// Explicit halfSize -- see kicker-jump.test.mjs's identical override for why.
-		createGroundBody(world, 250);
+		// Shared default ground + yaw-based lane correction (see kicker-jump.test.mjs's header
+		// comment, vehicle deep-pass residual 3) -- no longer pinned to a smaller explicit halfSize.
+		createGroundBody(world);
 		const vehicle = createVehicle(world);
 		createDestructibleWorld(world);
 
@@ -47,7 +52,8 @@ describe('DIAG airborne-pitch', () => {
 		const DRIVE_STEPS = 360;
 		for (let i = 0; i < DRIVE_STEPS; i++) {
 			const x = vehicle.chassis.getPosition().x;
-			const steer = Math.max(-0.2, Math.min(0.2, -x * 0.03));
+			const yaw = yawFromQuat(vehicle.chassis.getRotation());
+			const steer = Math.max(-0.3, Math.min(0.3, yaw * 5 + x * 0.01));
 			stepVehicle(vehicle, { throttle: 1, brake: 0, steer, handbrake: false }, FIXED_DT);
 			world.step(FIXED_DT, FIXED_SUBSTEPS);
 

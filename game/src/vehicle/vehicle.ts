@@ -84,6 +84,7 @@ import {
 	SUSPENSION_SETTLE_GRACE_STEPS,
 	SUSPENSION_UPPER_LIMIT_M,
 	SUSTAINED_AIRBORNE_STEPS,
+	SLIP_OVERRIDE_DEBOUNCE_STEPS,
 	TRACTION_SLIP_ALLOWANCE_RAD_S,
 	TRACTION_SLIP_CUTOFF_RAD_S,
 	WHEEL_FRICTION,
@@ -223,6 +224,24 @@ export interface Vehicle {
 	 * acceleration for no physical reason.
 	 */
 	settleStepsRemaining: number;
+	/**
+	 * Per-wheel count of CONSECUTIVE steps this wheel's slip (real spin speed vs
+	 * chassisImpliedWheelOmega()) has stayed above TRACTION_SLIP_CUTOFF_RAD_S -- debounce for
+	 * updateWheelGroundContact()'s slip-based ungrounded override (see that function's doc comment).
+	 * FIX for a false-positive found while validating that fix: the pre-existing per-step wheel-speed
+	 * CHATTER (tuning.ts's TRACTION_SLIP_ALLOWANCE_RAD_S doc comment) grows in absolute magnitude at
+	 * high cruise speed and can spike briefly above the cutoff during perfectly ordinary, fully-
+	 * grounded high-speed driving (measured: single-step slip up to ~48 rad/s at a genuine, grounded
+	 * ~235km/h cruise, right at the cutoff's edge) -- an isolated single-step reading above cutoff is
+	 * therefore NOT reliable evidence of genuine free-spin/airborne on its own. A genuine airborne
+	 * free-spin event, by contrast, SUSTAINS well above cutoff for many consecutive steps (measured:
+	 * 15+ steps in the kicker-flight repro), so requiring a short streak (see
+	 * SLIP_OVERRIDE_DEBOUNCE_STEPS) before trusting the override -- the same "filter a single-step
+	 * transient spike" pattern damage-tuning.ts's WHEEL_DETACH_DEBOUNCE_STEPS already uses for an
+	 * analogous problem -- discriminates the two cleanly without touching the chatter itself (which is
+	 * load-bearing for straight-line acceleration, see TRACTION_SLIP_ALLOWANCE_RAD_S's doc comment).
+	 */
+	wheelSlipOverCutoffStreak: Record<WheelKey, number>;
 }
 
 export interface VehicleInput {
@@ -252,8 +271,19 @@ export const NEUTRAL_INPUT: Readonly<VehicleInput> = Object.freeze({ throttle: 0
  * uncontested fall time (accounting for the reported rollover). 1000m half-size comfortably contains
  * a 30s run at this vehicle's actual achievable speeds (verified empirically) while remaining a tiny,
  * single static shape (negligible broad-phase cost).
+ *
+ * TUNING DELTA (vehicle deep-pass, residuals 1+2): raised 1000 -> 5000. The friction root-cause fix
+ * (see damage/panels.ts's ground-clearance clamp doc comment) plus the resulting honest powertrain
+ * settle speed (~235km/h, inside the 180-240 target band -- see AERO_DRAG_COEFF_AREA_M2's doc comment
+ * below) mean a genuinely-driving car now covers much more ground per second than the pre-fix model
+ * did: re-measured directly, a 30s full-throttle run can cover ~2000m, which the OLD 1000m half-size
+ * no longer comfortably contains -- confirmed by reproducing the EXACT same "looks like a runaway/
+ * rollover" artifact this function's own doc comment above already diagnosed once before (the car
+ * drove off the 1000m edge into freefall mid-run, inflating speedKmh and integrating rotation
+ * unchecked). 5000m keeps the same "tiny single static shape, negligible cost" profile while
+ * comfortably containing the new, honest top speed for any test running up to ~30-45s.
  */
-export function createGroundBody(world: World, halfSize = 1000): Body {
+export function createGroundBody(world: World, halfSize = 5000): Body {
 	const ground = world.createBody({ type: BodyType.Static, position: { x: 0, y: -0.5, z: 0 } });
 	ground.createBoxShape({ halfExtents: { x: halfSize, y: 0.5, z: halfSize }, friction: GROUND_FRICTION, density: 1 });
 	return ground;
@@ -372,6 +402,7 @@ export function createVehicle(
 		brakeRamp: 0,
 		lowContactStreak: 0,
 		settleStepsRemaining: SUSPENSION_SETTLE_GRACE_STEPS,
+		wheelSlipOverCutoffStreak: { fl: 0, fr: 0, rl: 0, rr: 0 },
 	};
 }
 
@@ -433,6 +464,7 @@ export function resetVehicle(vehicle: Vehicle): void {
 	vehicle.commandedSteerRad = 0;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
 		vehicle.wheelGrounded[key] = true;
+		vehicle.wheelSlipOverCutoffStreak[key] = 0;
 	}
 	vehicle.groundAuthority = 1;
 	vehicle.brakeRamp = 0;
@@ -519,6 +551,43 @@ function tractionLimitedTorque(realOmega: number, impliedOmega: number, maxTorqu
  * -- FIX for diagnostic A ("airborne auto-leveling"). Hysteresis (ENTER lower than EXIT is higher,
  * see tuning.ts's doc comment) avoids chatter right at the boundary: once grounded, deflection has to
  * drop further (below EXIT) to count as airborne again, and vice versa.
+ *
+ * FIX (vehicle deep-pass, GATE-A item 4 regression -- reintroduced airborne auto-leveling via a
+ * different path): getSuspensionDeflection() is a real-time PROXY for ground contact, not a direct
+ * measurement, and it has a genuine blind spot: a wheel that leaves the ground while its suspension is
+ * still heavily loaded (e.g. launching hard off a ramp under full throttle -- confirmed directly, see
+ * game/sim/diag/airborne-pitch-check-*.test.mjs) keeps reading "compressed" (deflection > ENTER) for
+ * up to roughly one natural spring period (SUSPENSION_HERTZ_REAR ~3Hz => ~0.3s) after truly leaving the
+ * surface, simply because the spring hasn't mechanically rebounded yet -- the friction root-cause fix
+ * (this pass) makes launches meaningfully harder/more heavily loaded at the moment of departure, so
+ * this previously-minor lag became long enough to matter: the anti-roll/anti-pitch/yaw-damping/
+ * lateral-grip assists stayed at full ground authority for a real ~0.2-0.3s after the rear wheels
+ * genuinely left the kicker ramp, damping out the very airborne rotation diagnostic A's fix was meant
+ * to preserve. A driven wheel that's ACTUALLY airborne has nothing to push against and free-spins --
+ * this shows up as gross slip (real spin speed vs. chassisImpliedWheelOmega()) far beyond anything a
+ * genuine traction-limited event produces. Reusing TRACTION_SLIP_CUTOFF_RAD_S (the taper's own
+ * already-tuned "definitely no meaningful traction left" threshold, tuning.ts) as an independent,
+ * deflection-lag-immune override: if a wheel's slip is this large, it cannot be meaningfully grounded
+ * regardless of what the deflection proxy still reads. Confirmed safe for genuine on-ground wheelspin
+ * (e.g. a hard launch from standstill): at that same slip level the taper has ALREADY cut drive torque
+ * to zero anyway, and updateGroundAuthority() only drops below full authority once <2 wheels report
+ * grounded, so an isolated wheel (or even both driven wheels) losing its "grounded" vote during a
+ * genuine, still-on-the-ground wheelspin event doesn't change assist authority as long as the other
+ * (undriven, not subject to this override) wheels still read grounded.
+ *
+ * DEBOUNCED (found while validating the above against sustained high-speed cruising): a single-step
+ * slip reading above TRACTION_SLIP_CUTOFF_RAD_S is NOT on its own reliable evidence of free-spin --
+ * the pre-existing per-step wheel-speed CHATTER (TRACTION_SLIP_ALLOWANCE_RAD_S's doc comment) grows in
+ * absolute magnitude at high cruise speed and can spike briefly above the cutoff during perfectly
+ * ordinary, fully-grounded ~235km/h driving (measured up to ~48 rad/s single-step, right at the
+ * cutoff's edge) -- which falsely ungrounded the car mid-cruise (top-speed-bounded.test.mjs/
+ * straight-line-30s.test.mjs regression). A genuine airborne free-spin event, by contrast, SUSTAINS
+ * well above cutoff for many consecutive steps (measured 15+ in the kicker-flight repro) where
+ * ordinary chatter alternates step to step. Requiring SLIP_OVERRIDE_DEBOUNCE_STEPS of consecutive
+ * over-cutoff readings (see Vehicle.wheelSlipOverCutoffStreak's doc comment -- same debounce pattern
+ * damage-tuning.ts's WHEEL_DETACH_DEBOUNCE_STEPS already uses for an analogous transient-spike problem)
+ * discriminates the two without touching the chatter itself (load-bearing for straight-line
+ * acceleration).
  */
 function updateWheelGroundContact(vehicle: Vehicle, key: WheelKey): boolean {
 	// Post-spawn/post-reset settle grace window (see Vehicle.settleStepsRemaining's doc comment):
@@ -526,11 +595,20 @@ function updateWheelGroundContact(vehicle: Vehicle, key: WheelKey): boolean {
 	// heuristic below isn't trustworthy -- assume grounded unconditionally until it elapses.
 	if (vehicle.settleStepsRemaining > 0) {
 		vehicle.wheelGrounded[key] = true;
+		vehicle.wheelSlipOverCutoffStreak[key] = 0;
 		return true;
 	}
 	const deflection = getSuspensionDeflection(vehicle, key);
 	const wasGrounded = vehicle.wheelGrounded[key];
-	const grounded = wasGrounded ? deflection > GROUND_CONTACT_DEFLECTION_EXIT_M : deflection > GROUND_CONTACT_DEFLECTION_ENTER_M;
+	let grounded = wasGrounded ? deflection > GROUND_CONTACT_DEFLECTION_EXIT_M : deflection > GROUND_CONTACT_DEFLECTION_ENTER_M;
+
+	const w = vehicle.wheels[key];
+	if (w.joint) {
+		const slip = Math.abs(w.joint.getSpinSpeed()) - chassisImpliedWheelOmega(vehicle, w.def);
+		vehicle.wheelSlipOverCutoffStreak[key] = slip > TRACTION_SLIP_CUTOFF_RAD_S ? vehicle.wheelSlipOverCutoffStreak[key] + 1 : 0;
+		if (grounded && vehicle.wheelSlipOverCutoffStreak[key] >= SLIP_OVERRIDE_DEBOUNCE_STEPS) grounded = false;
+	}
+
 	vehicle.wheelGrounded[key] = grounded;
 	return grounded;
 }

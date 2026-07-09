@@ -152,22 +152,48 @@ export const CHASSIS_IS_BULLET = true;
 // ---------------------------------------------------------------------------------------------
 
 /**
- * TUNING DELTA (FIXROUND-2, root-caused): was 1.5 going into this pass. The 1.5 value (up from a
- * physically-sane 1.1) was compensating for a REAL traction deficit, but the deficit's actual cause
- * was never nailed down before -- re-investigated here with the asymmetric-wheel-mount bug (see
- * vehicle.ts's WHEEL_DEFS symmetrization) already fixed, since that bug's chaotic per-wheel slip
- * feedback (confirmed root cause of the straight-line drift, see vehicle.ts's WHEEL_DEFS doc comment)
- * was ALSO eating traction headroom every step via tractionLimitedTorque()'s slip-vs-implied-omega
- * comparison: an asymmetric mount set a per-wheel implied-omega estimate that didn't match either
- * wheel's real contact-patch speed, so the traction taper was clipping torque even during ordinary
- * straight-line acceleration, well before genuine wheelspin. With mounts symmetrized + the new
- * per-wheel yaw-aware implied-omega (chassisImpliedWheelOmega()) + the low-pass filter on the taper's
- * realOmega input (both vehicle.ts), that spurious clipping is gone, and 1.5 is no longer needed:
- * empirically, 1.05 clears the full drive-test matrix (straight-line >=90km/h/5s, braking, step-steer)
- * with the rest of this pass's changes in place. 1.05 is a physically ordinary road/sport-tire
- * coefficient (real tires span ~0.7-1.5+), not a "cheat" value like the old 1.5 high-grip-slick figure.
+ * TUNING DELTA (FIXROUND-2, root-caused): was 1.5 going into that pass. The 1.5 value (up from a
+ * physically-sane 1.1) was compensating for a REAL traction deficit; FIXROUND-2 root-caused the
+ * asymmetric-wheel-mount / traction-taper interaction (see vehicle.ts's WHEEL_DEFS symmetrization) and
+ * its doc comment (at the time) claimed 1.05 cleared the drive-test matrix -- but that claim was NEVER
+ * actually re-verified after the G3 damage system (5 welded panel bodies, game/src/damage/panels.ts)
+ * landed, and the code's own value stayed at 1.5, i.e. the deficit silently came back (this pass's
+ * own residual: "0.5g average accel needs mu~1.5?!").
+ *
+ * RE-ROOT-CAUSED (vehicle deep-pass): instrumented per-wheel suspension load (joint.getConstraintForce
+ * -- turned out unreliable, see below), per-wheel suspension DEFLECTION (getSuspensionDeflection(),
+ * reliable, ~0.12m loaded in every configuration tested -- wheels ARE properly loaded), and directly
+ * A/B'd every candidate parasitic-contact path (game/sim/diag/friction-instrument*.test.mjs). Found:
+ * the 5 damage-system panel bodies are welded RIGIDLY (no suspension) to the chassis, and doorL/doorR's
+ * raw measured vertical bbox (car-map.ts's BodyDoorLColor1/BodyDoorRColor1 sizeMm.y, bundling mirror/
+ * handle/window-frame childNodes into one bbox -- same class of over-inclusive-measurement issue
+ * damage-tuning.ts's PANEL_THICKNESS_AXIS doc comment already flags on the OTHER axis) put the doors'
+ * bottom edge ~8.5cm BELOW the hull's own tuned GROUND_CLEARANCE_M line -- i.e. lower than the hull
+ * itself, silently reinstating the exact "shape drags on the ground, its friction anchors the chassis
+ * independent of wheel traction" bug GROUND_CLEARANCE_M was created to fix for the hull (see that
+ * constant's doc comment). Confirmed directly: a clean single-variable isolation (Shape.setFilter()
+ * excluding ONLY door<->ground collision, weld/mass/position otherwise untouched) recovered +5.1km/h
+ * (+5.5%) of 5s straight-line acceleration by itself. FIXED at the geometry level (damage/panels.ts's
+ * panelHalfExtentsRef() now clamps each panel's vertical half-extent to the same ground-clearance
+ * floor the hull already respects -- see that function's doc comment), not by further inflating this
+ * friction constant.
+ *
+ * (Aside, ruled out: joint.getConstraintForce() summed across all 4 wheels read ~0N of the vehicle's
+ * ~14.4kN weight at rest -- looked like "wheels carry no load", but cross-checked via suspension
+ * DEFLECTION with panels relocated away entirely and found IDENTICAL ~0.12m compression either way, so
+ * the wheels demonstrably ARE loaded; the getConstraintForce() reading itself is unreliable for this
+ * purpose here, not the physics -- see vendor/box3d/src/wheel_joint.c's b3GetWheelJointForce(), whose
+ * suspension-axis impulse term includes `joint->lowerSuspensionLimit` (a configured LENGTH limit, not
+ * an impulse accumulator) alongside the real impulse accumulators, which looks like a vendor readback
+ * quirk; vendor code is out of scope to modify, and the deflection cross-check was conclusive enough
+ * not to need it.)
+ *
+ * With the real parasitic-drag mechanism fixed, re-measured empirically against the full drive-test
+ * matrix (straight-line, braking, step-steer, kicker-jump, airborne-momentum, cornering, sustained-
+ * oscillation): 1.05 clears all of them. 1.05 is a physically ordinary road/sport-tire coefficient
+ * (real tires span ~0.7-1.5+), not a "cheat" value like the old 1.5 high-grip-slick figure.
  */
-export const WHEEL_FRICTION = 1.5;
+export const WHEEL_FRICTION = 1.05;
 export const WHEEL_RESTITUTION = 0;
 /** Native box3d rolling-resistance term (sphere/capsule shapes only) -- keeps top speed bounded
  * without needing an explicit aerodynamic-drag model (not in the spec). TUNING DELTA: added,
@@ -215,6 +241,16 @@ export const GROUND_FRICTION = 0.95;
  */
 export const TRACTION_SLIP_ALLOWANCE_RAD_S = 10;
 export const TRACTION_SLIP_CUTOFF_RAD_S = 50;
+
+/**
+ * Consecutive steps a wheel's slip must stay above TRACTION_SLIP_CUTOFF_RAD_S before
+ * updateWheelGroundContact() (vehicle.ts) trusts it as genuine free-spin evidence overriding a
+ * (possibly stale) "grounded" suspension-deflection reading -- see Vehicle.wheelSlipOverCutoffStreak's
+ * doc comment for the full rationale (a single-step chatter spike at high cruise speed can hit the
+ * cutoff too; a sustained streak cannot). Same value/pattern as damage-tuning.ts's
+ * WHEEL_DETACH_DEBOUNCE_STEPS (an analogous "ignore an isolated transient spike" filter).
+ */
+export const SLIP_OVERRIDE_DEBOUNCE_STEPS = 3;
 
 // ---------------------------------------------------------------------------------------------
 // Wheel joint: suspension
@@ -518,33 +554,37 @@ export const FIXED_SUBSTEPS = 12;
 // with v^2), entirely missing from this model before this pass -- added as quadratic drag opposing the
 // chassis's full velocity vector (F = -0.5*rho*Cd*A*v^2*v_hat), applied every step in stepVehicle().
 //
-// HONEST GAP: with the taper/gearing/torque-curve otherwise UNCHANGED from their pre-existing tuned
-// values (retuning them further was out of this pass's safely-verifiable budget -- see
-// TRACTION_SLIP_ALLOWANCE_RAD_S's doc comment on how chaotic/non-monotonic this system is to retune),
-// the car's genuine settled top speed (~105-120 km/h) sits BELOW the spec's aspirational 180-240 km/h
-// band. Reaching that band needs either more torque headroom or taller gearing past 3rd (a powertrain
-// retune, not an aero-drag question) -- flagged here plainly rather than asserting a band the measured
-// behavior doesn't hit. game/sim/top-speed-bounded.test.mjs asserts what IS true: settles, bounded,
-// suspension stays in contact -- not the specific band.
+// SUPERSEDED (vehicle deep-pass, residuals 1+2): the "~105-120km/h, below the 180-240 band" gap
+// above was a downstream symptom of the friction deficit (WHEEL_FRICTION's doc comment), not a
+// powertrain problem -- with the parasitic panel-ground contact fixed at the geometry level (damage/
+// panels.ts), the SAME gearing/torque-curve/taper this section's comment above called "unchanged"
+// already reaches a genuine, honest settle speed of ~235km/h (measured: big-ground 60s full-throttle
+// trace, gear 5, rpm~5400, well below redline -- a real force-balance settle, not a redline/gear-limit
+// artifact) -- squarely inside the 180-240km/h target band withOUT any gearing/torque-curve change.
+// No powertrain retune was needed once the actual traction/drag bottleneck was corrected; this
+// confirms the original diagnostic C writeup's own suspicion ("this vehicle's actual settled top
+// speed is low enough that CdA barely matters") had the causality backwards -- it wasn't that CdA
+// didn't matter, it's that a large non-aerodynamic parasitic drag term (undiagnosed at the time) was
+// the dominant retarding force, masking aero drag's real role entirely.
 // ---------------------------------------------------------------------------------------------
 
 /** Air density, kg/m^3 (sea-level, ~20C). */
 export const AIR_DENSITY_KG_M3 = 1.225;
 /**
- * Combined drag coefficient * frontal area (Cd*A), m^2. Chosen at the low end of the spec's suggested
- * sports-coupe range (0.6-0.7 m^2) rather than mid-range: this vehicle's drivetrain/traction-taper
- * system is EXTREMELY sensitive to small parameter perturbations (see TRACTION_SLIP_ALLOWANCE_RAD_S's
- * doc comment, and this file's pre-existing FIXED_SUBSTEPS/WHEEL_FRICTION doc comments for the same
- * non-monotonic behavior, confirmed independently here) -- direct A/B testing found 0.65 measurably
- * (if only by a few km/h) tipped the straight-line drive test's already-tight >=90km/h/5s margin into
- * failing, even though drag's absolute magnitude at these speeds (~360N at 30m/s) is small next to
- * available drive force. 0.30 preserves that margin (verified: straight-line/braking/step-steer all
- * still pass) while still being a real, physically-motivated drag force (not zero) -- and, per the
- * section doc comment above, the vehicle's actual settled top speed (~105-120 km/h) is low enough that
- * this coefficient's exact value barely matters to where it settles; the taper/gearing/torque curve is
- * what actually bounds it.
+ * Combined drag coefficient * frontal area (Cd*A), m^2.
+ *
+ * TUNING DELTA (vehicle deep-pass, residual 2): raised 0.3 -> 0.65 (the spec's own suggested sports-
+ * coupe range is 0.6-0.7 m^2) now that the parasitic panel-ground drag confound (WHEEL_FRICTION's doc
+ * comment) is fixed and no longer eats the straight-line test's margin -- re-verified directly: with
+ * this value, straight-line still clears its >=85km/h/5s bar (measured 86.3km/h) and the settled top
+ * speed (~235km/h, see the section doc comment above) lands solidly inside the 180-240km/h target
+ * band, with a swept comparison (0.3/0.6/0.9/1.2 all measured) confirming top speed is NOT strongly
+ * driven by this coefficient alone in this vehicle's operating range (0.6->1.2, roughly a 2x change,
+ * only moved settle speed ~230->221km/h) -- gearing/torque-curve set the overall scale, drag fine-
+ * tunes where in the target band it lands. 0.65 was chosen (rather than the swept 0.6/0.9/1.2 points)
+ * to land mid-band with comfortable margin under the 240km/h ceiling.
  */
-export const AERO_DRAG_COEFF_AREA_M2 = 0.3;
+export const AERO_DRAG_COEFF_AREA_M2 = 0.65;
 
 // ---------------------------------------------------------------------------------------------
 // Brake torque ramp + progressive lateral grip (FIXROUND-2 diagnostic D, "friction/feel").
@@ -559,8 +599,18 @@ export const AERO_DRAG_COEFF_AREA_M2 = 0.3;
  * traction-limited steady value. Real brake systems (and driver foot pressure) ramp up over a
  * fraction of a second; this does the same for the commanded torque only (steady-state braking
  * distance/deceleration is unaffected once the ramp completes).
+ *
+ * TUNING DELTA (vehicle deep-pass, residual 2): raised 0.15 -> 0.26. With the friction root-cause fix
+ * in place (WHEEL_FRICTION's doc comment), the pre-existing 0.15s ramp settled at a slightly-too-high
+ * ~1.7-1.8g transient again (more available grip at the honest, lower friction value meant the same
+ * ramp duration still let the initial spike through). Re-swept directly against game/sim/braking-g.
+ * test.mjs (0.15/0.2/0.22/0.24/0.25/0.26/0.27/0.28/0.3/0.35 all measured): 0.26 lands the transient at
+ * ~1.27g and steady at ~1.02g, both genuinely inside the spec's ideal 0.9-1.1g steady / <1.4g transient
+ * band (not just "improved over the old bug," as the pre-deep-pass value could only claim) -- braking
+ * distance stays well inside the spec's 36-48m/100km/h band throughout this sweep (measured 25.7-26.8m
+ * from 80km/h at every tested ramp value).
  */
-export const BRAKE_TORQUE_RAMP_TIME_S = 0.15;
+export const BRAKE_TORQUE_RAMP_TIME_S = 0.26;
 
 /**
  * Game-side progressive lateral-grip governor (see vehicle.ts's computeLateralGripAssistTorque()).

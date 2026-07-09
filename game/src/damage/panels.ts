@@ -9,6 +9,7 @@
 import { Body, BodyType, Shape, World, WeldJoint } from '../../../src/ts/index.js';
 import { add, IDENTITY_Q, multiplyQuat, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
 import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M } from '../vehicle/tuning';
+import { HULL_BOTTOM_Y_M } from '../vehicle/geometry';
 import { CAR_MAP, type Vec3Mm, type Vec4 } from '../assets/car-map';
 import { PANEL_FRICTION, PANEL_HALF_THICKNESS_M, PANEL_MASS_KG, PANEL_THICKNESS_AXIS } from './damage-tuning';
 
@@ -60,10 +61,37 @@ function mmToLocalCenter(centerMm: Vec3Mm): V3 {
  * (damage-tuning.ts's PANEL_THICKNESS_AXIS doc comment explains why the raw measured value on that
  * axis is not used directly). Expressed in the CHASSIS/car-root reference frame (same convention as
  * car-map.ts's sizeMm and PANEL_THICKNESS_AXIS's 'x'/'y' names -- e.g. "thin along y" means thin
- * vertically). */
-function panelHalfExtentsRef(key: PanelKey, sizeMm: Vec3Mm): V3 {
+ * vertically).
+ *
+ * GROUND-CLEARANCE FIX (vehicle deep-pass residual 1, "friction deficit root-cause"): also clamps
+ * the reference-frame VERTICAL (y) half-extent so this panel's bottom edge (localCenterY - half.y)
+ * never sits below the chassis hull's own tuned ground-clearance line (tuning.ts's GROUND_CLEARANCE_M
+ * / geometry.ts's HULL_BOTTOM_Y_M). ROOT CAUSE (confirmed via game/sim/diag/friction-instrument*.
+ * test.mjs, run against this unmodified model): doorL/doorR's PANEL_THICKNESS_AXIS is 'x' (thin
+ * laterally, per real doors being near-vertical panels), which leaves their raw measured sizeMm.y
+ * (959mm, centered at ~635mm) UNCLAMPED -- same "raw bbox bundles child-node detail" issue
+ * PANEL_THICKNESS_AXIS's own doc comment already flags for the thickness axis (car-map.ts's
+ * BodyDoorLColor1/BodyDoorRColor1 bundle mirror/handle/window-frame childNodes into the same
+ * parent bbox), just on the OTHER axis here -- puts the door's bottom edge ~8.5cm BELOW the hull's
+ * own carefully-tuned clearance line, i.e. LOWER than the hull itself, silently reinstating the
+ * exact "shape drags along the ground, its friction anchors the chassis independent of the wheels"
+ * bug GROUND_CLEARANCE_M's doc comment describes fixing for the hull -- confirmed directly: the
+ * doors dip to within ~9mm of the ground under hard-launch weight transfer (well inside box3d's
+ * contact-generation margin), and a clean single-variable isolation (Shape.setFilter() excluding
+ * ONLY door<->ground collision, weld/mass/position otherwise untouched) recovers real straight-line
+ * acceleration (measured +5.1km/h / +5.5% @ 5s full throttle, same run otherwise). This ONLY trims
+ * the collision-proxy box (symmetric about the body origin, since box3d-js box shapes have no
+ * off-origin center field, per tuning.ts's COM_LOWER_OFFSET_M doc comment) -- it does not move
+ * localCenter (the weld anchor / visual-alignment pivot, untouched) and does not affect the
+ * RENDERED mesh (panelVisuals.ts tracks the body's transform, not this proxy's exact extents, so
+ * the foundation gate's visual-alignment requirement is unaffected). Never GROWS a panel (hood/roof/
+ * hatch's already-thin post-override y half-extent sits far inside this floor and is untouched).
+ */
+function panelHalfExtentsRef(key: PanelKey, sizeMm: Vec3Mm, localCenterY: number): V3 {
 	const half: V3 = { x: sizeMm[0] / 2000, y: sizeMm[1] / 2000, z: sizeMm[2] / 2000 };
 	half[PANEL_THICKNESS_AXIS[key]] = PANEL_HALF_THICKNESS_M;
+	const maxHalfY = Math.max(0, localCenterY - HULL_BOTTOM_Y_M);
+	if (half.y > maxHalfY) half.y = maxHalfY;
 	return half;
 }
 
@@ -150,7 +178,7 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 		const node = CAR_MAP.panels[PANEL_NODE_NAMES[key]];
 		const localCenter = mmToLocalCenter(node.centerMm);
 		const nodeWorldQuat = q4FromVec4(node.worldQuat);
-		const halfExtents = remapHalfExtentsToBodyLocal(nodeWorldQuat, panelHalfExtentsRef(key, node.sizeMm));
+		const halfExtents = remapHalfExtentsToBodyLocal(nodeWorldQuat, panelHalfExtentsRef(key, node.sizeMm, localCenter.y));
 		const massKg = PANEL_MASS_KG[key];
 		const volume = 8 * halfExtents.x * halfExtents.y * halfExtents.z;
 		const density = massKg / volume;
