@@ -17,6 +17,7 @@ import {
 	STRESS_BREAK_S2,
 	STRESS_K,
 	STRESS_LOOSEN_S1,
+	STRESS_MAX_NORMAL_UP_COMPONENT,
 	STRESS_MIN_APPROACH_SPEED_MS,
 	STRESS_RADIUS_M,
 	WHEEL_DETACH_DEBOUNCE_STEPS,
@@ -121,6 +122,11 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 	// ---- 2) Accumulated event-driven stress (nearby qualifying hits) ----
 	for (const hit of hits) {
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
+		// Ground-plane contacts (the car settling, bouncing, or briefly scraping flat ground -- NOT a
+		// deliberate wall/pole/barrel crash) carry a near-vertical contact normal; a real crash's normal
+		// is dominated by the horizontal direction of travel. See damage-tuning.ts's
+		// STRESS_MAX_NORMAL_UP_COMPONENT doc comment for the diagnosis behind this exclusion.
+		if (Math.abs(hit.normal.y) > STRESS_MAX_NORMAL_UP_COMPONENT) continue;
 		if (!hitTouchesCar(hit, panels)) continue;
 		for (const key of PANEL_KEYS) {
 			const panel = panels[key];

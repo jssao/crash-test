@@ -305,6 +305,44 @@ export const ANTI_ROLL_TORQUE_CAP_NM = 6000;
 export const YAW_DAMPING_GAIN_NM_PER_RAD_S = 5000;
 export const YAW_DAMPING_TORQUE_CAP_NM = 4000;
 
+/**
+ * Anti-pitch assist (active, chassis torque about the chassis's world-right/lateral axis) -- same
+ * rate-damping shape as the yaw-damping assist above, about the third (pitch) axis. Added for playtest
+ * MAJOR "flat-ground rollover under sustained mild steer" (game/verify/playtest/battery.mjs's
+ * free-drive scenario: 0.15-amplitude oscillating steer + sustained throttle for 30s).
+ *
+ * DIAGNOSIS (game/sim/sustained-oscillation.test.mjs + ad hoc pitch/roll tracing): the car does NOT
+ * actually roll over -- roll angle stayed under ~9deg throughout the whole run even with every
+ * existing knob (suspension hertz/damping/limits, steering slew rate, steer clamp, stronger anti-roll
+ * gains) left at their pre-existing tuned values. upDot still collapsed to -1 (fully inverted) via an
+ * unbounded, monotonically-growing PITCH rotation instead (confirmed by direct forward-vector pitch
+ * tracing: roughly -0.2deg/step and accelerating, -0.2deg -> -18deg in under a second once triggered,
+ * never settling). Root cause: the bang-bang
+ * throttle controller's instantaneous full-torque reapplication, whenever it happens to land mid-slip
+ * on a driven (rear) wheel, occasionally kicks off a rear-wheel spin-up event; the wheel joint's
+ * spin-motor reaction torque acts directly about the chassis's lateral (pitch) axis, and NOTHING in
+ * the existing model damps pitch (anti-roll only covers the forward axis, yaw-damping only the up
+ * axis) -- so an unlucky spin-up event pitches the nose with no restoring force at all. No combination
+ * of the existing knobs (suspension hertz/damping/limits, steering slew rate, steer clamp) prevented
+ * the triggering spin-up event itself across repeated tuning attempts -- this is a genuinely missing
+ * degree-of-freedom control, not a mistuned existing one, so a new assist term was added (same file/
+ * function as the pre-existing anti-roll/yaw-damping assists, not a new subsystem).
+ *
+ * TUNING: rate-only (ANGLE gain = 0), unlike anti-roll's angle+rate combo -- a proportional ANGLE term
+ * (tried first, e.g. 9000 Nm/rad) measurably fought the ordinary, harmless nose-lift/squat that happens
+ * every hard launch, costing ~1-2km/h off the straight-line drive test's required >=90km/h/5s (that
+ * pitch builds up slowly, so an angle-proportional torque leans on it continuously). A pitch RATE only
+ * term stays silent during that slow, ordinary buildup but engages hard and fast the instant a violent
+ * rate spike appears (the actual failure signature), which is exactly the discrimination needed here.
+ * The cap is deliberately much higher than anti-roll/yaw-damping's (a genuine wheel-spin-reaction event
+ * measured a multi-thousand-N*m sustained torque -- see stepVehicle()'s drivetrain section -- a small
+ * cap could never arrest it before the pitch angle ran away).
+ */
+export const ANTI_PITCH_ENABLED = true;
+export const ANTI_PITCH_GAIN_ANGLE = 0; // N*m per radian of pitch (rate-only, see doc comment above)
+export const ANTI_PITCH_GAIN_RATE = 14000; // N*m per (rad/s) of pitch rate
+export const ANTI_PITCH_TORQUE_CAP_NM = 16000;
+
 // ---------------------------------------------------------------------------------------------
 // Fixed timestep
 // ---------------------------------------------------------------------------------------------

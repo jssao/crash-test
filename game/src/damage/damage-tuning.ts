@@ -80,9 +80,42 @@ export const PANEL_BREAK_FORCE_MULT = 300_000;
 // Weld stress model -- accumulated event-driven stress (nearby hit events)
 // ---------------------------------------------------------------------------------------------
 
-/** Hit events at or below this approach speed (m/s) are ignored by the damage system entirely (both
- * the crumple pipeline and the accumulated-stress model) -- ordinary rolling/settling contact noise. */
+/**
+ * Hit events at or below this approach speed (m/s) are ignored by the damage system entirely (both
+ * the crumple pipeline and the accumulated-stress model) -- ordinary rolling/settling contact noise.
+ *
+ * INVESTIGATED for playtest MAJOR "panels loosen from 60s of ordinary driving" but NOT changed: raising
+ * this floor (tried up to 7 m/s -- comfortably below every calibration crash's ~8.3/15.3/27.8 m/s at
+ * 30/55/100 km/h, see damage-threshold-ordering.test.mjs) measurably disturbed
+ * game/sim/damage-crumple-bounded.test.mjs's repeated-impact plateau shape (even a +0.5 m/s nudge):
+ * excluding a few extra low-speed hits shifts exactly when panels loosen/break across that test's 12
+ * repeated trials, which shifts the exact contact geometry each subsequent trial lands on. The
+ * ground-contact normal exclusion below (STRESS_MAX_NORMAL_UP_COMPONENT) is the actual, precisely
+ * targeted fix for this playtest finding and does not touch crumple-bounded's behavior at all (that
+ * test's repeated wall crash is a horizontal-normal impact throughout), so this floor is left at its
+ * original value rather than compensating with a second, riskier lever.
+ */
 export const STRESS_MIN_APPROACH_SPEED_MS = 3;
+
+/**
+ * Hit events whose contact normal is this vertical (|normal.y| above this, 0=horizontal, 1=straight
+ * up/down) are excluded from the accumulated-stress model entirely, regardless of approach speed.
+ *
+ * ROOT CAUSE (playtest MAJOR "panels loosen from 60s of ordinary driving", diagnosed via headless
+ * hitEvents() instrumentation during ordinary driving through the full destructible world): the
+ * chassis/panels' own hit events (enableHitEvents=true, see vehicle.ts/panels.ts) fire for ANY
+ * qualifying contact, including the car settling onto / bouncing against / briefly scraping the flat
+ * ground plane -- these hits carry a near-perfectly-vertical contact normal (measured (0,1,0) or
+ * similarly ~0.85-1.0 |normal.y|), unlike a real wall/pole/barrel crash, whose normal is dominated by
+ * the HORIZONTAL direction of travel (measured well under this threshold in every existing crash test:
+ * moderate-impact/hard-frontal/threshold-ordering/determinism all hit walls or barrels head-on). The
+ * stress model was treating these two physically-distinct contact classes identically, so ordinary
+ * bumps/settling self-inflicted damage exactly like a real impact would. Excluding near-vertical-normal
+ * hits from panel stress (this constant) is the primary fix -- it discriminates on the actual physical
+ * difference (what direction the car got hit from), not a proxy like speed or distance, so it doesn't
+ * touch how a genuine crash's stress is computed at all. See welds.ts's stepWeldsAndWheels().
+ */
+export const STRESS_MAX_NORMAL_UP_COMPONENT = 0.6;
 
 /**
  * Radius (meters) within which a hit event's impact point contributes stress to a panel's centroid --

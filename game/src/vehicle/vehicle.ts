@@ -31,6 +31,10 @@ import {
 } from './mathUtil';
 import { coastServoTarget, createGearboxState, driveServoTarget, engineTorqueAt, stepGearbox, type GearboxState } from './powertrain';
 import {
+	ANTI_PITCH_ENABLED,
+	ANTI_PITCH_GAIN_ANGLE,
+	ANTI_PITCH_GAIN_RATE,
+	ANTI_PITCH_TORQUE_CAP_NM,
 	ANTI_ROLL_ENABLED,
 	ANTI_ROLL_GAIN_ANGLE,
 	ANTI_ROLL_GAIN_RATE,
@@ -397,6 +401,25 @@ function computeYawDampingTorque(rotation: Q4, angularVelocity: V3): V3 {
 	return scale(up, magnitude);
 }
 
+/**
+ * Active anti-pitch torque about the chassis's world-right (lateral) axis, proportional to pitch
+ * angle & rate, capped -- same shape as computeAntiRollTorque() above, about the other horizontal axis.
+ * See ANTI_PITCH_GAIN_ANGLE's doc comment in tuning.ts for the sustained-oscillation rollover-via-
+ * pitch this fixes.
+ */
+export function computeAntiPitchTorque(rotation: Q4, angularVelocity: V3): V3 {
+	if (!ANTI_PITCH_ENABLED) return { x: 0, y: 0, z: 0 };
+	const forward = chassisForward(rotation);
+	const right = rotateVector(rotation, LOCAL_RIGHT);
+	// Pitch angle proxy: how far "forward" has tilted toward world-up (0 when level, matching
+	// computeAntiRollTorque()'s rollAngle proxy on "right").
+	const pitchAngle = Math.asin(clamp(dot(forward, { x: 0, y: 1, z: 0 }), -1, 1));
+	const pitchRate = dot(angularVelocity, right);
+	let magnitude = -ANTI_PITCH_GAIN_ANGLE * pitchAngle - ANTI_PITCH_GAIN_RATE * pitchRate;
+	magnitude = clamp(magnitude, -ANTI_PITCH_TORQUE_CAP_NM, ANTI_PITCH_TORQUE_CAP_NM);
+	return scale(right, magnitude);
+}
+
 export interface Telemetry {
 	speedKmh: number;
 	gear: number;
@@ -548,12 +571,15 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	if (fl.joint) fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 	if (fr.joint) fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 
-	// ---- Anti-roll assist + yaw damping ----
+	// ---- Anti-roll assist + yaw damping + anti-pitch assist ----
 	const transform = vehicle.chassis.getTransform();
 	const angularVel = vehicle.chassis.getAngularVelocity();
 	const torque = add(
-		computeAntiRollTorque(transform.rotation, angularVel),
-		computeYawDampingTorque(transform.rotation, angularVel)
+		add(
+			computeAntiRollTorque(transform.rotation, angularVel),
+			computeYawDampingTorque(transform.rotation, angularVel)
+		),
+		computeAntiPitchTorque(transform.rotation, angularVel)
 	);
 	if (dot(torque, torque) > 0) {
 		vehicle.chassis.applyTorque(torque, true);
