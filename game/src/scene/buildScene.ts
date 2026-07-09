@@ -12,6 +12,10 @@ export interface SceneBundle {
   carFocus: THREE.Vector3;
   sunLight: THREE.DirectionalLight;
   updateSunQuality: (q: QualityPreset) => void;
+  /** Re-bakes the IBL environment map for a DIFFERENT renderer -- see render/environment.ts's
+   * EnvironmentBundle.rebake() doc comment for why this is required after a Q-cycle renderer swap
+   * (main.ts's applyQuality()), not merely a nice-to-have. */
+  rebakeEnvironment: (renderer: THREE.WebGLRenderer) => void;
 }
 
 const HDRI_URL = 'assets/hdri/derelict_airfield_01_2k.hdr';
@@ -25,7 +29,7 @@ export async function buildScene(renderer: THREE.WebGLRenderer, quality: Quality
   const carAnchor = new THREE.Object3D();
   scene.add(carAnchor);
 
-  await loadEnvironment(renderer, scene, HDRI_URL, quality);
+  const environment = await loadEnvironment(renderer, scene, HDRI_URL, quality);
 
   const ground = buildGround(200, 40);
   scene.add(ground.mesh);
@@ -42,5 +46,5 @@ export async function buildScene(renderer: THREE.WebGLRenderer, quality: Quality
   // orbit camera and as the shadow-target anchor.
   const carFocus = new THREE.Vector3(0, CAR_MAP.overallDimsMm.height / 1000 / 2, 0);
 
-  return { scene, car, carFocus, sunLight: sun.light, updateSunQuality: sun.update };
+  return { scene, car, carFocus, sunLight: sun.light, updateSunQuality: sun.update, rebakeEnvironment: environment.rebake };
 }

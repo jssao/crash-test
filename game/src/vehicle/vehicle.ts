@@ -10,7 +10,7 @@
 // Wheel-joint frame derivation (why the frame rotations below are what they are) is documented in
 // mathUtil.ts's WHEEL_FRAME_A_ROTATION / WHEEL_FRAME_B_ROTATION doc comments.
 
-import { Body, BodyType, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
+import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
 import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
 import { buildChassisHullPoints, solveChassisDensities } from './geometry';
 import {
@@ -123,11 +123,18 @@ export interface WheelHandle {
 	 * detached (spec: "drivetrain skips missing wheels").
 	 */
 	joint: WheelJoint | null;
+	/** @internal kept so destroyVehicle() can explicitly unregister this shape from the box3d-js
+	 * live-handle registry before destroying the owning body (see that function's doc comment). */
+	shape: Shape;
 }
 
 export interface Vehicle {
 	world: World;
 	chassis: Body;
+	/** @internal chassis shapes (hull + sensor ballast), kept only so destroyVehicle() can explicitly
+	 * destroy them before destroying the chassis body (see that function's doc comment) -- createVehicle()
+	 * itself never reads these back. */
+	chassisShapes: { hull: Shape; ballast: Shape };
 	wheels: Record<WheelKey, WheelHandle>;
 	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
 	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
@@ -178,13 +185,13 @@ export function createVehicle(
 	// chassis (crash impacts) to drive plastic-crumple deformation + accumulated weld stress.
 	// groupIndex: CAR_GROUP_INDEX (shared, negative) on every car shape -- see tuning.ts's doc
 	// comment -- so the chassis hull never self-collides with wheels/panels.
-	chassis.createHullShape(hullPoints, {
+	const hullShape = chassis.createHullShape(hullPoints, {
 		density: solved.hullDensity,
 		friction: 0.8,
 		enableHitEvents: true,
 		groupIndex: CAR_GROUP_INDEX,
 	});
-	chassis.createSphereShape({
+	const ballastShape = chassis.createSphereShape({
 		radius: BALLAST_RADIUS_M,
 		center: { x: 0, y: BALLAST_LOCAL_Y_M, z: 0 },
 		density: solved.ballastDensity,
@@ -209,7 +216,7 @@ export function createVehicle(
 			userData: CAR_ENTITY_ID.wheel[def.key],
 		});
 		const wheelDensity = WHEEL_MASS_KG / ((4 / 3) * Math.PI * def.radius ** 3);
-		wheelBody.createSphereShape({
+		const wheelShape = wheelBody.createSphereShape({
 			radius: def.radius,
 			density: wheelDensity,
 			friction: WHEEL_FRICTION,
@@ -247,7 +254,7 @@ export function createVehicle(
 			upperSteeringLimit: STEERING_UPPER_LIMIT_RAD,
 		});
 
-		wheels[def.key] = { def, body: wheelBody, joint };
+		wheels[def.key] = { def, body: wheelBody, joint, shape: wheelShape };
 	}
 
 	const panels = createPanels(world, chassis, spawnPosition, spawnRotation);
@@ -255,6 +262,7 @@ export function createVehicle(
 	return {
 		world,
 		chassis,
+		chassisShapes: { hull: hullShape, ballast: ballastShape },
 		wheels,
 		panels,
 		gearbox: createGearboxState(),
@@ -262,6 +270,46 @@ export function createVehicle(
 		spawnPosition,
 		spawnRotation,
 	};
+}
+
+/**
+ * FULL teardown of every car body/shape/joint (chassis, wheels + their joints, panels + their welds),
+ * for the "R = full car repair" reset (main.ts) -- as opposed to resetVehicle() above, which only
+ * teleports bodies in place and can't undo destructive damage-system state (a broken weld/detached
+ * wheel joint is gone for good; resetVehicle() only repositions still-`attached` panels, see
+ * panels.ts's resetAttachedPanels()). Call createVehicle() again immediately after this to rebuild.
+ *
+ * Explicitly destroys each shape/joint BEFORE its owning body (mirroring panels.ts's
+ * breakPanelWeld()'s own ordering) so every native handle this module created is unregistered from
+ * the box3d-js live-handle registry (../../../src/ts/registry.ts) -- destroying a body alone frees its
+ * shapes/joints natively too, but would leave their JS-side Shape/Joint wrapper objects' registry
+ * entries stuck "live" forever (there would be no way to call .destroy() on them afterward, since the
+ * Vehicle/WheelHandle/PanelHandle types already retain every shape/joint handle specifically so this
+ * function can avoid that leak) -- see main.ts's full-reset handler, which checks
+ * liveHandleCount() before/after a repeated R press to confirm zero net growth.
+ */
+export function destroyVehicle(vehicle: Vehicle): void {
+	for (const w of Object.values(vehicle.wheels)) {
+		if (w.joint) {
+			w.joint.destroy();
+			w.joint = null;
+		}
+		w.shape.destroy(false);
+		w.body.destroy();
+	}
+	for (const p of Object.values(vehicle.panels)) {
+		if (p.weldJoint) {
+			p.weldJoint.destroy();
+			p.weldJoint = null;
+		}
+		if (!p.despawned) {
+			p.shape.destroy(false);
+			p.body.destroy();
+		}
+	}
+	vehicle.chassisShapes.hull.destroy(false);
+	vehicle.chassisShapes.ballast.destroy(false);
+	vehicle.chassis.destroy();
 }
 
 export function resetVehicle(vehicle: Vehicle): void {

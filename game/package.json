@@ -11,7 +11,10 @@
     "analyze-car": "node scripts/analyze-car.mjs",
     "verify": "node verify/shoot.mjs",
     "verify:driving": "node verify/shoot-driving.mjs",
-    "test:sim": "vitest run"
+    "verify:crash": "node verify/shoot-crash.mjs",
+    "verify:world": "node verify/shoot-world.mjs",
+    "test:sim": "vitest run",
+    "bench": "vite-node sim/perf-bench.mjs"
   },
   "dependencies": {
     "three": "0.185.1"

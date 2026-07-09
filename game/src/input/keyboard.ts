@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: MIT
 //
-// Keyboard input: WASD/arrows for throttle/brake/steer, space for handbrake, R to reset the car
-// upright at spawn, C to toggle the chase/orbit camera. Polled once per fixed physics step (not
-// event-driven for the drive axes) so input state is naturally quantized to the simulation rate.
+// Keyboard input: WASD/arrows for throttle/brake/steer, space for handbrake, R to fully repair+
+// respawn the car, Shift+R to also restore the destructible world, C to toggle the chase/orbit
+// camera, Q to cycle render-quality presets, F to toggle the fps/physics-ms readout, ? to re-show the
+// controls help card. Polled once per fixed physics step (not event-driven for the drive axes) so
+// input state is naturally quantized to the simulation rate.
 
 import type { VehicleInput } from '../vehicle/vehicle';
 
 const held = new Set<string>();
-let resetRequested = false;
+let carResetRequested = false;
+let worldResetRequested = false;
 let cameraToggleRequested = false;
+let qualityCycleRequested = false;
+let fpsToggleRequested = false;
+let helpToggleRequested = false;
 
 function normalizeKey(e: KeyboardEvent): string {
 	return e.code;
@@ -16,10 +22,17 @@ function normalizeKey(e: KeyboardEvent): string {
 
 export function installKeyboardInput(target: EventTarget = window): () => void {
 	const onKeyDown = (e: Event) => {
-		const key = normalizeKey(e as KeyboardEvent);
+		const ke = e as KeyboardEvent;
+		const key = normalizeKey(ke);
 		held.add(key);
-		if (key === 'KeyR') resetRequested = true;
+		if (key === 'KeyR') {
+			if (ke.shiftKey) worldResetRequested = true;
+			else carResetRequested = true;
+		}
 		if (key === 'KeyC') cameraToggleRequested = true;
+		if (key === 'KeyQ') qualityCycleRequested = true;
+		if (key === 'KeyF') fpsToggleRequested = true;
+		if (ke.key === '?') helpToggleRequested = true;
 		if (key === 'Space') e.preventDefault(); // avoid scrolling the page
 	};
 	const onKeyUp = (e: Event) => held.delete(normalizeKey(e as KeyboardEvent));
@@ -47,10 +60,17 @@ export function readKeyboardInput(): VehicleInput {
 	return { throttle, brake, steer, handbrake };
 }
 
-/** One-shot edge-triggered "was R pressed since last check" -- clears on read. */
-export function consumeResetRequested(): boolean {
-	if (!resetRequested) return false;
-	resetRequested = false;
+/** One-shot edge-triggered "was R (without Shift) pressed since last check" -- clears on read. */
+export function consumeCarResetRequested(): boolean {
+	if (!carResetRequested) return false;
+	carResetRequested = false;
+	return true;
+}
+
+/** One-shot edge-triggered "was Shift+R pressed since last check" -- clears on read. */
+export function consumeWorldResetRequested(): boolean {
+	if (!worldResetRequested) return false;
+	worldResetRequested = false;
 	return true;
 }
 
@@ -58,5 +78,26 @@ export function consumeResetRequested(): boolean {
 export function consumeCameraToggleRequested(): boolean {
 	if (!cameraToggleRequested) return false;
 	cameraToggleRequested = false;
+	return true;
+}
+
+/** One-shot edge-triggered "was Q pressed since last check" -- clears on read. */
+export function consumeQualityCycleRequested(): boolean {
+	if (!qualityCycleRequested) return false;
+	qualityCycleRequested = false;
+	return true;
+}
+
+/** One-shot edge-triggered "was F pressed since last check" -- clears on read. */
+export function consumeFpsToggleRequested(): boolean {
+	if (!fpsToggleRequested) return false;
+	fpsToggleRequested = false;
+	return true;
+}
+
+/** One-shot edge-triggered "was ? pressed since last check" -- clears on read. */
+export function consumeHelpToggleRequested(): boolean {
+	if (!helpToggleRequested) return false;
+	helpToggleRequested = false;
 	return true;
 }

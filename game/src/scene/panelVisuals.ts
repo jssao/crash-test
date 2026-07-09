@@ -25,6 +25,11 @@ export interface PanelVisual {
 	 * this module's doc comment. Only meaningful once `reparented` is true. */
 	offsetPos: THREE.Vector3;
 	offsetQuat: THREE.Quaternion;
+	/** This panel node's ORIGINAL local position/rotation under carRoot, captured once at creation
+	 * time (before any reparenting) -- used by repairPanelVisual() to put it back exactly where it
+	 * started for the "R = full car repair" reset (main.ts). */
+	readonly originalLocalPos: THREE.Vector3;
+	readonly originalLocalQuat: THREE.Quaternion;
 }
 
 /** Finds each panel's own node (by car-map.ts name) under `carRoot`. Call once at scene build time,
@@ -45,6 +50,8 @@ export function createPanelVisuals(carRoot: THREE.Object3D): Record<PanelKey, Pa
 			reparented: false,
 			offsetPos: new THREE.Vector3(),
 			offsetQuat: new THREE.Quaternion(),
+			originalLocalPos: object.position.clone(),
+			originalLocalQuat: object.quaternion.clone(),
 		};
 	}
 	return result;
@@ -76,6 +83,17 @@ export function reparentPanelVisual(visual: PanelVisual, scene: THREE.Scene, pan
 
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
+
+/** Undoes reparentPanelVisual(): puts a loosened/broken panel's node back under `carRoot` at its
+ * original (pre-damage) local transform, for the "R = full car repair" reset (main.ts). No-op if the
+ * panel was never reparented in the first place (still attached, nothing to repair). */
+export function repairPanelVisual(visual: PanelVisual, carRoot: THREE.Object3D): void {
+	if (!visual.reparented) return;
+	carRoot.add(visual.object); // plain re-parent (does NOT preserve world transform, unlike .attach())
+	visual.object.position.copy(visual.originalLocalPos);
+	visual.object.quaternion.copy(visual.originalLocalQuat);
+	visual.reparented = false;
+}
 
 /** Applies one reparented panel's interpolated body transform for the current render frame (no-op if
  * still attached -- car.root's own transform already carries it). */

@@ -1,0 +1,179 @@
+{
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "telemetryHero": {
+    "speedKmh": 0,
+    "gear": 1,
+    "rpm": 900,
+    "wheelOmegas": {
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
+    },
+    "slipHints": {
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
+    },
+    "steeringAngle": -5.960465188081798e-8,
+    "chassisPos": {
+      "x": 0,
+      "y": 0.3799999952316284,
+      "z": 0
+    },
+    "chassisQuat": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "w": 1
+    },
+    "rollAngleRad": 0,
+    "yawRateRadS": 0,
+    "upDot": 1,
+    "damage": {
+      "panelStates": {
+        "hood": "attached",
+        "doorL": "attached",
+        "doorR": "attached",
+        "hatch": "attached",
+        "roof": "attached"
+      },
+      "stressLevels": {
+        "hood": 0,
+        "doorL": 0,
+        "doorR": 0,
+        "hatch": 0,
+        "roof": 0
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 0,
+      "glassShattered": []
+    }
+  },
+  "telemetryBarrels": {
+    "speedKmh": 72.77023926273594,
+    "gear": 2,
+    "rpm": 4088.865250633495,
+    "wheelOmegas": {
+      "fl": 53.81346130371094,
+      "fr": 54.70000457763672,
+      "rl": 93.66691589355469,
+      "rr": 90.23379516601562
+    },
+    "slipHints": {
+      "fl": 0.7878607657897341,
+      "fr": 1.1336126426207862,
+      "rl": 15.768706560467468,
+      "rr": 14.45038820109247
+    },
+    "steeringAngle": 0.009474232792854309,
+    "chassisPos": {
+      "x": 21.479799270629883,
+      "y": 0.24317406117916107,
+      "z": 49.715633392333984
+    },
+    "chassisQuat": {
+      "x": -0.00139326648786664,
+      "y": 0.35216957330703735,
+      "z": 0.001251213368959725,
+      "w": 0.9359343647956848
+    },
+    "rollAngleRad": 0.0013607754702925912,
+    "yawRateRadS": 0.15783699867919146,
+    "upDot": 0.9999929865471983,
+    "damage": {
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "loosened",
+        "doorR": "broken",
+        "hatch": "attached",
+        "roof": "loosened"
+      },
+      "stressLevels": {
+        "hood": 134.29048276953776,
+        "doorL": 89.02952507350676,
+        "doorR": 95.90450231110881,
+        "hatch": 27.98708238386224,
+        "roof": 89.74887358171564
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 46811,
+      "glassShattered": [
+        "glass-BodyWindshield-1"
+      ]
+    }
+  },
+  "telemetryCrate": {
+    "speedKmh": 54.23007110590377,
+    "gear": 1,
+    "rpm": 4704.160749791369,
+    "wheelOmegas": {
+      "fl": 38.7529296875,
+      "fr": 38.77178955078125,
+      "rl": 79.44951629638672,
+      "rr": 95.74331665039062
+    },
+    "slipHints": {
+      "fl": 0.07663719525693757,
+      "fr": 0.08399254193662564,
+      "rl": 15.471608874944437,
+      "rr": 21.72842821088194
+    },
+    "steeringAngle": -0.10841237008571625,
+    "chassisPos": {
+      "x": -11.805336952209473,
+      "y": 0.254305362701416,
+      "z": 35.28483581542969
+    },
+    "chassisQuat": {
+      "x": -0.0055801281705498695,
+      "y": -0.17142952978610992,
+      "z": -0.0012105121277272701,
+      "w": 0.9851798415184021
+    },
+    "rollAngleRad": -0.00047194681297348204,
+    "yawRateRadS": -0.021040886869993565,
+    "upDot": 0.9999347936599777,
+    "damage": {
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "broken",
+        "doorR": "broken",
+        "hatch": "loosened",
+        "roof": "broken"
+      },
+      "stressLevels": {
+        "hood": 338.2876045795805,
+        "doorL": 110.60213405688322,
+        "doorR": 103.75581730066673,
+        "hatch": 55.06715045027134,
+        "roof": 103.18284288351744
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 57259,
+      "glassShattered": [
+        "glass-BodyWindshield-1"
+      ]
+    }
+  },
+  "crateDamageOccurred": true,
+  "timestamp": "2026-07-09T04:04:36.626Z"
+}

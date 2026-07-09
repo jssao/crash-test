@@ -307,6 +307,27 @@ export function getDentedVertexCount(registry: CrumpleRegistry): number {
 	return sum;
 }
 
+/** Restores one deformable mesh to its pristine (never-hit) rest shape in place -- positions back to
+ * basePositions, offsets/dentedFlags/dentedCount/shattered all cleared, normals recomputed from the
+ * now-flat positions. Used by the "R = full car repair" reset (main.ts): the mesh HANDLE OBJECTS
+ * themselves are kept (not replaced), since game/src/scene/carDeformables.ts's bindings hold direct
+ * references into them -- only their mutable contents are reset, so no re-registration is needed. */
+export function resetDeformableMesh(mesh: DeformableMeshHandle): void {
+	mesh.positions.set(mesh.basePositions);
+	mesh.offsets.fill(0);
+	mesh.dentedFlags.fill(0);
+	mesh.dentedCount = 0;
+	mesh.shattered = false;
+	recomputeNormals(mesh);
+}
+
+/** Resets every registered mesh (see resetDeformableMesh()) -- call after a full car repair, then
+ * sync the result back into the THREE geometries (game/src/scene/carDeformables.ts's
+ * syncCarDeformablesToThree()). */
+export function resetCrumpleRegistry(registry: CrumpleRegistry): void {
+	for (const mesh of registry.meshes) resetDeformableMesh(mesh);
+}
+
 export interface LocalImpact {
 	point: V3;
 	normal: V3;

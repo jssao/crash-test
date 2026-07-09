@@ -94,14 +94,23 @@ function worldToLocal(transform: { position: V3; rotation: Q4 }, worldPoint: V3,
 	};
 }
 
-export function createDamageSystem(vehicle: Vehicle): DamageSystem {
+/**
+ * @param registry Pass an EXISTING registry (rather than the default fresh one) when rebuilding the
+ * damage system for a full car repair (main.ts's R handler) -- reusing the same registry object
+ * preserves every already-registered DeformableMeshHandle (and, critically, the exact object
+ * identities game/src/scene/carDeformables.ts's bindings hold references to), so the caller only
+ * needs to reset its contents (crumple.ts's resetCrumpleRegistry()) rather than re-registering every
+ * mesh (which would otherwise re-capture whatever DEFORMED positions the THREE geometry currently
+ * holds as the new "pristine" base -- permanently baking in damage instead of repairing it).
+ */
+export function createDamageSystem(vehicle: Vehicle, registry: CrumpleRegistry = createCrumpleRegistry()): DamageSystem {
 	const carMassKg = vehicle.chassis.getMass() + totalPanelMassKg(vehicle.panels) + Object.values(vehicle.wheels).reduce((sum, w) => sum + w.body.getMass(), 0);
 	const wheelOverThresholdSteps = {} as Record<WheelKey, number>;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) wheelOverThresholdSteps[key] = 0;
 	return {
 		vehicle,
 		panels: vehicle.panels,
-		registry: createCrumpleRegistry(),
+		registry,
 		emitter: createDamageEventEmitter(),
 		carMassKg,
 		timeSec: 0,
@@ -189,6 +198,11 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 			panel.body.getPosition().z - system.vehicle.chassis.getPosition().z,
 		);
 		if (age > PANEL_DESPAWN_AFTER_S || distFromCar > PANEL_DESPAWN_DISTANCE_M) {
+			// Explicitly destroy the shape BEFORE the body: destroying the body alone frees the shape
+			// natively too, but leaves its JS-side Shape wrapper's box3d-js registry entry stuck "live"
+			// forever (see ../../../src/ts/registry.ts's liveHandleCount(), and vehicle.ts's
+			// destroyVehicle() doc comment for the same gotcha on the car's own bodies).
+			panel.shape.destroy(false);
 			panel.body.destroy();
 			panel.despawned = true;
 			system.emitter.emit({ type: 'panelDespawned', panel: key });

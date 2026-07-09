@@ -17,7 +17,7 @@ export function createOrbitUpdater(camera: THREE.PerspectiveCamera, params: Orbi
     const angle = elapsedSeconds * params.angularSpeed;
     camera.position.set(
       focus.x + Math.cos(angle) * params.radius,
-      focus.y + params.height,
+      Math.max(focus.y + params.height, 0.4), // never clip below the ground plane
       focus.z + Math.sin(angle) * params.radius,
     );
     camera.lookAt(focus.x, focus.y + params.targetHeight, focus.z);

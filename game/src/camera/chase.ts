@@ -38,7 +38,18 @@ export interface ChaseCameraOptions {
 	lookSmoothTime?: number;
 	/** Below this speed (m/s), fall back to the car's forward axis instead of its velocity direction. */
 	minSpeedForVelocityDirection?: number;
+	/** Degrees, at ~0 km/h / at SPEED_FOV_MAX_KMH+ -- mild speed sensation without being disorienting. */
+	fovMinDeg?: number;
+	fovMaxDeg?: number;
+	fovMaxSpeedKmh?: number;
+	/** Seconds; FOV smoothing time constant. */
+	fovSmoothTime?: number;
+	/** Never let the camera's final Y drop below this (world space), so an aggressive shake/spring
+	 * overshoot can never clip the camera into/below the ground plane. */
+	minCameraHeightM?: number;
 }
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 export class ChaseCamera {
 	private readonly opts: Required<ChaseCameraOptions>;
@@ -47,6 +58,11 @@ export class ChaseCamera {
 	private readonly currentLook = new THREE.Vector3();
 	private readonly lookVelocity = new THREE.Vector3();
 	private initialized = false;
+
+	/** Impact-shake state (G4/G5 camera polish): amplitude (meters) added by triggerImpact(), decays
+	 * exponentially every update() call -- see that method's doc comment. */
+	private shakeAmplitudeM = 0;
+	private fovDeg: number;
 
 	constructor(options: ChaseCameraOptions = {}) {
 		this.opts = {
@@ -57,7 +73,26 @@ export class ChaseCamera {
 			positionSmoothTime: options.positionSmoothTime ?? 0.25,
 			lookSmoothTime: options.lookSmoothTime ?? 0.15,
 			minSpeedForVelocityDirection: options.minSpeedForVelocityDirection ?? 1.5,
+			fovMinDeg: options.fovMinDeg ?? 62,
+			fovMaxDeg: options.fovMaxDeg ?? 70,
+			fovMaxSpeedKmh: options.fovMaxSpeedKmh ?? 100,
+			fovSmoothTime: options.fovSmoothTime ?? 0.4,
+			minCameraHeightM: options.minCameraHeightM ?? 0.4,
 		};
+		this.fovDeg = this.opts.fovMinDeg;
+	}
+
+	/**
+	 * Adds impact shake (G4/G5 camera polish), amplitude proportional to `severityMs` (an impact
+	 * event's approach speed, m/s -- see game/src/damage/events.ts's ImpactEvent), capped so a huge
+	 * crash can't fling the camera absurdly far. Call from main.ts's damage-event subscription; the
+	 * shake itself decays exponentially over the next several update() calls, it does not need to be
+	 * "held" by the caller.
+	 */
+	triggerImpact(severityMs: number): void {
+		const SHAKE_PER_MS = 0.018; // meters of amplitude per m/s of impact approach speed
+		const SHAKE_MAX_M = 0.45;
+		this.shakeAmplitudeM = Math.min(SHAKE_MAX_M, this.shakeAmplitudeM + severityMs * SHAKE_PER_MS);
 	}
 
 	/** Call every render frame (not every fixed step) with the car's INTERPOLATED position/rotation/velocity. */
@@ -85,12 +120,39 @@ export class ChaseCamera {
 		springDamp(this.currentLook, this.lookVelocity, desiredLook, this.opts.lookSmoothTime, dt);
 
 		camera.position.copy(this.currentPos);
+
+		// Impact shake: small per-frame random offset, exponentially decaying (not held/looping --
+		// each triggerImpact() just tops the amplitude back up).
+		if (this.shakeAmplitudeM > 1e-4) {
+			const a = this.shakeAmplitudeM;
+			camera.position.x += (Math.random() * 2 - 1) * a;
+			camera.position.y += (Math.random() * 2 - 1) * a * 0.6;
+			camera.position.z += (Math.random() * 2 - 1) * a;
+			const SHAKE_DECAY_PER_SEC = 7;
+			this.shakeAmplitudeM *= Math.exp(-SHAKE_DECAY_PER_SEC * dt);
+			if (this.shakeAmplitudeM < 1e-4) this.shakeAmplitudeM = 0;
+		}
+
+		// Never let the final camera position clip below the ground plane, shake included.
+		if (camera.position.y < this.opts.minCameraHeightM) camera.position.y = this.opts.minCameraHeightM;
+
 		camera.lookAt(this.currentLook);
+
+		// Mild speed-FOV: 62deg -> 70deg by fovMaxSpeedKmh, smoothed (not a snap-cut).
+		const speedKmh = speed * 3.6;
+		const targetFov = this.opts.fovMinDeg + (this.opts.fovMaxDeg - this.opts.fovMinDeg) * clamp01(speedKmh / this.opts.fovMaxSpeedKmh);
+		const t = 1 - Math.exp(-dt / this.opts.fovSmoothTime);
+		this.fovDeg += (targetFov - this.fovDeg) * t;
+		if (Math.abs(camera.fov - this.fovDeg) > 1e-3) {
+			camera.fov = this.fovDeg;
+			camera.updateProjectionMatrix();
+		}
 	}
 
 	reset(): void {
 		this.initialized = false;
 		this.posVelocity.set(0, 0, 0);
 		this.lookVelocity.set(0, 0, 0);
+		this.shakeAmplitudeM = 0;
 	}
 }
