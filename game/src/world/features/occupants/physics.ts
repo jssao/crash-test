@@ -100,10 +100,14 @@ import {
 	PART_DIMS,
 	PART_KEYS,
 	REST_OFFSET,
+	RESTRAINT_ARM_STEPS,
+	RESTRAINT_BREACH_STEPS,
 	RESTRAINT_CONE_RAD,
+	RESTRAINT_INSTANT_BREAK_FACTOR,
 	RESTRAINT_FORCE_THRESHOLD_N,
 	RESTRAINT_TWIST_RAD,
 	SEAT_LOCAL,
+	SEAT_PAN_CATEGORY_BIT,
 	SEAT_PAN_DROP_M,
 	SEAT_PAN_FRICTION,
 	SEAT_PAN_HALF_EXTENTS,
@@ -215,6 +219,12 @@ export interface Occupant {
 	/** Lap-restraint joint (chassis<->pelvis) -- null once broken (ejected) or forgotten (car repair). */
 	restraintJoint: SphericalJoint | null;
 	restraintThresholdN: number;
+	/** Polls seen since creation -- ejection is DISARMED for the first RESTRAINT_ARM_STEPS so the
+	 * spawn/reset settle-drop transient can never break the belt (see tuning.ts EJECTION GATING). */
+	restraintPollCount: number;
+	/** Consecutive polls with force above threshold -- ejection requires RESTRAINT_BREACH_STEPS in a
+	 * row (a real crash sustains the force; a solver spike lasts one step). */
+	restraintBreachRun: number;
 	ejected: boolean;
 }
 
@@ -372,6 +382,8 @@ export function createOccupant(
 		joints,
 		restraintJoint,
 		restraintThresholdN: RESTRAINT_FORCE_THRESHOLD_N[seatKey],
+		restraintPollCount: 0,
+		restraintBreachRun: 0,
 		ejected: false,
 	};
 }
@@ -394,7 +406,7 @@ export function createOccupant(
  * categoryBits (maskBits/groupIndex unchanged, so no collision outcome changes) -- readable back via
  * Shape.getFilter() to identify "this occupant part has been ejected" from outside this module.
  */
-const EJECTED_MARKER_BIT = 1n << 3n;
+export const EJECTED_MARKER_BIT = 1n << 3n; // exported: active.ts's ground raycast masks to this bit so it can never hit ejected ragdoll capsules
 
 /** Polls the lap-restraint's constraint force (AFTER world.step(), matching game/src/damage/welds.ts's
  * own polled-force pattern -- avoids the joint-break-EVENT path's documented sleeping-joint gotcha
@@ -407,8 +419,23 @@ const EJECTED_MARKER_BIT = 1n << 3n;
  * has no runtime friction setter -- see Shape.ts). Returns true the step ejection actually happens. */
 export function pollOccupantRestraint(occupant: Occupant): boolean {
 	if (!occupant.restraintJoint || occupant.ejected) return false;
+	// EJECTION GATING (see tuning.ts's doc comment): (1) disarmed during the spawn/reset settle
+	// transient, (2) breach must be SUSTAINED for RESTRAINT_BREACH_STEPS consecutive polls -- both
+	// measured against the solver's single-step force spikes (a 30km/h bump and even the settle drop
+	// alone spiked past the rear threshold for exactly one step; a real crash holds it for many).
+	occupant.restraintPollCount++;
+	if (occupant.restraintPollCount <= RESTRAINT_ARM_STEPS) return false;
 	const forceMag = length(occupant.restraintJoint.getConstraintForce());
-	if (forceMag <= occupant.restraintThresholdN) return false;
+	if (forceMag <= occupant.restraintThresholdN) {
+		occupant.restraintBreachRun = 0;
+		return false;
+	}
+	// Gross overload (>= RESTRAINT_INSTANT_BREAK_FACTOR x threshold) snaps the belt THIS step -- the
+	// occupant still carries full fly-through velocity. A marginal breach must instead be sustained.
+	if (forceMag < occupant.restraintThresholdN * RESTRAINT_INSTANT_BREAK_FACTOR) {
+		occupant.restraintBreachRun++;
+		if (occupant.restraintBreachRun < RESTRAINT_BREACH_STEPS) return false;
+	}
 
 	occupant.restraintJoint.destroy();
 	occupant.restraintJoint = null;
@@ -419,7 +446,9 @@ export function pollOccupantRestraint(occupant: Occupant): boolean {
 		part.shape.destroy(false);
 		part.shape = addCapsuleShape(part.body, key, EJECTED_FRICTION, entityId);
 		part.shape.setFilter(
-			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS, groupIndex: CAR_GROUP_INDEX },
+			// maskBits drops SEAT_PAN_CATEGORY_BIT: an ejected body must not be arrested by the
+			// rigid-welded seat pans on its way out of the cabin (see tuning.ts's doc comment).
+			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS & ~SEAT_PAN_CATEGORY_BIT, groupIndex: CAR_GROUP_INDEX },
 			false,
 		);
 	});
@@ -462,7 +491,9 @@ export function setOccupantLimp(occupant: Occupant): void {
 export function enableOccupantCarCollision(occupant: Occupant): void {
 	for (const key of PART_KEYS) {
 		occupant.parts[key].shape.setFilter(
-			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS, groupIndex: 0 },
+			// Seat pans stay masked out (SEAT_PAN_CATEGORY_BIT): once outside, nothing should ever pin
+			// a ragdoll against an interior pan it might get thrown back onto.
+			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS & ~SEAT_PAN_CATEGORY_BIT, groupIndex: 0 },
 			false,
 		);
 	}
@@ -519,9 +550,14 @@ export function createSeatPan(world: World, chassis: Body, seatKey: SeatKey, cha
 		halfExtents: SEAT_PAN_HALF_EXTENTS,
 		density: massKg / volume,
 		friction: SEAT_PAN_FRICTION,
-		// Deliberately NEUTRAL (default) filter, not CAR_GROUP_INDEX -- see this module's COLLISION
-		// FILTERING doc comment: the seat pan needs to actually collide with the (CAR_GROUP_INDEX)
-		// occupant capsules resting on it.
+		// Deliberately NEUTRAL (default, group 0) group, not CAR_GROUP_INDEX -- see this module's
+		// COLLISION FILTERING doc comment: the seat pan needs to actually collide with the
+		// (CAR_GROUP_INDEX) occupant capsules resting on it. categoryBits reduced to the dedicated
+		// pan bit so EJECTED occupants (which drop that bit from their mask) fly straight through
+		// pans instead of being lethally arrested by a rigid-welded box mid-cabin -- see
+		// SEAT_PAN_CATEGORY_BIT's doc comment (everything else's default mask still includes the
+		// bit, so ground/wall/seated-occupant collisions are unchanged).
+		categoryBits: SEAT_PAN_CATEGORY_BIT,
 	});
 	const weldJoint = world.createWeldJoint(chassis, body, {
 		frameA: { position: localCenter, rotation: { x: 0, y: 0, z: 0, w: 1 } },

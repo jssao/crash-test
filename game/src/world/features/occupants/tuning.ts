@@ -180,6 +180,35 @@ export const RESTRAINT_FORCE_THRESHOLD_N: Record<SeatKey, number> = {
 	rearRight: 5300,
 };
 
+/**
+ * EJECTION GATING (user-playtest defect: an occupant "instantly phases out" on MILD impacts).
+ * MEASURED (sim/diag/occupants-repro.test.mjs): the polled restraint constraint force is spiky --
+ * a 30km/h wall bump produced single-step rear-seat spikes of 5326/5350N against the 5300N rear
+ * threshold (ejecting both rear occupants from a bump that should never eject anyone), and even the
+ * SPAWN/RESET settle drop alone produced 4.8-6.3kN single-step spikes, i.e. the rear threshold sat
+ * INSIDE the solver's transient noise band. Two gates fix this at the mechanism (thresholds keep
+ * their calibrated meaning):
+ *   - ARMING: polls during the first RESTRAINT_ARM_STEPS after (re)seating are ignored -- the settle
+ *     drop + brace-spring engagement transient can never eject anyone at spawn or world reset.
+ *   - SUSTAIN: the force must exceed the threshold on RESTRAINT_BREACH_STEPS CONSECUTIVE polls. A
+ *     real crash decelerates the cabin over many fixed steps (measured: a 70km/h wall crash holds
+ *     front forces >16kN for well past 3 steps); a solver spike lasts one.
+ */
+export const RESTRAINT_ARM_STEPS = 30; // 0.5s @ 60Hz
+export const RESTRAINT_BREACH_STEPS = 3; // 50ms of sustained over-threshold force
+/**
+ * INSTANT-BREAK path: a force this many times the threshold breaks the belt on a SINGLE poll (real
+ * webbing has an ultimate strength above its rated load -- gross overload snaps it instantly, it
+ * does not get 50ms of grace). This is what keeps violent ejections dramatic under the sustain gate.
+ * MEASURED single-step peaks (sim/diag/occupants-force-trace.test.mjs, thresholds disabled):
+ *   30km/h bump:    rear 1.03x threshold (1-step) . front 0.4x  -> nobody breaks (needs 1.3x or 3 steps)
+ *   70km/h wall:    rear 4.3-4.7x                 . front 1.38-1.5x -> ALL break instantly (the
+ *                   designed 70km/h drama: through-the-windshield ejections, preserved)
+ *   spawn settle:   ~0.5x rear                    -> never breaks
+ * 1.3 sits between the 30km/h rear peak (1.03x, +26% margin) and the 70km/h front peak (1.38x).
+ */
+export const RESTRAINT_INSTANT_BREAK_FACTOR = 1.3;
+
 /** Spawn drop, meters -- occupants spawn this far ABOVE their settled seat pose so the lap-restraint
  * joint's spring gently pulls the pelvis down onto the seat pan over the first few real fixed steps
  * (rather than snapping/spawning already mathematically perfect -- see physics.ts's module doc for why
@@ -189,6 +218,18 @@ export const SETTLE_DROP_M = 0.05;
 /** Seat pan (my own minimal welded-to-chassis seat surface, self-contained per the task's ownership
  * split -- not depending on a 'cardetail' feature). */
 export const SEAT_PAN_HALF_EXTENTS: V3 = { x: 0.22, y: 0.05, z: 0.22 };
+/**
+ * Seat pans carry ONLY this category bit (instead of the default all-bits), and an EJECTED occupant's
+ * shapes drop it from their maskBits -- so a pan holds a SEATED occupant but is transparent to a
+ * FLYING one. MEASURED artifact this fixes (sim/diag/occupants-eject-detail.test.mjs): a rear
+ * occupant ejected in a 70km/h frontal crossed the cabin at ~19m/s and its trailing legs raked the
+ * FRONT seat pan -- a rigid (hertz=0) weld to the 1300kg chassis, i.e. effectively a wall -- yanking
+ * a 90g one-step spike through the hip joints into the torso and killing it mid-cabin before it
+ * reached the windshield. Real seat backs fold/break away under a 55kg body at highway speed; a
+ * rigid-weld pan is the same class of modeling artifact as the solid convex chassis hull, and it gets
+ * the same treatment (filtered for ejected bodies). Everything else still collides with pans
+ * normally (their maskBits stay default). */
+export const SEAT_PAN_CATEGORY_BIT = 1n << 4n;
 export const SEAT_PAN_MASS_KG = 4;
 export const SEAT_PAN_FRICTION = 0.9;
 /** Vertical drop from SEAT_LOCAL down to the seat pan's center (pan top sits ~1cm below the pelvis's
@@ -293,6 +334,63 @@ export const MUSCLE_SHOULDER: MuscleGains = { kp: 70, kd: 8, maxTorqueNm: 70 };
 export const MUSCLE_HIP: MuscleGains = { kp: 320, kd: 34, maxTorqueNm: 260 };
 
 /**
+ * MUSCLE DISCRETE-TIME STABILITY (user-playtest defect: "twitchy/nervous" seated occupants).
+ * MEASURED: with the gains above applied as raw per-step explicit torques at 60Hz, an occupant at
+ * IDLE showed head angular-velocity RMS of ~24 rad/s (sim/diag/occupants-repro.test.mjs) -- a violent
+ * limit-cycle, not a subtle shimmer. Root cause is classic explicit-integrator gain overflow on the
+ * LIGHT bodies: a damping torque -kd*w applied for one step dt on inertia I updates w by factor
+ * (1 - kd*dt/I), which DIVERGES (sign-flipping, growing) when kd > 2*I/dt. The head's transverse
+ * inertia is ~0.02 kg*m^2, so its stable kd ceiling at 60Hz is ~1.2 N*m*s -- the tuned kd of 9 is
+ * ~7x past the divergence bound (same story for the arms). The kp term has the matching bound
+ * kp < I*(w_nyq)^2. FIX (active.ts applyMuscle): each muscle's EFFECTIVE gains are capped per child
+ * body at these stability fractions of the discrete-time bounds (kd <= f*I/dt, kp <= f*I/dt^2), plus
+ * a small target deadband so a settled joint applies exactly zero torque instead of chattering
+ * against the clamp. The tuned gains above still apply in full to heavy parts (torso) whose inertia
+ * affords them. NOTE: seated occupants no longer use these muscles at all (solver-spring bracing,
+ * see SEATED_BRACE_* below) -- these gains drive the ejected-FSM poses only.
+ */
+export const MUSCLE_KD_STABLE_FRACTION = 0.7; // of I/dt (well inside the non-oscillating <1 regime)
+export const MUSCLE_KP_STABLE_FRACTION = 0.7; // of I/dt^2
+/** No muscle torque at all when the pose error AND relative spin are inside this deadband. */
+export const MUSCLE_DEADBAND_RAD = 0.06;
+export const MUSCLE_DEADBAND_RAD_S = 0.35;
+
+/** Approximate transverse moment of inertia (kg*m^2) of each part's capsule about its center --
+ * solid-cylinder-of-total-length approximation, m*(3r^2 + L^2)/12 with L = full capsule length
+ * including caps. Feeds the per-part discrete-stability gain caps above; an approximation is fine
+ * (the caps carry a 0.7 safety fraction). */
+export function partTransverseInertia(part: PartKey): number {
+	const dims = PART_DIMS[baseOf(part)];
+	const m = MASS_FRACTION[part] * OCCUPANT_MASS_KG;
+	const fullLen = 2 * dims.halfLen + 2 * dims.radius;
+	return (m * (3 * dims.radius * dims.radius + fullLen * fullLen)) / 12;
+}
+
+/**
+ * SEATED BRACING (rebuilt after the user playtest -- defect: constant visible jitter at rest).
+ * While ALIVE + SEATED the occupant is now held by the JOINT SOLVER'S OWN SPRINGS (SphericalJoint
+ * hertz/dampingRatio, solver-integrated and unconditionally stable -- the same surface the lap-belt
+ * brace already used) instead of explicit per-step muscle torques, with GAIN SCHEDULING on the
+ * measured chassis g-load:
+ *   - chassis calm (below BRACE_G_LO): springs stay at the passive BALL_SPRING_HERTZ -- the occupant
+ *     is VISUALLY STILL (bodies may even sleep), zero active torque, zero jitter by construction.
+ *   - real g (braking/cornering/impacts, above BRACE_G_HI): ball-joint springs ramp to
+ *     SEATED_BRACE_HERTZ and the lap-belt to RESTRAINT_BRACE_HERTZ -- the visible "brace up".
+ *   - braceLevel attacks fast (a human startles quickly) and releases slowly (no flickering).
+ * The crash drama gradient is preserved: solver springs are SOFT constraints a violent angular
+ * impulse still overwhelms (measured: 140km/h braced-vs-limp deviation ratio stays within the
+ * overwhelm test's band), and a real crash still snaps the belt through RESTRAINT_FORCE_THRESHOLD_N
+ * -> ejection -> limp. */
+export const SEATED_BRACE_HERTZ = 9;
+export const BRACE_G_LO = 0.25; // below this chassis g-load: fully relaxed
+export const BRACE_G_HI = 0.6; // above this: fully braced
+export const BRACE_ATTACK_TAU_S = 0.06;
+export const BRACE_RELEASE_TAU_S = 0.45;
+/** Chassis g-load is EMA-smoothed with this time constant before scheduling (one 60Hz step of raw
+ * |dv|/dt is far too spiky a signal to gate on directly). */
+export const BRACE_G_SMOOTH_TAU_S = 0.12;
+
+/**
  * CORE/trunk bracing acts through the LAP-RESTRAINT SPRING rather than an explicit PD torque: while
  * alive + seated we raise the pelvis<->chassis spring stiffness from its passive BALL_SPRING_HERTZ to
  * this braced value, which holds the pelvis upright ON THE BELT (target = the seated rest orientation)
@@ -351,7 +449,28 @@ export const SETTLE_ANGULAR_SPEED_RAD_S = 2.5;
  * oscillates it to box3d's per-step rotation clamp, ~45 rad/s). The pelvis servo IS the assist -- it
  * substitutes for the legs' ground reaction + the balance loop. Labelled as such in code + in the
  * return-to-user; NOT sold as emergent locomotion. */
-export const STABILIZE_STAND_PELVIS_Y_M = 0.92; // target pelvis height standing (column sags ~6cm under gravity, so aim high enough that the head clears 1.2m)
+/**
+ * GROUND-RELATIVE RECOVERY (user-playtest defect: the recovery puppet held a half-crouch HOVERING
+ * mid-air). All STABILIZE heights below are ABOVE THE MEASURED GROUND under the occupant, not
+ * absolute world Y: the original code assumed ground == y=0, which the terrain wave (400x400
+ * heightfield) invalidated -- an occupant recovering where the terrain sits below/above 0 hovered
+ * mid-air / was driven into the dirt. active.ts now raycasts straight down under the pelvis every
+ * ejected step (World.castRayClosest, masked to EJECTED_MARKER_BIT so it can never hit the ejected
+ * ragdoll's own capsules -- see physics.ts) and drives pelvis height relative to that hit. If no
+ * ground was ever measured, the occupant stays DOWN (settled) rather than attempting a float-stand;
+ * if the stand is physically blocked mid-recover (pelvis can't follow the ramp), it gives up and
+ * stays down for good -- visibly wrong beats subtly fake. */
+export const GROUND_RAY_UP_M = 1.5; // ray origin height above the pelvis
+export const GROUND_RAY_DOWN_M = 25; // ray length downward
+/** Pelvis height (above ground) the RECOVER ramp starts from (crouched, grounded). */
+export const RECOVER_CROUCH_PELVIS_Y_M = 0.2;
+/** Late in RECOVER (past this ramp fraction), a pelvis still below RECOVER_BLOCKED_PELVIS_Y_M above
+ * ground counts as blocked; RECOVER_BLOCKED_MAX_STEPS consecutive blocked steps = give up, stay down. */
+export const RECOVER_BLOCKED_RAMP_FRACTION = 0.6;
+export const RECOVER_BLOCKED_PELVIS_Y_M = 0.45;
+export const RECOVER_BLOCKED_MAX_STEPS = 45;
+
+export const STABILIZE_STAND_PELVIS_Y_M = 0.92; // target pelvis height ABOVE MEASURED GROUND standing (column sags ~6cm under gravity, so aim high enough that the head clears ground+1.2m)
 export const STABILIZE_WALK_SPEED_MS = 1.5; // capped horizontal flee speed
 export const STABILIZE_LIN_GAIN = 6; // desired pelvis speed per meter of position error (1/s)
 export const STABILIZE_MAX_LIN_SPEED_MS = 3.0; // clamp on the assisted pelvis speed (>= walk + rise)

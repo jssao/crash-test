@@ -88,7 +88,7 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 		afterFixedStep(dt: number): void {
 			const chassis = ctx.getVehicle().chassis;
 			const t = chassis.getTransform();
-			const activeCtx = { chassisPos: t.position, chassisRot: t.rotation, chassisVel: chassis.getLinearVelocity() };
+			const activeCtx = { chassisPos: t.position, chassisRot: t.rotation, chassisVel: chassis.getLinearVelocity(), world: ctx.world };
 			for (const entry of entries) {
 				pollOccupantRestraint(entry.occupant); // may eject this step (breaks restraint + kick)
 				const shattered = updateOccupantActive(entry.occupant, entry.runtime, dt, activeCtx);

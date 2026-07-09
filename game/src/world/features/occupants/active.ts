@@ -8,11 +8,19 @@
 // world.step(), via updateOccupantActive().
 //
 // HONEST-PHYSICS DISCLOSURE (also surfaced in the return-to-user):
-//   * MUSCLE bracing (seated), the LIFE/DEATH model, and the MUSCLE-OVERWHELM gradient are all REAL,
-//     torque-limited physics: each powered joint runs a PD controller whose corrective torque is
-//     HARD-CLAMPED to a human-plausible N*m ceiling (tuning.ts MUSCLE_*), applied as a momentum-
-//     conserving equal-and-opposite Body.applyTorque pair. Ordinary g's stay inside the budget (brace);
-//     a crash's angular impulse blows past it (limp flail). Nothing fakes this.
+//   * SEATED bracing is SOLVER-SPRING bracing with gain scheduling (rebuilt after the user playtest
+//     found the original per-step PD muscles oscillating at 60Hz -- measured 24 rad/s head RMS at
+//     IDLE, see tuning.ts's MUSCLE DISCRETE-TIME STABILITY note): while alive+seated, the ball
+//     joints' own solver-integrated springs (SphericalJoint hertz/dampingRatio -- unconditionally
+//     stable) hold the seated pose, staying at the passive hertz while the chassis is calm (occupant
+//     VISUALLY STILL, zero active torque) and ramping up under measured chassis g-load (the visible
+//     "brace"). The crash drama gradient is real: solver springs are soft constraints a violent
+//     angular impulse overwhelms, and a real crash's sustained belt force still snaps the restraint.
+//   * The ejected-FSM poses (tumble flail / settle / get-up / walk) run the PD MUSCLE layer: each
+//     powered joint's corrective torque is HARD-CLAMPED to a human-plausible N*m ceiling (tuning.ts
+//     MUSCLE_*), applied as a momentum-conserving equal-and-opposite Body.applyTorque pair, with
+//     effective gains capped per body at the 60Hz discrete-stability bounds and a small deadband
+//     (so a settled joint applies exactly zero torque instead of chattering against the clamp).
 //   * The post-crash GET-UP + FLEE-WALK ride on a DOCUMENTED STABILIZATION ASSIST: an 11-capsule
 //     ragdoll cannot balance/stand/walk from joint motors alone without a full balance controller
 //     (foot-placement / ZMP / ground-reaction loop) that is out of scope. So RECOVER/FLEE/SAFE
@@ -35,7 +43,7 @@
 // C / -to P. (For the revolute knee/elbow the off-hinge-axis component of that torque is simply absorbed
 // by the joint constraint, so the same routine straightens them -- no separate hinge math needed.)
 
-import type { Body } from '../../../../../src/ts/index.js';
+import type { Body, World } from '../../../../../src/ts/index.js';
 import {
 	add,
 	clamp,
@@ -50,8 +58,14 @@ import {
 	type Q4 as MQ4,
 	type V3,
 } from '../../../vehicle/mathUtil';
-import { enableOccupantCarCollision, setOccupantLimp, type Occupant } from './physics';
+import { EJECTED_MARKER_BIT, enableOccupantCarCollision, setOccupantLimp, type Occupant } from './physics';
 import {
+	BALL_SPRING_HERTZ,
+	BRACE_ATTACK_TAU_S,
+	BRACE_G_HI,
+	BRACE_G_LO,
+	BRACE_G_SMOOTH_TAU_S,
+	BRACE_RELEASE_TAU_S,
 	DEATH_PEAK_ACCEL_G,
 	FLEE_ARRIVED_M,
 	FLEE_DISTANCE_M,
@@ -68,21 +82,33 @@ import {
 	GLASS_Y_MAX_M,
 	GLASS_Y_MIN_M,
 	GRAVITY_G_UNIT,
+	GROUND_RAY_DOWN_M,
+	GROUND_RAY_UP_M,
 	HULL_AABB_CLEAR_MARGIN_M,
 	HULL_AABB_HALF_X_M,
 	HULL_AABB_HALF_Z_M,
 	HULL_AABB_Y_MAX_M,
 	HULL_AABB_Y_MIN_M,
+	MUSCLE_DEADBAND_RAD,
+	MUSCLE_DEADBAND_RAD_S,
 	MUSCLE_HIP,
+	MUSCLE_KD_STABLE_FRACTION,
+	MUSCLE_KP_STABLE_FRACTION,
 	MUSCLE_NECK,
 	MUSCLE_SHOULDER,
 	MUSCLE_SPINE,
 	MUSCLE_TUMBLING_SCALE,
 	PART_DIMS,
 	PART_KEYS,
+	partTransverseInertia,
+	RECOVER_BLOCKED_MAX_STEPS,
+	RECOVER_BLOCKED_PELVIS_Y_M,
+	RECOVER_BLOCKED_RAMP_FRACTION,
+	RECOVER_CROUCH_PELVIS_Y_M,
 	REST_OFFSET,
 	RESTRAINT_BRACE_DAMPING,
 	RESTRAINT_BRACE_HERTZ,
+	SEATED_BRACE_HERTZ,
 	SETTLE_ANGULAR_SPEED_RAD_S,
 	SETTLE_LINEAR_SPEED_MS,
 	STABILIZE_ANG_GAIN,
@@ -112,6 +138,23 @@ const RECOVER_HIP_CONE_RAD = 1.9;
  * momentum-conserving behaviour while treating the anchored parent chain as a partial reference frame --
  * a standard active-ragdoll stabilization. 0 = pure child-drive (parent treated as a fixed anchor). */
 const MUSCLE_REACTION_FRACTION = 1.0;
+
+// Per-part approximate transverse inertias (kg*m^2), feeding the discrete-stability gain caps in
+// applyMuscle() -- see tuning.ts's MUSCLE DISCRETE-TIME STABILITY doc comment. Each muscle pair is
+// capped by the SMALLER of its two bodies' inertias (the reaction torque hits the parent too, and the
+// lighter side is the one an over-tuned gain destabilizes -- measured: the head, I~0.02, diverged to a
+// 24 rad/s limit cycle under the raw kd=9 neck damping at 60Hz).
+const I_PELVIS = partTransverseInertia('pelvis');
+const I_TORSO = partTransverseInertia('torso');
+const I_HEAD = partTransverseInertia('head');
+const I_UPPER_ARM = partTransverseInertia('upperArmL');
+const I_THIGH = partTransverseInertia('thighL');
+const I_SHIN = partTransverseInertia('shinL');
+const PAIR_SPINE = Math.min(I_PELVIS, I_TORSO);
+const PAIR_NECK = Math.min(I_TORSO, I_HEAD);
+const PAIR_SHOULDER = Math.min(I_TORSO, I_UPPER_ARM);
+const PAIR_HIP = Math.min(I_PELVIS, I_THIGH);
+const PAIR_KNEE = Math.min(I_THIGH, I_SHIN);
 
 function conj(q: MQ4): MQ4 {
 	return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
@@ -199,6 +242,23 @@ export interface OccupantRuntime {
 	recoverStartSec: number;
 	hipConeWidened: boolean;
 	carCollisionEnabled: boolean;
+	// Seated solver-spring bracing (gain-scheduled on measured chassis g -- see tuning.ts SEATED_BRACE_*)
+	/** Smoothed chassis g-load estimate (EMA of |dv|/dt in g). */
+	gLoadSmoothed: number;
+	/** Current brace level 0 (relaxed, passive springs) .. 1 (fully braced). */
+	braceLevel: number;
+	/** Brace level last actually written to the joint springs (-1 = never; setters are only called on
+	 * a material change, so converged occupants make zero native calls and can go to sleep). */
+	appliedBraceLevel: number;
+	/** Previous-step chassis velocity for the g-load estimate (null after external velocity sets). */
+	prevChassisVel: V3 | null;
+	// Ground-relative recovery (see tuning.ts GROUND-RELATIVE RECOVERY)
+	/** Latest measured ground height under the pelvis (world Y), null until first successful ray. */
+	groundY: number | null;
+	/** Consecutive RECOVER steps with the pelvis failing to follow the stand ramp (blocked). */
+	recoverBlockedSteps: number;
+	/** Latched once a stand attempt was abandoned -- the occupant stays down for good. */
+	recoverGiveUp: boolean;
 	/** Flee target (world, horizontal), captured on RECOVER entry. */
 	fleeTarget: V3 | null;
 	/** Pelvis XZ frozen at RECOVER start (rise-in-place), and the moving "carrot" target for FLEE. */
@@ -224,6 +284,13 @@ export function createOccupantRuntime(): OccupantRuntime {
 		recoverStartSec: 0,
 		hipConeWidened: false,
 		carCollisionEnabled: false,
+		gLoadSmoothed: 0,
+		braceLevel: 0,
+		appliedBraceLevel: -1,
+		prevChassisVel: null,
+		groundY: null,
+		recoverBlockedSteps: 0,
+		recoverGiveUp: false,
 		fleeTarget: null,
 		standAnchor: null,
 		shatteredGlass: new Set(),
@@ -238,12 +305,18 @@ export function createOccupantRuntime(): OccupantRuntime {
 export function resetOccupantAccelBaseline(occupant: Occupant, runtime: OccupantRuntime): void {
 	runtime.prevHeadVel = occupant.parts.head.body.getLinearVelocity();
 	runtime.prevTorsoVel = occupant.parts.torso.body.getLinearVelocity();
+	// Also re-baseline the chassis g-load estimator (same reason: an external velocity jump is not a
+	// real acceleration, and must neither kill the occupant nor spike the brace scheduler).
+	runtime.prevChassisVel = null;
 }
 
 export interface ActiveStepContext {
 	chassisPos: V3;
 	chassisRot: MQ4;
 	chassisVel: V3;
+	/** Physics world, for the ground raycast under recovering occupants. Optional for backward
+	 * compatibility: without it, ground is assumed at world y=0 (the pre-terrain flat-plane model). */
+	world?: World;
 }
 
 /** World -> chassis-local point (inverse of chassisPos + rotate(chassisRot, .)). */
@@ -253,15 +326,21 @@ function toChassisLocal(p: V3, ctx: ActiveStepContext): V3 {
 
 /** One PD "muscle": momentum-conserving torque pair driving child body toward `targetRel` (its desired
  * orientation relative to the parent body), clamped to the muscle's N*m ceiling. `scaleFactor` lets a
- * state (e.g. tumbling) run at reduced strength. */
-function applyMuscle(parent: Body, child: Body, targetRel: MQ4, gains: MuscleGains, scaleFactor: number): void {
+ * state (e.g. tumbling) run at reduced strength. `pairInertia` (min of the two bodies' transverse
+ * inertias) caps the EFFECTIVE gains at the 60Hz discrete-stability bounds (kd <= f*I/dt diverges the
+ * light head/arms otherwise -- see tuning.ts), and a small deadband keeps a joint AT its target from
+ * chattering against the torque clamp (drive-to-zero instead of oscillate-around-zero). */
+function applyMuscle(parent: Body, child: Body, targetRel: MQ4, gains: MuscleGains, scaleFactor: number, pairInertia: number, dt: number): void {
 	const qP = parent.getRotation();
 	const qC = child.getRotation();
 	const qDesired = multiplyQuat(qP, targetRel);
 	const qErr = multiplyQuat(qDesired, conj(qC));
 	const rv = quatToRotationVector(qErr);
 	const wRel = sub(child.getAngularVelocity(), parent.getAngularVelocity());
-	let torque = sub(scale(rv, gains.kp), scale(wRel, gains.kd));
+	if (length(rv) < MUSCLE_DEADBAND_RAD && length(wRel) < MUSCLE_DEADBAND_RAD_S) return;
+	const kp = Math.min(gains.kp, (MUSCLE_KP_STABLE_FRACTION * pairInertia) / (dt * dt));
+	const kd = Math.min(gains.kd, (MUSCLE_KD_STABLE_FRACTION * pairInertia) / dt);
+	let torque = sub(scale(rv, kp), scale(wRel, kd));
 	torque = clampMagnitude(torque, gains.maxTorqueNm * scaleFactor);
 	child.applyTorque(torque);
 	parent.applyTorque(scale(torque, -MUSCLE_REACTION_FRACTION));
@@ -273,31 +352,49 @@ function applyMuscle(parent: Body, child: Body, targetRel: MQ4, gains: MuscleGai
 function applyBodyPose(
 	occupant: Occupant,
 	scaleFactor: number,
+	dt: number,
 	opts: { shoulderRel: MQ4; hipRel: MQ4; straightenKnees: boolean; stepPhase?: number },
 ): void {
 	const p = occupant.parts;
-	applyMuscle(p.pelvis.body, p.torso.body, STRAIGHT_REL, MUSCLE_SPINE, scaleFactor);
-	applyMuscle(p.torso.body, p.head.body, STRAIGHT_REL, MUSCLE_NECK, scaleFactor);
-	applyMuscle(p.torso.body, p.upperArmL.body, opts.shoulderRel, MUSCLE_SHOULDER, scaleFactor);
-	applyMuscle(p.torso.body, p.upperArmR.body, opts.shoulderRel, MUSCLE_SHOULDER, scaleFactor);
+	applyMuscle(p.pelvis.body, p.torso.body, STRAIGHT_REL, MUSCLE_SPINE, scaleFactor, PAIR_SPINE, dt);
+	applyMuscle(p.torso.body, p.head.body, STRAIGHT_REL, MUSCLE_NECK, scaleFactor, PAIR_NECK, dt);
+	applyMuscle(p.torso.body, p.upperArmL.body, opts.shoulderRel, MUSCLE_SHOULDER, scaleFactor, PAIR_SHOULDER, dt);
+	applyMuscle(p.torso.body, p.upperArmR.body, opts.shoulderRel, MUSCLE_SHOULDER, scaleFactor, PAIR_SHOULDER, dt);
 	// Stepping gait: a small alternating fore/aft hip pitch layered on the base hip target during FLEE.
 	const stepL = opts.stepPhase !== undefined ? quatFromAxisAngle({ x: 1, y: 0, z: 0 }, Math.sin(opts.stepPhase) * STABILIZE_STEP_AMPLITUDE_RAD) : IDENTITY_Q;
 	const stepR = opts.stepPhase !== undefined ? quatFromAxisAngle({ x: 1, y: 0, z: 0 }, Math.sin(opts.stepPhase + Math.PI) * STABILIZE_STEP_AMPLITUDE_RAD) : IDENTITY_Q;
-	applyMuscle(p.pelvis.body, p.thighL.body, multiplyQuat(opts.hipRel, stepL), MUSCLE_HIP, scaleFactor);
-	applyMuscle(p.pelvis.body, p.thighR.body, multiplyQuat(opts.hipRel, stepR), MUSCLE_HIP, scaleFactor);
+	applyMuscle(p.pelvis.body, p.thighL.body, multiplyQuat(opts.hipRel, stepL), MUSCLE_HIP, scaleFactor, PAIR_HIP, dt);
+	applyMuscle(p.pelvis.body, p.thighR.body, multiplyQuat(opts.hipRel, stepR), MUSCLE_HIP, scaleFactor, PAIR_HIP, dt);
 	if (opts.straightenKnees) {
-		applyMuscle(p.thighL.body, p.shinL.body, STRAIGHT_REL, MUSCLE_HIP, 0.4 * scaleFactor);
-		applyMuscle(p.thighR.body, p.shinR.body, STRAIGHT_REL, MUSCLE_HIP, 0.4 * scaleFactor);
+		applyMuscle(p.thighL.body, p.shinL.body, STRAIGHT_REL, MUSCLE_HIP, 0.4 * scaleFactor, PAIR_KNEE, dt);
+		applyMuscle(p.thighR.body, p.shinR.body, STRAIGHT_REL, MUSCLE_HIP, 0.4 * scaleFactor, PAIR_KNEE, dt);
+	}
+}
+
+/** SEATED solver-spring brace at `level` (0 = passive BALL_SPRING_HERTZ, 1 = fully braced): writes
+ * the scheduled hertz onto the six powered ball joints (spine/neck/shoulders/hips) and the lap-belt.
+ * Solver-integrated springs are unconditionally stable at 60Hz on the light bodies -- the entire
+ * reason seated bracing moved here from explicit per-step PD torques (user-visible jitter fix).
+ * Callers only invoke on a material level change, so a calm occupant makes zero native calls. */
+function applySeatedBraceSprings(occupant: Occupant, level: number): void {
+	const hertz = BALL_SPRING_HERTZ + (SEATED_BRACE_HERTZ - BALL_SPRING_HERTZ) * level;
+	const j = occupant.joints;
+	for (const joint of [j.spine, j.neck, j.shoulderL, j.shoulderR, j.hipL, j.hipR]) {
+		joint.setSpringHertz(hertz);
+	}
+	if (occupant.restraintJoint) {
+		occupant.restraintJoint.setSpringHertz(BALL_SPRING_HERTZ + (RESTRAINT_BRACE_HERTZ - BALL_SPRING_HERTZ) * level);
+		occupant.restraintJoint.setSpringDampingRatio(RESTRAINT_BRACE_DAMPING);
 	}
 }
 
 /** TUMBLING protective tone: neck + shoulders ONLY (parent = torso), so no reaction torque hits the
  * light pelvis to spin it on the low-friction ground and block "settled". Arms swing toward the head. */
-function applyTumblePose(occupant: Occupant, scaleFactor: number): void {
+function applyTumblePose(occupant: Occupant, scaleFactor: number, dt: number): void {
 	const p = occupant.parts;
-	applyMuscle(p.torso.body, p.head.body, STRAIGHT_REL, MUSCLE_NECK, scaleFactor);
-	applyMuscle(p.torso.body, p.upperArmL.body, TUMBLE_SHOULDER_REL, MUSCLE_SHOULDER, scaleFactor);
-	applyMuscle(p.torso.body, p.upperArmR.body, TUMBLE_SHOULDER_REL, MUSCLE_SHOULDER, scaleFactor);
+	applyMuscle(p.torso.body, p.head.body, STRAIGHT_REL, MUSCLE_NECK, scaleFactor, PAIR_NECK, dt);
+	applyMuscle(p.torso.body, p.upperArmL.body, TUMBLE_SHOULDER_REL, MUSCLE_SHOULDER, scaleFactor, PAIR_SHOULDER, dt);
+	applyMuscle(p.torso.body, p.upperArmR.body, TUMBLE_SHOULDER_REL, MUSCLE_SHOULDER, scaleFactor, PAIR_SHOULDER, dt);
 }
 
 /** Standing-column vertical offsets (chassis-agnostic): pelvis center -> torso center is pelvisTop(0.05)
@@ -416,8 +513,30 @@ function pelvisState(occupant: Occupant): { pos: V3; speed: number; angSpeed: nu
 	return { pos: b.getPosition(), speed: length(b.getLinearVelocity()), angSpeed: length(b.getAngularVelocity()) };
 }
 
-function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, ctx: ActiveStepContext): void {
+/** Measures the ground height under the occupant's pelvis (world Y) via a straight-down raycast,
+ * caching it in runtime.groundY. The ray is masked to EJECTED_MARKER_BIT -- ejected ragdoll capsules
+ * (this occupant's AND every other ejected occupant's) have that category bit cleared, so the ray can
+ * only hit the actual world (terrain/props/car), never the ragdoll lying in its own path. Without a
+ * world in ctx (legacy callers) falls back to the pre-terrain flat-plane assumption (ground = y 0). */
+function sampleGroundY(occupant: Occupant, runtime: OccupantRuntime, ctx: ActiveStepContext): void {
+	if (!ctx.world) {
+		runtime.groundY = runtime.groundY ?? 0;
+		return;
+	}
+	const p = occupant.parts.pelvis.body.getPosition();
+	const hit = ctx.world.castRayClosest(
+		{ x: p.x, y: p.y + GROUND_RAY_UP_M, z: p.z },
+		{ x: 0, y: -(GROUND_RAY_UP_M + GROUND_RAY_DOWN_M), z: 0 },
+		{ maskBits: EJECTED_MARKER_BIT },
+	);
+	if (hit.hit) runtime.groundY = hit.point.y;
+	// miss: keep the last measurement (null if never measured -> the FSM prefers staying down).
+}
+
+function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, dt: number, ctx: ActiveStepContext): void {
 	const ps = pelvisState(occupant);
+	sampleGroundY(occupant, runtime, ctx);
+	const groundY = runtime.groundY;
 
 	switch (runtime.state) {
 		case 'tumbling': {
@@ -425,9 +544,12 @@ function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, ctx: Act
 			// strength (the crash overwhelmed the brace). Deliberately ONLY neck + shoulders (parent =
 			// torso): applying hip/spine muscle here dumps reaction torque into the light pelvis and spins
 			// it on the low-friction ground forever, which would block "settled" from ever latching.
-			applyTumblePose(occupant, MUSCLE_TUMBLING_SCALE);
+			applyTumblePose(occupant, MUSCLE_TUMBLING_SCALE, dt);
 			const airtime = runtime.timeSec - runtime.tumbleStartSec;
-			const settled = airtime > FSM_TUMBLE_MIN_SECONDS && ps.pos.y < 0.7 && ps.speed < SETTLE_LINEAR_SPEED_MS && ps.angSpeed < SETTLE_ANGULAR_SPEED_RAD_S;
+			// Height gate is RELATIVE TO MEASURED GROUND (user defect: absolute y<0.7 never latched --
+			// or latched mid-air -- once the terrain wave moved the ground off y=0).
+			const nearGround = groundY !== null && ps.pos.y - groundY < 0.7;
+			const settled = airtime > FSM_TUMBLE_MIN_SECONDS && nearGround && ps.speed < SETTLE_LINEAR_SPEED_MS && ps.angSpeed < SETTLE_ANGULAR_SPEED_RAD_S;
 			if (settled) {
 				runtime.state = 'settled';
 				runtime.settledStartSec = runtime.timeSec;
@@ -435,9 +557,11 @@ function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, ctx: Act
 			break;
 		}
 		case 'settled': {
-			// Lie still and gather -- minimal tone.
-			applyBodyPose(occupant, 0.4, { shoulderRel: STRAIGHT_REL, hipRel: SEATED_HIP_REL, straightenKnees: false });
-			if (runtime.timeSec - runtime.settledStartSec > FSM_SETTLE_SECONDS) {
+			// Lie still and gather -- minimal tone. If a previous stand attempt was abandoned (blocked /
+			// no measurable ground), stay down for good: visibly wrong beats subtly fake.
+			applyBodyPose(occupant, 0.4, dt, { shoulderRel: STRAIGHT_REL, hipRel: SEATED_HIP_REL, straightenKnees: false });
+			if (runtime.recoverGiveUp) break;
+			if (runtime.timeSec - runtime.settledStartSec > FSM_SETTLE_SECONDS && groundY !== null) {
 				// Enter RECOVER: widen hips so legs can straighten, capture flee direction + stand anchor.
 				if (!runtime.hipConeWidened) {
 					occupant.joints.hipL.setConeLimit(RECOVER_HIP_CONE_RAD);
@@ -448,37 +572,52 @@ function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, ctx: Act
 				runtime.fleeTarget = { x: ctx.chassisPos.x + away.x * FLEE_DISTANCE_M, y: 0, z: ctx.chassisPos.z + away.z * FLEE_DISTANCE_M };
 				runtime.standAnchor = { x: ps.pos.x, y: 0, z: ps.pos.z };
 				runtime.recoverStartSec = runtime.timeSec;
+				runtime.recoverBlockedSteps = 0;
 				runtime.state = 'recover';
 			}
 			break;
 		}
 		case 'recover': {
-			// Get up IN PLACE: ramp pelvis height to standing over the recover window, full-body PD to
-			// a standing pose (assist doc: pelvis servo is the balance/ground-reaction substitute).
+			// Get up IN PLACE: ramp pelvis height from a grounded crouch to standing over the recover
+			// window -- both heights ABOVE THE MEASURED GROUND under the occupant (user defect: the old
+			// absolute-Y ramp held a hovering half-crouch wherever terrain height differed from 0).
+			const g = groundY ?? 0;
 			const t = clamp((runtime.timeSec - runtime.recoverStartSec) / FSM_RECOVER_SECONDS, 0, 1);
-			const targetY = 0.2 + (STABILIZE_STAND_PELVIS_Y_M - 0.2) * t;
+			const targetY = g + RECOVER_CROUCH_PELVIS_Y_M + (STABILIZE_STAND_PELVIS_Y_M - RECOVER_CROUCH_PELVIS_Y_M) * t;
 			const anchor = runtime.standAnchor!;
 			const faceDir = fleeDirection(ps.pos, ctx);
 			applyCoreColumnAssist(occupant, { x: anchor.x, y: targetY, z: anchor.z }, faceDir);
-			applyBodyPose(occupant, 1, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true });
+			applyBodyPose(occupant, 1, dt, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true });
+			// Blocked-stand detection: late in the ramp the pelvis should genuinely be rising off the
+			// ground; if something (wreckage, a tree, a ditch lip) keeps it pinned, give up and stay
+			// down instead of grinding the servo against the obstruction forever.
+			if (t > RECOVER_BLOCKED_RAMP_FRACTION && ps.pos.y - g < RECOVER_BLOCKED_PELVIS_Y_M) runtime.recoverBlockedSteps++;
+			else runtime.recoverBlockedSteps = 0;
+			if (runtime.recoverBlockedSteps >= RECOVER_BLOCKED_MAX_STEPS) {
+				runtime.recoverGiveUp = true;
+				runtime.state = 'settled';
+				runtime.settledStartSec = runtime.timeSec;
+				break;
+			}
 			if (t >= 1) runtime.state = 'flee';
 			break;
 		}
 		case 'flee': {
-			// Stumble-walk toward the flee point at a capped speed (moving-carrot pelvis target).
+			// Stumble-walk toward the flee point at a capped speed (moving-carrot pelvis target), pelvis
+			// held at standing height above the ground measured under it each step (walks real slopes).
 			const target = runtime.fleeTarget!;
 			const anchor = runtime.standAnchor!;
 			const toTarget = { x: target.x - anchor.x, y: 0, z: target.z - anchor.z };
 			const distToTarget = length(toTarget);
 			if (distToTarget > 1e-3) {
-				const stepDist = Math.min(STABILIZE_WALK_SPEED_MS * (1 / 60), distToTarget);
+				const stepDist = Math.min(STABILIZE_WALK_SPEED_MS * dt, distToTarget);
 				const dir = scale(toTarget, 1 / distToTarget);
 				anchor.x += dir.x * stepDist;
 				anchor.z += dir.z * stepDist;
 			}
 			const faceDir = normalize({ x: target.x - ps.pos.x, y: 0, z: target.z - ps.pos.z });
-			applyCoreColumnAssist(occupant, { x: anchor.x, y: STABILIZE_STAND_PELVIS_Y_M, z: anchor.z }, length(faceDir) > 1e-3 ? faceDir : { x: 0, y: 0, z: 1 });
-			applyBodyPose(occupant, 1, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true, stepPhase: runtime.timeSec * STABILIZE_STEP_HZ * 2 * Math.PI });
+			applyCoreColumnAssist(occupant, { x: anchor.x, y: (groundY ?? 0) + STABILIZE_STAND_PELVIS_Y_M, z: anchor.z }, length(faceDir) > 1e-3 ? faceDir : { x: 0, y: 0, z: 1 });
+			applyBodyPose(occupant, 1, dt, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true, stepPhase: runtime.timeSec * STABILIZE_STEP_HZ * 2 * Math.PI });
 			const distFromCar = Math.hypot(ps.pos.x - ctx.chassisPos.x, ps.pos.z - ctx.chassisPos.z);
 			if (distFromCar >= FLEE_ARRIVED_M) runtime.state = 'safe';
 			break;
@@ -487,10 +626,10 @@ function updateEjectedFsm(occupant: Occupant, runtime: OccupantRuntime, ctx: Act
 			// Idle stand at the arrival spot; occasionally glance back at the wreck (deterministic sine).
 			const anchor = runtime.standAnchor!;
 			const toCar = normalize({ x: ctx.chassisPos.x - ps.pos.x, y: 0, z: ctx.chassisPos.z - ps.pos.z });
-			applyCoreColumnAssist(occupant, { x: anchor.x, y: STABILIZE_STAND_PELVIS_Y_M, z: anchor.z }, length(toCar) > 1e-3 ? toCar : { x: 0, y: 0, z: 1 });
+			applyCoreColumnAssist(occupant, { x: anchor.x, y: (groundY ?? 0) + STABILIZE_STAND_PELVIS_Y_M, z: anchor.z }, length(toCar) > 1e-3 ? toCar : { x: 0, y: 0, z: 1 });
 			const glance = quatFromAxisAngle({ x: 0, y: 1, z: 0 }, 0.3 * Math.sin(runtime.timeSec * 0.6));
-			applyBodyPose(occupant, 1, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true });
-			applyMuscle(occupant.parts.torso.body, occupant.parts.head.body, glance, MUSCLE_NECK, 1);
+			applyBodyPose(occupant, 1, dt, { shoulderRel: STRAIGHT_REL, hipRel: STANDING_HIP_REL, straightenKnees: true });
+			applyMuscle(occupant.parts.torso.body, occupant.parts.head.body, glance, MUSCLE_NECK, 1, PAIR_NECK, dt);
 			break;
 		}
 		default:
@@ -519,19 +658,37 @@ export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntim
 	runtime.newlyShatteredGlass.length = 0;
 
 	updateLifeDeath(occupant, runtime, dt);
-	if (!runtime.alive) return runtime.newlyShatteredGlass; // dead = pure limp ragdoll, nothing more
+	if (!runtime.alive) {
+		// Dead = pure limp ragdoll: no muscle, no FSM. But PHYSICAL bookkeeping still applies to a
+		// corpse in flight: a body flung through the windshield still shatters it, and once fully
+		// clear of the hull AABB it must still re-enable car collision -- without this a dead ejected
+		// occupant stayed car-filtered forever and visibly sank INTO the wreck (one of the
+		// user-reported phase-outs).
+		if (occupant.ejected) {
+			detectGlassCrossing(occupant, runtime, ctx);
+			tryEnableCarCollision(occupant, runtime, ctx);
+		}
+		return runtime.newlyShatteredGlass;
+	}
 
 	if (!occupant.ejected) {
-		// SEATED + ALIVE: brace. Muscle PD holds the seated posture against g-forces (head up under
-		// braking/cornering, torso recovers upright after a jostle). Overwhelmed past the torque cap in a
-		// real crash -- that's the drama gradient, emergent from the clamp.
+		// SEATED + ALIVE: solver-spring bracing, gain-scheduled on the measured chassis g-load (see
+		// tuning.ts SEATED_BRACE_*). Calm chassis -> passive springs, occupant VISUALLY STILL (the
+		// original per-step PD muscles oscillated at 60Hz -- the user-reported constant jitter). Real
+		// g (hard braking/cornering/impact) -> ball-joint + lap-belt springs ramp stiff: the brace.
 		runtime.state = 'seated';
-		// Stiffen the lap belt so the pelvis stays upright (stable core brace, see RESTRAINT_BRACE_HERTZ).
-		if (occupant.restraintJoint) {
-			occupant.restraintJoint.setSpringHertz(RESTRAINT_BRACE_HERTZ);
-			occupant.restraintJoint.setSpringDampingRatio(RESTRAINT_BRACE_DAMPING);
+		let gLoad = 0;
+		if (runtime.prevChassisVel && dt > 0) gLoad = length(sub(ctx.chassisVel, runtime.prevChassisVel)) / dt / GRAVITY_G_UNIT;
+		runtime.prevChassisVel = ctx.chassisVel;
+		runtime.gLoadSmoothed += (gLoad - runtime.gLoadSmoothed) * Math.min(1, dt / BRACE_G_SMOOTH_TAU_S);
+		const braceTarget = clamp((runtime.gLoadSmoothed - BRACE_G_LO) / (BRACE_G_HI - BRACE_G_LO), 0, 1);
+		// Fast attack (a startle is quick), slow release (no brace flicker over rough ground).
+		const tau = braceTarget > runtime.braceLevel ? BRACE_ATTACK_TAU_S : BRACE_RELEASE_TAU_S;
+		runtime.braceLevel += (braceTarget - runtime.braceLevel) * Math.min(1, dt / tau);
+		if (Math.abs(runtime.braceLevel - runtime.appliedBraceLevel) > 0.01) {
+			runtime.appliedBraceLevel = runtime.braceLevel;
+			applySeatedBraceSprings(occupant, runtime.braceLevel);
 		}
-		applyBodyPose(occupant, 1, { shoulderRel: STRAIGHT_REL, hipRel: SEATED_HIP_REL, straightenKnees: false });
 		return runtime.newlyShatteredGlass;
 	}
 
@@ -539,8 +696,13 @@ export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntim
 	if (runtime.state === 'seated') {
 		runtime.state = 'tumbling';
 		runtime.tumbleStartSec = runtime.timeSec;
+		// Drop any brace stiffness back to the passive spring values: a freed tumbling body must
+		// flail on the passive ragdoll springs, not stay rigidly pulled toward the seated pose.
+		applySeatedBraceSprings(occupant, 0);
+		runtime.appliedBraceLevel = 0;
+		runtime.braceLevel = 0;
 	}
-	updateEjectedFsm(occupant, runtime, ctx);
+	updateEjectedFsm(occupant, runtime, dt, ctx);
 	detectGlassCrossing(occupant, runtime, ctx);
 	tryEnableCarCollision(occupant, runtime, ctx);
 	return runtime.newlyShatteredGlass;

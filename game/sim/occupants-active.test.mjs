@@ -24,7 +24,9 @@ const NEUTRAL = { throttle: 0, brake: 0, steer: 0, handbrake: false };
 
 function activeCtx(sim) {
 	const t = sim.vehicle.chassis.getTransform();
-	return { chassisPos: t.position, chassisRot: t.rotation, chassisVel: sim.vehicle.chassis.getLinearVelocity() };
+	// world included so the suite exercises the REAL ground-raycast path (the harness plane sits at
+	// y=0, so all pre-terrain height expectations are unchanged).
+	return { chassisPos: t.position, chassisRot: t.rotation, chassisVel: sim.vehicle.chassis.getLinearVelocity(), world: sim.world };
 }
 
 /** Torso "up" alignment with the chassis: dot of the two bodies' world-up axes (1 = torso tracks the
@@ -235,7 +237,14 @@ describe('occupants-active: a survivor gets up and flees the wreck', () => {
 		const sim = await createSim();
 		try {
 			const rig = seatAll(sim);
-			for (let i = 0; i < 30; i++) sim.step(NEUTRAL);
+			// Settle WITH the restraint poll running each step -- the browser polls every fixed step
+			// from creation (index.ts afterFixedStep), and the ejection ARMING window (tuning.ts
+			// RESTRAINT_ARM_STEPS) counts polls-since-creation. Skipping polls during settle left the
+			// belts still disarmed at the yank below, which no real game loop ever does.
+			for (let i = 0; i < 30; i++) {
+				sim.step(NEUTRAL);
+				for (const o of rig.occupants) pollOccupantRestraint(o);
+			}
 
 			// Model a crash WITHOUT a wall: bring the car up to speed, then abruptly stop the car body
 			// (as if it hit something offscreen) while the occupants keep their velocity -- the restraint

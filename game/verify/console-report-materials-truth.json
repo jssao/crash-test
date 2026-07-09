@@ -1,0 +1,34 @@
+{
+  "bodyCount": 256,
+  "brokenBefore": 0,
+  "drive1": {
+    "steps": 364,
+    "finalPos": {
+      "x": 63.721099853515625,
+      "y": 0.25539880990982056,
+      "z": 14.891416549682617
+    },
+    "speedKmh": 75.73629274104495
+  },
+  "drive2": {
+    "steps": 340,
+    "finalPos": {
+      "x": 79.63692474365234,
+      "y": 0.35850268602371216,
+      "z": 29.64444923400879
+    },
+    "speedKmh": 42.524902439408116
+  },
+  "brickBrokenAfterRam": 98,
+  "settle": {
+    "movedBricks": 145,
+    "maxDisplacementDeltaOver5s": 0
+  },
+  "brokenAfterReset": 0,
+  "brokenAfterResetStanding": 0,
+  "bodyCountAfterReset": 256,
+  "consoleErrors": [],
+  "pageErrors": [],
+  "evalExceptions": [],
+  "timestamp": "2026-07-09T22:08:16.897Z"
+}
