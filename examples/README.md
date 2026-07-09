@@ -1,8 +1,10 @@
 # examples/
 
-Three.js integration demos — the port's proof it works from a real renderer. Empty until built.
+Three.js integration demos for box3d-js.
 
-Target first demo (BRIEF goal item 3): N boxes drop onto a ground plane and come to rest, with Box3D
-stepping the simulation and driving Three.js mesh transforms each frame via a batched `HEAPF32`
-transforms read. Must run without console errors; verify headlessly (the Santiago's Wrath render
-harness is a working template on this machine).
+- **`falling-boxes/`** -- a static ground box and ~50 dynamic boxes dropped from varied
+  heights/rotations, settling into a resting pile. Demonstrates the required render path: mesh
+  transforms are synced every physics step from `World.moveEvents()` (a zero-allocation cursor over
+  a flat `HEAPF32` buffer), never per-body `getTransform()` calls in the render loop. Headlessly
+  verified (`npm run verify`, puppeteer-driven) -- zero console errors, no tunneling, pile comes to
+  rest. See `falling-boxes/README.md` to run it.

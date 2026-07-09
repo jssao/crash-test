@@ -1,0 +1,26 @@
+{
+  "name": "box3d-falling-boxes-example",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Three.js falling-boxes example for box3d-js -- ~50 dynamic boxes dropped onto a ground box, driven by World.moveEvents() (batched HEAPF32 transform reads). Standalone Vite app; consumes the binding via relative import of the repo's src/ts sources (no separate publish step needed).",
+  "scripts": {
+    "sync-wasm": "node scripts/copy-wasm.mjs",
+    "predev": "npm run sync-wasm",
+    "dev": "vite",
+    "prebuild": "npm run sync-wasm",
+    "build": "vite build",
+    "preview": "vite preview --port 4174 --strictPort",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.0",
+    "puppeteer": "25.3.0",
+    "puppeteer-core": "25.3.0",
+    "typescript": "~5.6.3",
+    "vite": "8.1.3"
+  }
+}
