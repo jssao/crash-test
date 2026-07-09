@@ -1,0 +1,96 @@
+{
+  "consoleErrors": [],
+  "consoleWarnings": [
+    "[panelVisuals] \"hood\" precomputed offset disagrees with the live capture at reparent time (posErr=22.103m, angleErr=2.44deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorL\" precomputed offset disagrees with the live capture at reparent time (posErr=22.411m, angleErr=0.33deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"doorR\" precomputed offset disagrees with the live capture at reparent time (posErr=22.351m, angleErr=0.10deg) -- car-map.ts may be stale for this GLB.",
+    "[panelVisuals] \"roof\" precomputed offset disagrees with the live capture at reparent time (posErr=22.349m, angleErr=0.12deg) -- car-map.ts may be stale for this GLB."
+  ],
+  "pageErrors": [],
+  "bodyCountBefore": 343,
+  "seatStatesBefore": [
+    {
+      "seatKey": "frontLeft",
+      "ejected": false,
+      "restraintForceN": 400.57428897348836,
+      "pelvisPos": {
+        "x": 0.42649465799331665,
+        "y": 0.5074959397315979,
+        "z": 0.5441036820411682
+      }
+    },
+    {
+      "seatKey": "frontRight",
+      "ejected": false,
+      "restraintForceN": 400.922396083901,
+      "pelvisPos": {
+        "x": -0.4265352487564087,
+        "y": 0.5074900388717651,
+        "z": 0.5440985560417175
+      }
+    },
+    {
+      "seatKey": "rearLeft",
+      "ejected": false,
+      "restraintForceN": 386.8482037571401,
+      "pelvisPos": {
+        "x": 0.4135221838951111,
+        "y": 0.4537607431411743,
+        "z": -1.0558260679244995
+      }
+    },
+    {
+      "seatKey": "rearRight",
+      "ejected": false,
+      "restraintForceN": 390.7580063092703,
+      "pelvisPos": {
+        "x": -0.42646950483322144,
+        "y": 0.4537486135959625,
+        "z": -1.0558291673660278
+      }
+    }
+  ],
+  "seatStatesAfter": [
+    {
+      "seatKey": "frontLeft",
+      "ejected": true,
+      "restraintForceN": null,
+      "pelvisPos": {
+        "x": 0.32350459694862366,
+        "y": 0.9316123723983765,
+        "z": 24.033926010131836
+      }
+    },
+    {
+      "seatKey": "frontRight",
+      "ejected": true,
+      "restraintForceN": null,
+      "pelvisPos": {
+        "x": -0.523769199848175,
+        "y": 0.7983511686325073,
+        "z": 23.355804443359375
+      }
+    },
+    {
+      "seatKey": "rearLeft",
+      "ejected": true,
+      "restraintForceN": null,
+      "pelvisPos": {
+        "x": 0.8820675015449524,
+        "y": 0.7508280873298645,
+        "z": 23.01516342163086
+      }
+    },
+    {
+      "seatKey": "rearRight",
+      "ejected": true,
+      "restraintForceN": null,
+      "pelvisPos": {
+        "x": -0.49278557300567627,
+        "y": 0.7864144444465637,
+        "z": 22.560626983642578
+      }
+    }
+  ],
+  "timestamp": "2026-07-09T12:58:31.642Z"
+}
