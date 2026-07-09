@@ -590,6 +590,16 @@ export function resetStructure(world: World, structure: Structure): void {
 		record.broken = false;
 		record.stage = 'rigid'; // rebuildWeld() restores the rigid (hertz-0) weld; clear the yield state to match
 	}
+
+	// Re-sleep AFTER rebuilding welds (playtest issue #6: "shack falls apart on Shift+R"). createWeldJoint
+	// wakes its attached bodies, so the sleep in the piece loop above is undone by the joint rebuilds --
+	// leaving the whole structure AWAKE at the next step. The wake + first-solve transient in the
+	// freshly-rebuilt rigid welds momentarily spikes getConstraintForce() well above the break threshold,
+	// so the very next pollStructureBreaks() cracks a cascade of welds and the reset structure collapses
+	// on its own with nothing touching it. The original build path (buildShed/etc.) sleeps its pieces
+	// AFTER creating all welds for exactly this reason; reset must match. Asleep, the rebuilt welds report
+	// ~zero constraint force to the poll and the structure stands until something legitimately wakes it.
+	for (const p of structure.pieces) if (!p.isStatic) p.body.setAwake(false);
 }
 
 /**
