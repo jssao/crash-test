@@ -17,6 +17,31 @@ const WHEEL_NODE_NAMES: Record<WheelKey, string> = {
 	rr: CAR_MAP.wheels.rearRight.node,
 };
 
+/** The steered (front) wheels. Their authored GLB pose has the wheels TURNED (~30 deg -- the
+ * CarConcept model is posed as a show car with cocked front wheels), so their preserved
+ * `initialWorldQuat` bakes in a steering yaw that would leave them permanently cocked even at zero
+ * physics steer. neutralizeSteerYaw() below removes that baked heading for these wheels only. */
+const STEERED_WHEELS: ReadonlySet<WheelKey> = new Set<WheelKey>(['fl', 'fr']);
+
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Removes the yaw-about-world-up (steering heading) component from a wheel's authored orientation via
+ * a swing/twist split about world up, keeping the swing (camber/roll/spin-phase) and discarding the
+ * twist (heading). At spawn the chassis is upright so world up IS the steer axis -- so this leaves the
+ * front wheels pointing straight ahead, matching the (already-straight) rear wheels, and the physics
+ * steering delta then rotates them from that neutral pose. Returns a new quaternion.
+ */
+function neutralizeSteerYaw(q: THREE.Quaternion): THREE.Quaternion {
+	// twist = the rotation about world up embedded in q (project onto the up axis, normalize).
+	const twist = new THREE.Quaternion(0, q.y * WORLD_UP.y, 0, q.w);
+	const len = Math.hypot(twist.y, twist.w);
+	if (len < 1e-8) return q.clone(); // q is a 180deg flip perpendicular to up; nothing to remove
+	twist.set(0, twist.y / len, 0, twist.w / len);
+	// q = swing * twist  =>  swing = q * twist^-1  (twist applied first, then swing).
+	return q.clone().multiply(twist.invert());
+}
+
 export interface WheelVisual {
 	object: THREE.Object3D;
 	transform: InterpolatedTransform;
@@ -48,12 +73,16 @@ export function detachWheelVisuals(carRoot: THREE.Object3D, scene: THREE.Scene):
 		object.updateWorldMatrix(true, false);
 		object.matrixWorld.decompose(worldPos, worldQuat, worldScale);
 
+		// Front (steered) wheels are authored turned; strip that baked heading so they sit straight at
+		// zero physics steer (rear wheels are already straight, so they pass through unchanged).
+		const baseQuat = STEERED_WHEELS.has(key) ? neutralizeSteerYaw(worldQuat) : worldQuat.clone();
+
 		scene.attach(object); // re-parents while preserving world transform
 		object.position.copy(worldPos);
-		object.quaternion.copy(worldQuat);
+		object.quaternion.copy(baseQuat);
 		object.scale.copy(worldScale);
 
-		result[key] = { object, transform: new InterpolatedTransform(), initialWorldQuat: worldQuat.clone() };
+		result[key] = { object, transform: new InterpolatedTransform(), initialWorldQuat: baseQuat.clone() };
 	}
 	return result;
 }

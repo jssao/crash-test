@@ -267,6 +267,16 @@ export const ENGINE_BRAKE_TORQUE_NM = 150;
 
 export const BRAKE_TORQUE_FRONT_NM = 2800;
 export const BRAKE_TORQUE_REAR_NM = 1600;
+
+// ---------------------------------------------------------------------------------------------
+// Reverse (the brake/S key doubles as reverse when the car is stopped or already rolling backward)
+// ---------------------------------------------------------------------------------------------
+
+/** While the car is still rolling forward faster than this (m/s), the brake pedal foot-brakes; at or
+ * below it (stopped / rolling backward) the pedal engages reverse instead. */
+export const REVERSE_ENGAGE_SPEED_MS = 0.6;
+/** Reverse is torque-cut once backward speed reaches this (m/s ≈ 25 km/h) so it stays gentle/bounded. */
+export const REVERSE_MAX_SPEED_MS = 7;
 export const HANDBRAKE_TORQUE_NM = 5000;
 /** Small passive drag on the (undriven) front wheels when neither braking nor coasting-drive
  * logic applies to them -- emulates bearing/rolling drag so they don't free-spin unrealistically. */

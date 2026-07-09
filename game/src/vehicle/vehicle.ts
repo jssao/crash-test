@@ -50,6 +50,8 @@ import {
 	FRONT_PASSIVE_DRAG_NM,
 	GROUND_FRICTION,
 	HANDBRAKE_TORQUE_NM,
+	REVERSE_ENGAGE_SPEED_MS,
+	REVERSE_MAX_SPEED_MS,
 	STEER_CLAMP_MAX_RAD,
 	STEER_CLAMP_MIN_RAD,
 	STEER_CLAMP_SPEED_KMH,
@@ -508,22 +510,43 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 
 	const throttle = clamp(input.throttle, 0, 1);
 	const brake = clamp(input.brake, 0, 1);
-	const forwardSign: 1 | -1 = 1;
+
+	// Signed road speed along the chassis's own forward axis (+ = forward, - = backward). The brake
+	// pedal (S) doubles as reverse: it foot-brakes while rolling forward, but once the car is at rest
+	// or already rolling backward it drives the rear wheels in reverse instead.
+	const forwardAxis = chassisForward(vehicle.chassis.getRotation());
+	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forwardAxis);
+	const wantReverse = brake > 1e-3 && forwardSpeed <= REVERSE_ENGAGE_SPEED_MS;
+	const footBraking = brake > 1e-3 && !wantReverse;
 
 	// ---- Drivetrain (rear/driven wheels) ----
 	// Every joint call below is guarded against a detached wheel (WheelHandle.joint === null, see its
 	// doc comment) -- the damage system can destroy a wheel joint at runtime, and the car must keep
 	// simulating/responding to input on its remaining wheels afterward (spec: "drivetrain skips
 	// missing wheels").
-	if (brake > 1e-3) {
+	if (footBraking) {
 		const torque = BRAKE_TORQUE_REAR_NM * brake;
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(0);
 			w.joint.setMaxSpinTorque(torque);
 		}
+	} else if (wantReverse) {
+		// Same torque-limited-servo pattern as forward drive, but negative target spin (forwardSign
+		// -1) using low-gear torque (gearStep is gear 0 at these speeds). The SAME traction-control
+		// taper as forward is essential: without it the unreachable -1000 target just free-spins the
+		// wheels into a backward burnout (they hit -1000 rad/s while the car stays put -- the exact
+		// no-traction failure tractionLimitedTorque() exists to prevent). Torque is also cut once the
+		// reverse speed cap is reached so backing up stays gentle and bounded.
+		const atReverseCap = forwardSpeed <= -REVERSE_MAX_SPEED_MS;
+		const target = driveServoTarget(gearStep, brake, -1);
+		for (const w of [rl, rr]) {
+			if (!w.joint) continue;
+			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
+			w.joint.setMaxSpinTorque(atReverseCap ? 0 : tractionLimitedTorque(w.joint.getSpinSpeed(), impliedOmega, target.maxSpinTorqueNm));
+		}
 	} else if (throttle > 1e-3) {
-		const target = driveServoTarget(gearStep, throttle, forwardSign);
+		const target = driveServoTarget(gearStep, throttle, 1);
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
@@ -552,7 +575,8 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const fr = vehicle.wheels.fr;
 	for (const w of [fl, fr]) {
 		if (!w.joint) continue;
-		if (brake > 1e-3) {
+		// footBraking (not just brake>0): while reversing, the fronts must freewheel, not lock.
+		if (footBraking) {
 			w.joint.setSpinMotorSpeed(0);
 			w.joint.setMaxSpinTorque(BRAKE_TORQUE_FRONT_NM * brake);
 		} else {
@@ -564,7 +588,11 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	// ---- Steering (front only): speed-sensitive clamp + slew-rate limit ----
 	const speedKmh = Math.sqrt(dot(vehicle.chassis.getLinearVelocity(), vehicle.chassis.getLinearVelocity())) * 3.6;
 	const maxAngle = speedSensitiveSteerClamp(speedKmh);
-	const targetAngle = clamp(input.steer, -1, 1) * maxAngle;
+	// Negated so the player's steer convention (steer > 0 = the D / Right key) turns the car to the
+	// player's right. box3d's wheel-joint steering-angle sign (see mathUtil.ts's frame doc) runs the
+	// opposite way and the chase camera looks along the car's forward axis, so a positive joint angle
+	// curved the car to screen-left; negating maps D -> right, A -> left as a driver expects.
+	const targetAngle = -clamp(input.steer, -1, 1) * maxAngle;
 	const maxDelta = STEER_SLEW_RATE_RAD_S * dt;
 	const delta = clamp(targetAngle - vehicle.commandedSteerRad, -maxDelta, maxDelta);
 	vehicle.commandedSteerRad += delta;
