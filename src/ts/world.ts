@@ -10,14 +10,17 @@ import type { RayCastResult } from "./body.js";
 import {
 	DistanceJoint,
 	RevoluteJoint,
+	SphericalJoint,
 	WeldJoint,
 	WheelJoint,
 	distanceJointArgs,
 	revoluteJointArgs,
+	sphericalJointArgs,
 	weldJointArgs,
 	wheelJointArgs,
 	type DistanceJointOptions,
 	type RevoluteJointOptions,
+	type SphericalJointOptions,
 	type WeldJointOptions,
 	type WheelJointOptions,
 } from "./joint.js";
@@ -146,6 +149,14 @@ export class World {
 		const args = weldJointArgs( this.handle, bodyA.handle, bodyB.handle, options );
 		const handle = this.native._b3js_CreateWeldJoint( ...args );
 		const joint = new WeldJoint( this.native, this, handle );
+		this.jointHandles.add( handle );
+		return joint;
+	}
+
+	createSphericalJoint( bodyA: Body, bodyB: Body, options: SphericalJointOptions = {} ): SphericalJoint {
+		const args = sphericalJointArgs( this.handle, bodyA.handle, bodyB.handle, options );
+		const handle = this.native._b3js_CreateSphericalJoint( ...args );
+		const joint = new SphericalJoint( this.native, this, handle );
 		this.jointHandles.add( handle );
 		return joint;
 	}

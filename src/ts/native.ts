@@ -104,6 +104,11 @@ export interface Native {
 	_b3js_Shape_GetUserData( shapeId: bigint ): number;
 	_b3js_Shape_EnableContactEvents( shapeId: bigint, flag: number ): void;
 	_b3js_Shape_EnableHitEvents( shapeId: bigint, flag: number ): void;
+	_b3js_Shape_SetFilter( shapeId: bigint, categoryBits: bigint, maskBits: bigint, groupIndex: number,
+		invokeContacts: number ): void;
+	_b3js_Shape_GetFilterCategoryBits( shapeId: bigint ): bigint;
+	_b3js_Shape_GetFilterMaskBits( shapeId: bigint ): bigint;
+	_b3js_Shape_GetFilterGroupIndex( shapeId: bigint ): number;
 
 	// ---- Joints (common) ----
 	_b3js_DestroyJoint( jointId: bigint, wakeAttached: number ): void;
@@ -112,6 +117,10 @@ export interface Native {
 	_b3js_Joint_GetConstraintTorque( jointId: bigint, outPtr: number ): void;
 	_b3js_Joint_SetUserData( jointId: bigint, userData: number ): void;
 	_b3js_Joint_GetUserData( jointId: bigint ): number;
+	_b3js_Joint_SetForceThreshold( jointId: bigint, threshold: number ): void;
+	_b3js_Joint_GetForceThreshold( jointId: bigint ): number;
+	_b3js_Joint_SetTorqueThreshold( jointId: bigint, threshold: number ): void;
+	_b3js_Joint_GetTorqueThreshold( jointId: bigint ): number;
 
 	// ---- Weld joint ----
 	_b3js_CreateWeldJoint( worldId: bigint, bodyA: bigint, bodyB: bigint, faPx: number, faPy: number, faPz: number,
@@ -122,6 +131,41 @@ export interface Native {
 	_b3js_WeldJoint_SetAngularHertz( jointId: bigint, hertz: number ): void;
 	_b3js_WeldJoint_SetLinearDampingRatio( jointId: bigint, dampingRatio: number ): void;
 	_b3js_WeldJoint_SetAngularDampingRatio( jointId: bigint, dampingRatio: number ): void;
+
+	// ---- Spherical joint ----
+	_b3js_CreateSphericalJoint( worldId: bigint, bodyA: bigint, bodyB: bigint, faPx: number, faPy: number,
+		faPz: number, faQx: number, faQy: number, faQz: number, faQw: number, fbPx: number, fbPy: number,
+		fbPz: number, fbQx: number, fbQy: number, fbQz: number, fbQw: number, collideConnected: number,
+		enableSpring: number, hertz: number, dampingRatio: number, targetRotQx: number, targetRotQy: number,
+		targetRotQz: number, targetRotQw: number, enableConeLimit: number, coneAngle: number,
+		enableTwistLimit: number, lowerTwistAngle: number, upperTwistAngle: number, enableMotor: number,
+		maxMotorTorque: number, motorVelX: number, motorVelY: number, motorVelZ: number, userData: number ): bigint;
+	_b3js_SphericalJoint_EnableConeLimit( jointId: bigint, flag: number ): void;
+	_b3js_SphericalJoint_IsConeLimitEnabled( jointId: bigint ): number;
+	_b3js_SphericalJoint_GetConeLimit( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetConeLimit( jointId: bigint, angleRadians: number ): void;
+	_b3js_SphericalJoint_GetConeAngle( jointId: bigint ): number;
+	_b3js_SphericalJoint_EnableTwistLimit( jointId: bigint, flag: number ): void;
+	_b3js_SphericalJoint_IsTwistLimitEnabled( jointId: bigint ): number;
+	_b3js_SphericalJoint_GetLowerTwistLimit( jointId: bigint ): number;
+	_b3js_SphericalJoint_GetUpperTwistLimit( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetTwistLimits( jointId: bigint, lower: number, upper: number ): void;
+	_b3js_SphericalJoint_GetTwistAngle( jointId: bigint ): number;
+	_b3js_SphericalJoint_EnableSpring( jointId: bigint, flag: number ): void;
+	_b3js_SphericalJoint_IsSpringEnabled( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetSpringHertz( jointId: bigint, hertz: number ): void;
+	_b3js_SphericalJoint_GetSpringHertz( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetSpringDampingRatio( jointId: bigint, dampingRatio: number ): void;
+	_b3js_SphericalJoint_GetSpringDampingRatio( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetTargetRotation( jointId: bigint, qx: number, qy: number, qz: number, qw: number ): void;
+	_b3js_SphericalJoint_GetTargetRotation( jointId: bigint, outPtr: number ): void;
+	_b3js_SphericalJoint_EnableMotor( jointId: bigint, flag: number ): void;
+	_b3js_SphericalJoint_IsMotorEnabled( jointId: bigint ): number;
+	_b3js_SphericalJoint_SetMotorVelocity( jointId: bigint, x: number, y: number, z: number ): void;
+	_b3js_SphericalJoint_GetMotorVelocity( jointId: bigint, outPtr: number ): void;
+	_b3js_SphericalJoint_GetMotorTorque( jointId: bigint, outPtr: number ): void;
+	_b3js_SphericalJoint_SetMaxMotorTorque( jointId: bigint, torque: number ): void;
+	_b3js_SphericalJoint_GetMaxMotorTorque( jointId: bigint ): number;
 
 	// ---- Wheel joint ----
 	_b3js_CreateWheelJoint( worldId: bigint, bodyChassis: bigint, bodyWheel: bigint, faPx: number, faPy: number,
@@ -157,6 +201,11 @@ export interface Native {
 	_b3js_RevoluteJoint_SetMotorSpeed( jointId: bigint, speed: number ): void;
 	_b3js_RevoluteJoint_SetMaxMotorTorque( jointId: bigint, torque: number ): void;
 	_b3js_RevoluteJoint_GetAngle( jointId: bigint ): number;
+	_b3js_RevoluteJoint_EnableLimit( jointId: bigint, flag: number ): void;
+	_b3js_RevoluteJoint_IsLimitEnabled( jointId: bigint ): number;
+	_b3js_RevoluteJoint_GetLowerLimit( jointId: bigint ): number;
+	_b3js_RevoluteJoint_GetUpperLimit( jointId: bigint ): number;
+	_b3js_RevoluteJoint_SetLimits( jointId: bigint, lower: number, upper: number ): void;
 
 	// ---- Distance joint ----
 	_b3js_CreateDistanceJoint( worldId: bigint, bodyA: bigint, bodyB: bigint, faPx: number, faPy: number,

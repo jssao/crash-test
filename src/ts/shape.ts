@@ -5,6 +5,13 @@ import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, VEC3_ZERO, type Vec3 } from "./math.js";
 
+/** Mirrors b3Filter (box3d/types.h): categoryBits/maskBits (uint64) + groupIndex (int32). */
+export interface ShapeFilter {
+	categoryBits: bigint;
+	maskBits: bigint;
+	groupIndex: number;
+}
+
 /** Common fields shared by every shape type. Mirrors b3ShapeDef's scalar fields (box3d/types.h). */
 export interface ShapeOptions {
 	/** kg/m^3. Default 1000 (water), matching b3DefaultShapeDef(). */
@@ -88,6 +95,26 @@ export class Shape {
 
 	enableHitEvents( flag: boolean ): void {
 		this.native._b3js_Shape_EnableHitEvents( this.handle, flag ? 1 : 0 );
+	}
+
+	/**
+	 * Changes this shape's collision filter after creation (b3Shape_SetFilter's own doc comment:
+	 * "almost as expensive as recreating the shape"). Needed e.g. to flip a ragdoll occupant from
+	 * "no-collide with car interior" to "collide with everything" on ejection.
+	 * @param invokeContacts if true, recompute this shape's contacts against the new filter on the
+	 * next step (expensive -- only needed if overlapping bodies should immediately react). Default false.
+	 */
+	setFilter( filter: ShapeFilter, invokeContacts = false ): void {
+		this.native._b3js_Shape_SetFilter( this.handle, filter.categoryBits, filter.maskBits, filter.groupIndex,
+			invokeContacts ? 1 : 0 );
+	}
+
+	getFilter(): ShapeFilter {
+		return {
+			categoryBits: this.native._b3js_Shape_GetFilterCategoryBits( this.handle ),
+			maskBits: this.native._b3js_Shape_GetFilterMaskBits( this.handle ),
+			groupIndex: this.native._b3js_Shape_GetFilterGroupIndex( this.handle ),
+		};
 	}
 
 	/** @param updateBodyMass recompute the owning body's mass from its remaining shapes (default true). */

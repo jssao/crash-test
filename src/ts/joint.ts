@@ -4,7 +4,7 @@ import type { Native } from "./native.js";
 import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
 import { withFloatOutBuffer } from "./scratch.js";
-import { TRANSFORM_IDENTITY, type Transform, type Vec3 } from "./math.js";
+import { QUAT_IDENTITY, TRANSFORM_IDENTITY, type Quat, type Transform, type Vec3 } from "./math.js";
 
 /** Local joint frame, measured from each body's own origin (not its center of mass). */
 export interface JointFrame extends Transform {}
@@ -62,6 +62,28 @@ export class Joint {
 		return this.native._b3js_Joint_GetUserData( this.handle );
 	}
 
+	/**
+	 * Sets the constraint-force threshold (usually newtons) above which this joint reports a break
+	 * event via World.jointEvents() on the step that exceeds it. Upstream default is FLT_MAX (never
+	 * fires) -- see b3Joint_SetForceThreshold's doc comment, box3d/box3d.h.
+	 */
+	setForceThreshold( threshold: number ): void {
+		this.native._b3js_Joint_SetForceThreshold( this.handle, threshold );
+	}
+
+	getForceThreshold(): number {
+		return this.native._b3js_Joint_GetForceThreshold( this.handle );
+	}
+
+	/** Constraint-torque threshold (usually newton-meters); see setForceThreshold()'s doc comment. */
+	setTorqueThreshold( threshold: number ): void {
+		this.native._b3js_Joint_SetTorqueThreshold( this.handle, threshold );
+	}
+
+	getTorqueThreshold(): number {
+		return this.native._b3js_Joint_GetTorqueThreshold( this.handle );
+	}
+
 	/** @param wakeAttached wake both attached bodies (default true). */
 	destroy( wakeAttached = true ): void {
 		if ( this.destroyed ) {
@@ -113,6 +135,185 @@ export function weldJointArgs( worldHandle: bigint, bodyA: bigint, bodyB: bigint
 		options.collideConnected ? 1 : 0,
 		options.linearHertz ?? 0, options.angularHertz ?? 0,
 		options.linearDampingRatio ?? 1, options.angularDampingRatio ?? 1,
+		options.userData ?? 0,
+	] as const;
+}
+
+// =================================================================================================
+// Spherical joint. A point on body B is fixed to a point on body A (ball-and-socket); allows
+// rotation about the shared point, optionally constrained by a cone limit (about frame A's z-axis)
+// and a twist limit (about frame B's z-axis) -- see b3SphericalJointDef's doc comment,
+// box3d/types.h. This is the joint kind ragdoll limbs need.
+// =================================================================================================
+
+export interface SphericalJointOptions extends JointOptionsBase {
+	enableSpring?: boolean;
+	/** Spring stiffness Hertz. Default 0. */
+	hertz?: number;
+	/** Non-dimensional. Default 0. */
+	dampingRatio?: number;
+	/** Target spring rotation, frame B relative to frame A. Default identity. */
+	targetRotation?: Quat;
+
+	enableConeLimit?: boolean;
+	/** Cone half-angle in radians, valid range [0, pi]. Default 0. */
+	coneAngle?: number;
+
+	enableTwistLimit?: boolean;
+	/** Minimum -0.99*pi radians. Default 0. */
+	lowerTwistAngle?: number;
+	/** Maximum 0.99*pi radians. Default 0. */
+	upperTwistAngle?: number;
+
+	enableMotor?: boolean;
+	maxMotorTorque?: number;
+	motorVelocity?: Vec3;
+}
+
+export class SphericalJoint extends Joint {
+	// -- Cone limit --
+
+	enableConeLimit( flag: boolean ): void {
+		this.native._b3js_SphericalJoint_EnableConeLimit( this.handle, flag ? 1 : 0 );
+	}
+
+	isConeLimitEnabled(): boolean {
+		return this.native._b3js_SphericalJoint_IsConeLimitEnabled( this.handle ) !== 0;
+	}
+
+	getConeLimit(): number {
+		return this.native._b3js_SphericalJoint_GetConeLimit( this.handle );
+	}
+
+	setConeLimit( angleRadians: number ): void {
+		this.native._b3js_SphericalJoint_SetConeLimit( this.handle, angleRadians );
+	}
+
+	/** Current cone angle in radians. */
+	getConeAngle(): number {
+		return this.native._b3js_SphericalJoint_GetConeAngle( this.handle );
+	}
+
+	// -- Twist limit --
+
+	enableTwistLimit( flag: boolean ): void {
+		this.native._b3js_SphericalJoint_EnableTwistLimit( this.handle, flag ? 1 : 0 );
+	}
+
+	isTwistLimitEnabled(): boolean {
+		return this.native._b3js_SphericalJoint_IsTwistLimitEnabled( this.handle ) !== 0;
+	}
+
+	getLowerTwistLimit(): number {
+		return this.native._b3js_SphericalJoint_GetLowerTwistLimit( this.handle );
+	}
+
+	getUpperTwistLimit(): number {
+		return this.native._b3js_SphericalJoint_GetUpperTwistLimit( this.handle );
+	}
+
+	setTwistLimits( lowerRadians: number, upperRadians: number ): void {
+		this.native._b3js_SphericalJoint_SetTwistLimits( this.handle, lowerRadians, upperRadians );
+	}
+
+	/** Current twist angle in radians. */
+	getTwistAngle(): number {
+		return this.native._b3js_SphericalJoint_GetTwistAngle( this.handle );
+	}
+
+	// -- Spring --
+
+	enableSpring( flag: boolean ): void {
+		this.native._b3js_SphericalJoint_EnableSpring( this.handle, flag ? 1 : 0 );
+	}
+
+	isSpringEnabled(): boolean {
+		return this.native._b3js_SphericalJoint_IsSpringEnabled( this.handle ) !== 0;
+	}
+
+	setSpringHertz( hertz: number ): void {
+		this.native._b3js_SphericalJoint_SetSpringHertz( this.handle, hertz );
+	}
+
+	getSpringHertz(): number {
+		return this.native._b3js_SphericalJoint_GetSpringHertz( this.handle );
+	}
+
+	setSpringDampingRatio( dampingRatio: number ): void {
+		this.native._b3js_SphericalJoint_SetSpringDampingRatio( this.handle, dampingRatio );
+	}
+
+	getSpringDampingRatio(): number {
+		return this.native._b3js_SphericalJoint_GetSpringDampingRatio( this.handle );
+	}
+
+	setTargetRotation( rotation: Quat ): void {
+		this.native._b3js_SphericalJoint_SetTargetRotation( this.handle, rotation.x, rotation.y, rotation.z,
+			rotation.w );
+	}
+
+	getTargetRotation(): Quat {
+		return withFloatOutBuffer(
+			this.native, 4,
+			( ptr ) => this.native._b3js_SphericalJoint_GetTargetRotation( this.handle, ptr ),
+			( f, i ) => ( { x: f[i], y: f[i + 1], z: f[i + 2], w: f[i + 3] } )
+		);
+	}
+
+	// -- Motor --
+
+	enableMotor( flag: boolean ): void {
+		this.native._b3js_SphericalJoint_EnableMotor( this.handle, flag ? 1 : 0 );
+	}
+
+	isMotorEnabled(): boolean {
+		return this.native._b3js_SphericalJoint_IsMotorEnabled( this.handle ) !== 0;
+	}
+
+	setMotorVelocity( velocity: Vec3 ): void {
+		this.native._b3js_SphericalJoint_SetMotorVelocity( this.handle, velocity.x, velocity.y, velocity.z );
+	}
+
+	getMotorVelocity(): Vec3 {
+		return withFloatOutBuffer(
+			this.native, 3,
+			( ptr ) => this.native._b3js_SphericalJoint_GetMotorVelocity( this.handle, ptr ),
+			( f, i ) => ( { x: f[i], y: f[i + 1], z: f[i + 2] } )
+		);
+	}
+
+	getMotorTorque(): Vec3 {
+		return withFloatOutBuffer(
+			this.native, 3,
+			( ptr ) => this.native._b3js_SphericalJoint_GetMotorTorque( this.handle, ptr ),
+			( f, i ) => ( { x: f[i], y: f[i + 1], z: f[i + 2] } )
+		);
+	}
+
+	setMaxMotorTorque( torque: number ): void {
+		this.native._b3js_SphericalJoint_SetMaxMotorTorque( this.handle, torque );
+	}
+
+	getMaxMotorTorque(): number {
+		return this.native._b3js_SphericalJoint_GetMaxMotorTorque( this.handle );
+	}
+}
+
+/** @internal used by World.createSphericalJoint(). */
+export function sphericalJointArgs( worldHandle: bigint, bodyA: bigint, bodyB: bigint,
+	options: SphericalJointOptions ) {
+	const targetRotation = options.targetRotation ?? QUAT_IDENTITY;
+	const motorVelocity = options.motorVelocity ?? { x: 0, y: 0, z: 0 };
+	return [
+		worldHandle, bodyA, bodyB,
+		...frameArgs( options.frameA ), ...frameArgs( options.frameB ),
+		options.collideConnected ? 1 : 0,
+		options.enableSpring ? 1 : 0, options.hertz ?? 0, options.dampingRatio ?? 0,
+		targetRotation.x, targetRotation.y, targetRotation.z, targetRotation.w,
+		options.enableConeLimit ? 1 : 0, options.coneAngle ?? 0,
+		options.enableTwistLimit ? 1 : 0, options.lowerTwistAngle ?? 0, options.upperTwistAngle ?? 0,
+		options.enableMotor ? 1 : 0, options.maxMotorTorque ?? 0,
+		motorVelocity.x, motorVelocity.y, motorVelocity.z,
 		options.userData ?? 0,
 	] as const;
 }
@@ -245,6 +446,27 @@ export class RevoluteJoint extends Joint {
 
 	getAngle(): number {
 		return this.native._b3js_RevoluteJoint_GetAngle( this.handle );
+	}
+
+	/** Post-creation limit toggle (creation-time enableLimit/lowerAngle/upperAngle also still apply). */
+	enableLimit( flag: boolean ): void {
+		this.native._b3js_RevoluteJoint_EnableLimit( this.handle, flag ? 1 : 0 );
+	}
+
+	isLimitEnabled(): boolean {
+		return this.native._b3js_RevoluteJoint_IsLimitEnabled( this.handle ) !== 0;
+	}
+
+	getLowerLimit(): number {
+		return this.native._b3js_RevoluteJoint_GetLowerLimit( this.handle );
+	}
+
+	getUpperLimit(): number {
+		return this.native._b3js_RevoluteJoint_GetUpperLimit( this.handle );
+	}
+
+	setLimits( lowerRadians: number, upperRadians: number ): void {
+		this.native._b3js_RevoluteJoint_SetLimits( this.handle, lowerRadians, upperRadians );
 	}
 }
 

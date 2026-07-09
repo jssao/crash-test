@@ -38,9 +38,9 @@ export { Body, BodyType, defaultBodyOptions } from "./body.js";
 export type { BodyOptions, RayCastResult, MassData } from "./body.js";
 
 export { Shape } from "./shape.js";
-export type { ShapeOptions, SphereShapeOptions, CapsuleShapeOptions, BoxShapeOptions } from "./shape.js";
+export type { ShapeOptions, SphereShapeOptions, CapsuleShapeOptions, BoxShapeOptions, ShapeFilter } from "./shape.js";
 
-export { Joint, WeldJoint, WheelJoint, RevoluteJoint, DistanceJoint } from "./joint.js";
+export { Joint, WeldJoint, WheelJoint, RevoluteJoint, DistanceJoint, SphericalJoint } from "./joint.js";
 export type {
 	JointFrame,
 	JointOptionsBase,
@@ -48,6 +48,7 @@ export type {
 	WheelJointOptions,
 	RevoluteJointOptions,
 	DistanceJointOptions,
+	SphericalJointOptions,
 } from "./joint.js";
 
 export { MoveEventsView, HitEventsView, JointEventsView } from "./events.js";

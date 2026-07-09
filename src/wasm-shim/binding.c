@@ -737,6 +737,37 @@ void b3js_Shape_EnableHitEvents( uint64_t shapeId64, int flag )
 	b3Shape_EnableHitEvents( b3LoadShapeId( shapeId64 ), flag != 0 );
 }
 
+// Runtime collision filter (b3Filter: categoryBits/maskBits uint64, groupIndex int32) -- lets a
+// shape's category/mask/group change after creation (e.g. flipping a ragdoll occupant from
+// "no-collide with car interior" to "collide with everything" on ejection). Split into three
+// single-scalar getters (rather than one out-pointer covering mixed uint64/int32 fields) to stay on
+// this shim's plain-scalar-return convention -- see b3js_Body_GetMass/b3js_WheelJoint_GetSpinSpeed
+// for the same pattern with a single return value.
+void b3js_Shape_SetFilter( uint64_t shapeId64, uint64_t categoryBits, uint64_t maskBits, int groupIndex,
+						   int invokeContacts )
+{
+	b3Filter filter;
+	filter.categoryBits = categoryBits;
+	filter.maskBits = maskBits;
+	filter.groupIndex = groupIndex;
+	b3Shape_SetFilter( b3LoadShapeId( shapeId64 ), filter, invokeContacts != 0 );
+}
+
+uint64_t b3js_Shape_GetFilterCategoryBits( uint64_t shapeId64 )
+{
+	return b3Shape_GetFilter( b3LoadShapeId( shapeId64 ) ).categoryBits;
+}
+
+uint64_t b3js_Shape_GetFilterMaskBits( uint64_t shapeId64 )
+{
+	return b3Shape_GetFilter( b3LoadShapeId( shapeId64 ) ).maskBits;
+}
+
+int32_t b3js_Shape_GetFilterGroupIndex( uint64_t shapeId64 )
+{
+	return b3Shape_GetFilter( b3LoadShapeId( shapeId64 ) ).groupIndex;
+}
+
 // =================================================================================================
 // Joints -- common
 // =================================================================================================
@@ -777,6 +808,32 @@ void b3js_Joint_SetUserData( uint64_t jointId64, uint32_t userData )
 uint32_t b3js_Joint_GetUserData( uint64_t jointId64 )
 {
 	return b3js_PtrToU32( b3Joint_GetUserData( b3LoadJointId( jointId64 ) ) );
+}
+
+// Break thresholds -- these activate b3World_GetJointEvents (drained into s_jointBufs above): once a
+// joint's measured constraint force/torque exceeds its threshold, the world reports a joint event for
+// it that step. Upstream's own default (b3DefaultWeldJointDef() et al., see vendor/box3d/src/joint.c)
+// is FLT_MAX for both, i.e. never fires until a caller narrows it with these setters -- there is no
+// def-level field the existing b3js_Create*Joint() builders expose for this, so it is a pure
+// post-creation setter on the base joint type, usable on any joint kind.
+void b3js_Joint_SetForceThreshold( uint64_t jointId64, float threshold )
+{
+	b3Joint_SetForceThreshold( b3LoadJointId( jointId64 ), threshold );
+}
+
+float b3js_Joint_GetForceThreshold( uint64_t jointId64 )
+{
+	return b3Joint_GetForceThreshold( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_Joint_SetTorqueThreshold( uint64_t jointId64, float threshold )
+{
+	b3Joint_SetTorqueThreshold( b3LoadJointId( jointId64 ), threshold );
+}
+
+float b3js_Joint_GetTorqueThreshold( uint64_t jointId64 )
+{
+	return b3Joint_GetTorqueThreshold( b3LoadJointId( jointId64 ) );
 }
 
 // =================================================================================================
@@ -824,6 +881,203 @@ void b3js_WeldJoint_SetLinearDampingRatio( uint64_t jointId64, float dampingRati
 void b3js_WeldJoint_SetAngularDampingRatio( uint64_t jointId64, float dampingRatio )
 {
 	b3WeldJoint_SetAngularDampingRatio( b3LoadJointId( jointId64 ), dampingRatio );
+}
+
+// =================================================================================================
+// Spherical joint. A point on body B is fixed to a point on body A; allows rotation about the shared
+// point (ball-and-socket) -- the joint kind ragdoll limbs need. Follows the wheel-joint binding's
+// pattern of exposing the full post-creation setter/getter surface upstream provides (cone limit,
+// twist limits, spring, motor), not just creation-time fields.
+// =================================================================================================
+
+uint64_t b3js_CreateSphericalJoint( uint64_t worldId64, uint64_t bodyA64, uint64_t bodyB64, float faPx, float faPy,
+									  float faPz, float faQx, float faQy, float faQz, float faQw, float fbPx,
+									  float fbPy, float fbPz, float fbQx, float fbQy, float fbQz, float fbQw,
+									  int collideConnected, int enableSpring, float hertz, float dampingRatio,
+									  float targetRotQx, float targetRotQy, float targetRotQz, float targetRotQw,
+									  int enableConeLimit, float coneAngle, int enableTwistLimit,
+									  float lowerTwistAngle, float upperTwistAngle, int enableMotor,
+									  float maxMotorTorque, float motorVelX, float motorVelY, float motorVelZ,
+									  uint32_t userData )
+{
+	b3WorldId worldId = b3js_UnpackWorldId( worldId64 );
+	b3SphericalJointDef def = b3DefaultSphericalJointDef();
+	def.base.bodyIdA = b3LoadBodyId( bodyA64 );
+	def.base.bodyIdB = b3LoadBodyId( bodyB64 );
+	def.base.localFrameA = b3js_Frame( faPx, faPy, faPz, faQx, faQy, faQz, faQw );
+	def.base.localFrameB = b3js_Frame( fbPx, fbPy, fbPz, fbQx, fbQy, fbQz, fbQw );
+	def.base.collideConnected = collideConnected != 0;
+	def.base.userData = b3js_U32ToPtr( userData );
+
+	def.enableSpring = enableSpring != 0;
+	def.hertz = hertz;
+	def.dampingRatio = dampingRatio;
+	def.targetRotation = ( b3Quat ){ { targetRotQx, targetRotQy, targetRotQz }, targetRotQw };
+
+	def.enableConeLimit = enableConeLimit != 0;
+	def.coneAngle = coneAngle;
+
+	def.enableTwistLimit = enableTwistLimit != 0;
+	def.lowerTwistAngle = lowerTwistAngle;
+	def.upperTwistAngle = upperTwistAngle;
+
+	def.enableMotor = enableMotor != 0;
+	def.maxMotorTorque = maxMotorTorque;
+	def.motorVelocity = ( b3Vec3 ){ motorVelX, motorVelY, motorVelZ };
+
+	b3JointId jointId = b3CreateSphericalJoint( worldId, &def );
+	return b3StoreJointId( jointId );
+}
+
+// -- Cone limit --
+
+void b3js_SphericalJoint_EnableConeLimit( uint64_t jointId64, int flag )
+{
+	b3SphericalJoint_EnableConeLimit( b3LoadJointId( jointId64 ), flag != 0 );
+}
+
+int b3js_SphericalJoint_IsConeLimitEnabled( uint64_t jointId64 )
+{
+	return b3SphericalJoint_IsConeLimitEnabled( b3LoadJointId( jointId64 ) ) ? 1 : 0;
+}
+
+float b3js_SphericalJoint_GetConeLimit( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetConeLimit( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_SphericalJoint_SetConeLimit( uint64_t jointId64, float angleRadians )
+{
+	b3SphericalJoint_SetConeLimit( b3LoadJointId( jointId64 ), angleRadians );
+}
+
+float b3js_SphericalJoint_GetConeAngle( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetConeAngle( b3LoadJointId( jointId64 ) );
+}
+
+// -- Twist limit --
+
+void b3js_SphericalJoint_EnableTwistLimit( uint64_t jointId64, int flag )
+{
+	b3SphericalJoint_EnableTwistLimit( b3LoadJointId( jointId64 ), flag != 0 );
+}
+
+int b3js_SphericalJoint_IsTwistLimitEnabled( uint64_t jointId64 )
+{
+	return b3SphericalJoint_IsTwistLimitEnabled( b3LoadJointId( jointId64 ) ) ? 1 : 0;
+}
+
+float b3js_SphericalJoint_GetLowerTwistLimit( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetLowerTwistLimit( b3LoadJointId( jointId64 ) );
+}
+
+float b3js_SphericalJoint_GetUpperTwistLimit( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetUpperTwistLimit( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_SphericalJoint_SetTwistLimits( uint64_t jointId64, float lowerLimitRadians, float upperLimitRadians )
+{
+	b3SphericalJoint_SetTwistLimits( b3LoadJointId( jointId64 ), lowerLimitRadians, upperLimitRadians );
+}
+
+float b3js_SphericalJoint_GetTwistAngle( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetTwistAngle( b3LoadJointId( jointId64 ) );
+}
+
+// -- Spring --
+
+void b3js_SphericalJoint_EnableSpring( uint64_t jointId64, int flag )
+{
+	b3SphericalJoint_EnableSpring( b3LoadJointId( jointId64 ), flag != 0 );
+}
+
+int b3js_SphericalJoint_IsSpringEnabled( uint64_t jointId64 )
+{
+	return b3SphericalJoint_IsSpringEnabled( b3LoadJointId( jointId64 ) ) ? 1 : 0;
+}
+
+void b3js_SphericalJoint_SetSpringHertz( uint64_t jointId64, float hertz )
+{
+	b3SphericalJoint_SetSpringHertz( b3LoadJointId( jointId64 ), hertz );
+}
+
+float b3js_SphericalJoint_GetSpringHertz( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetSpringHertz( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_SphericalJoint_SetSpringDampingRatio( uint64_t jointId64, float dampingRatio )
+{
+	b3SphericalJoint_SetSpringDampingRatio( b3LoadJointId( jointId64 ), dampingRatio );
+}
+
+float b3js_SphericalJoint_GetSpringDampingRatio( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetSpringDampingRatio( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_SphericalJoint_SetTargetRotation( uint64_t jointId64, float qx, float qy, float qz, float qw )
+{
+	b3SphericalJoint_SetTargetRotation( b3LoadJointId( jointId64 ), ( b3Quat ){ { qx, qy, qz }, qw } );
+}
+
+// outPtr must have room for 4 floats: [qx,qy,qz,qw].
+void b3js_SphericalJoint_GetTargetRotation( uint64_t jointId64, float* outPtr )
+{
+	b3Quat q = b3SphericalJoint_GetTargetRotation( b3LoadJointId( jointId64 ) );
+	outPtr[0] = q.v.x;
+	outPtr[1] = q.v.y;
+	outPtr[2] = q.v.z;
+	outPtr[3] = q.s;
+}
+
+// -- Motor --
+
+void b3js_SphericalJoint_EnableMotor( uint64_t jointId64, int flag )
+{
+	b3SphericalJoint_EnableMotor( b3LoadJointId( jointId64 ), flag != 0 );
+}
+
+int b3js_SphericalJoint_IsMotorEnabled( uint64_t jointId64 )
+{
+	return b3SphericalJoint_IsMotorEnabled( b3LoadJointId( jointId64 ) ) ? 1 : 0;
+}
+
+void b3js_SphericalJoint_SetMotorVelocity( uint64_t jointId64, float x, float y, float z )
+{
+	b3SphericalJoint_SetMotorVelocity( b3LoadJointId( jointId64 ), ( b3Vec3 ){ x, y, z } );
+}
+
+// outPtr must have room for 3 floats.
+void b3js_SphericalJoint_GetMotorVelocity( uint64_t jointId64, float* outPtr )
+{
+	b3Vec3 v = b3SphericalJoint_GetMotorVelocity( b3LoadJointId( jointId64 ) );
+	outPtr[0] = v.x;
+	outPtr[1] = v.y;
+	outPtr[2] = v.z;
+}
+
+// outPtr must have room for 3 floats.
+void b3js_SphericalJoint_GetMotorTorque( uint64_t jointId64, float* outPtr )
+{
+	b3Vec3 t = b3SphericalJoint_GetMotorTorque( b3LoadJointId( jointId64 ) );
+	outPtr[0] = t.x;
+	outPtr[1] = t.y;
+	outPtr[2] = t.z;
+}
+
+void b3js_SphericalJoint_SetMaxMotorTorque( uint64_t jointId64, float torque )
+{
+	b3SphericalJoint_SetMaxMotorTorque( b3LoadJointId( jointId64 ), torque );
+}
+
+float b3js_SphericalJoint_GetMaxMotorTorque( uint64_t jointId64 )
+{
+	return b3SphericalJoint_GetMaxMotorTorque( b3LoadJointId( jointId64 ) );
 }
 
 // =================================================================================================
@@ -988,6 +1242,34 @@ void b3js_RevoluteJoint_SetMaxMotorTorque( uint64_t jointId64, float torque )
 float b3js_RevoluteJoint_GetAngle( uint64_t jointId64 )
 {
 	return b3RevoluteJoint_GetAngle( b3LoadJointId( jointId64 ) );
+}
+
+// Post-creation limit setters/getters (creation-time limit fields were already wired via
+// b3js_CreateRevoluteJoint's def.enableLimit/lowerAngle/upperAngle -- these let a caller change them
+// after the fact, same as the motor setters above).
+void b3js_RevoluteJoint_EnableLimit( uint64_t jointId64, int flag )
+{
+	b3RevoluteJoint_EnableLimit( b3LoadJointId( jointId64 ), flag != 0 );
+}
+
+int b3js_RevoluteJoint_IsLimitEnabled( uint64_t jointId64 )
+{
+	return b3RevoluteJoint_IsLimitEnabled( b3LoadJointId( jointId64 ) ) ? 1 : 0;
+}
+
+float b3js_RevoluteJoint_GetLowerLimit( uint64_t jointId64 )
+{
+	return b3RevoluteJoint_GetLowerLimit( b3LoadJointId( jointId64 ) );
+}
+
+float b3js_RevoluteJoint_GetUpperLimit( uint64_t jointId64 )
+{
+	return b3RevoluteJoint_GetUpperLimit( b3LoadJointId( jointId64 ) );
+}
+
+void b3js_RevoluteJoint_SetLimits( uint64_t jointId64, float lowerLimitRadians, float upperLimitRadians )
+{
+	b3RevoluteJoint_SetLimits( b3LoadJointId( jointId64 ), lowerLimitRadians, upperLimitRadians );
 }
 
 // =================================================================================================
