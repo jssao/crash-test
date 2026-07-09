@@ -11,6 +11,7 @@
 // mathUtil.ts's WHEEL_FRAME_A_ROTATION / WHEEL_FRAME_B_ROTATION doc comments.
 
 import { Body, BodyType, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
+import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
 import { buildChassisHullPoints, solveChassisDensities } from './geometry';
 import {
 	add,
@@ -38,6 +39,7 @@ import {
 	BALLAST_RADIUS_M,
 	BRAKE_TORQUE_FRONT_NM,
 	BRAKE_TORQUE_REAR_NM,
+	CAR_GROUP_INDEX,
 	CHASSIS_IS_BULLET,
 	CHASSIS_ORIGIN_HEIGHT_M,
 	ENGINE_BRAKE_TORQUE_NM,
@@ -74,6 +76,19 @@ import { CAR_MAP, type Vec3Mm } from '../assets/car-map';
 
 export type WheelKey = 'fl' | 'fr' | 'rl' | 'rr';
 
+/**
+ * Entity ids tagged on the chassis/wheel bodies (Body userData), read back via hit events'
+ * userDataA/userDataB (src/ts/events.ts's HitEventCursor) by the damage system (game/src/damage/
+ * welds.ts, system.ts). Kept in a disjoint numeric range (1-5) from game/src/damage/panels.ts's
+ * PANEL_ENTITY_ID (6-10) by convention, deliberately NOT via a shared import -- vehicle.ts already
+ * imports panels.ts (createVehicle() below calls createPanels()), so panels.ts importing IDs back
+ * from here would be a cycle.
+ */
+export const CAR_ENTITY_ID = {
+	chassis: 1,
+	wheel: { fl: 2, fr: 3, rl: 4, rr: 5 } as Record<WheelKey, number>,
+} as const;
+
 interface WheelDef {
 	key: WheelKey;
 	localMount: V3;
@@ -100,13 +115,23 @@ const WHEEL_DEFS: readonly WheelDef[] = [
 export interface WheelHandle {
 	def: WheelDef;
 	body: Body;
-	joint: WheelJoint;
+	/**
+	 * Null once the damage system detaches this wheel (game/src/damage/welds.ts destroys the wheel
+	 * joint on a constraint-force spike -- see damage-tuning.ts's WHEEL_DETACH_FORCE_MULT). Every
+	 * joint-method call site below (stepVehicle/getTelemetry) guards against null so the car keeps
+	 * simulating -- and keeps responding to input on its remaining wheels -- with up to 3 wheels
+	 * detached (spec: "drivetrain skips missing wheels").
+	 */
+	joint: WheelJoint | null;
 }
 
 export interface Vehicle {
 	world: World;
 	chassis: Body;
 	wheels: Record<WheelKey, WheelHandle>;
+	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
+	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
+	panels: Record<PanelKey, PanelHandle>;
 	gearbox: GearboxState;
 	commandedSteerRad: number;
 	spawnPosition: V3;
@@ -144,16 +169,27 @@ export function createVehicle(
 		position: spawnPosition,
 		rotation: spawnRotation,
 		isBullet: CHASSIS_IS_BULLET,
+		userData: CAR_ENTITY_ID.chassis,
 	});
 
 	const solved = solveChassisDensities();
 	const hullPoints = buildChassisHullPoints();
-	chassis.createHullShape(hullPoints, { density: solved.hullDensity, friction: 0.8 });
+	// enableHitEvents: the damage system (game/src/damage/system.ts) reacts to hit events on the
+	// chassis (crash impacts) to drive plastic-crumple deformation + accumulated weld stress.
+	// groupIndex: CAR_GROUP_INDEX (shared, negative) on every car shape -- see tuning.ts's doc
+	// comment -- so the chassis hull never self-collides with wheels/panels.
+	chassis.createHullShape(hullPoints, {
+		density: solved.hullDensity,
+		friction: 0.8,
+		enableHitEvents: true,
+		groupIndex: CAR_GROUP_INDEX,
+	});
 	chassis.createSphereShape({
 		radius: BALLAST_RADIUS_M,
 		center: { x: 0, y: BALLAST_LOCAL_Y_M, z: 0 },
 		density: solved.ballastDensity,
 		isSensor: true,
+		groupIndex: CAR_GROUP_INDEX,
 	});
 	// Defensive: the two createXShape calls above already trigger b3UpdateBodyMassData each time
 	// (see body.c), but recompute explicitly in case that default ever changes.
@@ -170,6 +206,7 @@ export function createVehicle(
 			position: worldPos,
 			rotation: spawnRotation,
 			allowFastRotation: true,
+			userData: CAR_ENTITY_ID.wheel[def.key],
 		});
 		const wheelDensity = WHEEL_MASS_KG / ((4 / 3) * Math.PI * def.radius ** 3);
 		wheelBody.createSphereShape({
@@ -180,6 +217,10 @@ export function createVehicle(
 			rollingResistance: WHEEL_ROLLING_RESISTANCE,
 			enableContactEvents: false,
 			enableHitEvents: false,
+			// CAR_GROUP_INDEX (shared, negative) so wheels never self-collide with the chassis/other
+			// wheels/panels -- upgrades the previous collideConnected:false on the wheel joint below,
+			// which only ever covered THIS wheel's own joint pair, not e.g. wheel-vs-wheel.
+			groupIndex: CAR_GROUP_INDEX,
 		});
 
 		const suspensionHertz = def.steered ? SUSPENSION_HERTZ_FRONT : SUSPENSION_HERTZ_REAR;
@@ -209,10 +250,13 @@ export function createVehicle(
 		wheels[def.key] = { def, body: wheelBody, joint };
 	}
 
+	const panels = createPanels(world, chassis, spawnPosition, spawnRotation);
+
 	return {
 		world,
 		chassis,
 		wheels,
+		panels,
 		gearbox: createGearboxState(),
 		commandedSteerRad: 0,
 		spawnPosition,
@@ -232,6 +276,7 @@ export function resetVehicle(vehicle: Vehicle): void {
 		w.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
 		w.body.setAwake(true);
 	}
+	resetAttachedPanels(vehicle.panels, vehicle.spawnPosition, vehicle.spawnRotation);
 	vehicle.gearbox.gear = 0;
 	vehicle.gearbox.shiftCutMs = 0;
 	vehicle.commandedSteerRad = 0;
@@ -333,7 +378,9 @@ export function getTelemetry(vehicle: Vehicle): Telemetry {
 	const slipHints = {} as Record<WheelKey, number>;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
 		const w = vehicle.wheels[key];
-		const omega = w.joint.getSpinSpeed();
+		// Detached wheel (damage system destroyed its joint, see WheelHandle.joint's doc comment):
+		// no joint to read from -- report 0 rather than throwing.
+		const omega = w.joint ? w.joint.getSpinSpeed() : 0;
 		wheelOmegas[key] = omega;
 		slipHints[key] = omega * w.def.radius - forwardSpeed;
 	}
@@ -345,7 +392,7 @@ export function getTelemetry(vehicle: Vehicle): Telemetry {
 		rpm: gearStep.engineRpm,
 		wheelOmegas,
 		slipHints,
-		steeringAngle: vehicle.wheels.fl.joint.getSteeringAngle(),
+		steeringAngle: vehicle.wheels.fl.joint ? vehicle.wheels.fl.joint.getSteeringAngle() : vehicle.commandedSteerRad,
 		chassisPos: transform.position,
 		chassisQuat: transform.rotation,
 		rollAngleRad: Math.asin(clamp(dot(right, { x: 0, y: 1, z: 0 }), -1, 1)),
@@ -393,21 +440,28 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const forwardSign: 1 | -1 = 1;
 
 	// ---- Drivetrain (rear/driven wheels) ----
+	// Every joint call below is guarded against a detached wheel (WheelHandle.joint === null, see its
+	// doc comment) -- the damage system can destroy a wheel joint at runtime, and the car must keep
+	// simulating/responding to input on its remaining wheels afterward (spec: "drivetrain skips
+	// missing wheels").
 	if (brake > 1e-3) {
 		const torque = BRAKE_TORQUE_REAR_NM * brake;
 		for (const w of [rl, rr]) {
+			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(0);
 			w.joint.setMaxSpinTorque(torque);
 		}
 	} else if (throttle > 1e-3) {
 		const target = driveServoTarget(gearStep, throttle, forwardSign);
 		for (const w of [rl, rr]) {
+			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
 			w.joint.setMaxSpinTorque(tractionLimitedTorque(w.joint.getSpinSpeed(), impliedOmega, target.maxSpinTorqueNm));
 		}
 	} else {
 		const target = coastServoTarget(ENGINE_BRAKE_TORQUE_NM);
 		for (const w of [rl, rr]) {
+			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
 			w.joint.setMaxSpinTorque(target.maxSpinTorqueNm);
 		}
@@ -416,6 +470,7 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	// ---- Handbrake (rear only, overrides drive/coast, not the footbrake) ----
 	if (input.handbrake) {
 		for (const w of [rl, rr]) {
+			if (!w.joint) continue;
 			w.joint.setSpinMotorSpeed(0);
 			w.joint.setMaxSpinTorque(HANDBRAKE_TORQUE_NM);
 		}
@@ -425,6 +480,7 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const fl = vehicle.wheels.fl;
 	const fr = vehicle.wheels.fr;
 	for (const w of [fl, fr]) {
+		if (!w.joint) continue;
 		if (brake > 1e-3) {
 			w.joint.setSpinMotorSpeed(0);
 			w.joint.setMaxSpinTorque(BRAKE_TORQUE_FRONT_NM * brake);
@@ -441,8 +497,8 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const maxDelta = STEER_SLEW_RATE_RAD_S * dt;
 	const delta = clamp(targetAngle - vehicle.commandedSteerRad, -maxDelta, maxDelta);
 	vehicle.commandedSteerRad += delta;
-	fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
-	fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
+	if (fl.joint) fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
+	if (fr.joint) fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 
 	// ---- Anti-roll assist + yaw damping ----
 	const transform = vehicle.chassis.getTransform();

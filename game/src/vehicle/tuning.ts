@@ -15,11 +15,39 @@ import { CAR_MAP } from '../assets/car-map';
 // Chassis mass + geometry
 // ---------------------------------------------------------------------------------------------
 
-/** Target total chassis (sprung) mass, kg -- hull shell + ballast combined. */
-export const CHASSIS_MASS_KG = 1350;
+/**
+ * Target total chassis (sprung) mass, kg -- hull shell + ballast combined.
+ *
+ * TUNING DELTA (G3 damage system): was 1350 pre-damage. The 5 detachable panel bodies
+ * (game/src/damage/panels.ts, welded to the chassis in vehicle.ts's createVehicle()) add
+ * ~71kg of their own (game/src/damage/damage-tuning.ts's PANEL_MASS_KG: 13+16+16+14+12), carried as
+ * SEPARATE bodies rather than baked into this hull+ballast figure. Reduced by exactly that amount
+ * (1350 - 71 = 1279) so the car's TOTAL mass (chassis + panels + 4*WHEEL_MASS_KG = 1279+71+88=1438kg)
+ * stays ~unchanged from the pre-damage total (1350+88=1438kg) -- keeping it inside the G3 spec's
+ * required ~1350-1450kg band with minimal risk of perturbing the 5 pre-existing drive tests, which
+ * were tuned against the original 1438kg total.
+ */
+export const CHASSIS_MASS_KG = 1279;
 
 /** Each wheel's rigid-body mass, kg. */
 export const WHEEL_MASS_KG = 22;
+
+/**
+ * Shared box3d collision-filter group index for EVERY car body's shapes (chassis hull, ballast
+ * sensor, wheel spheres, damage-system panel boxes) -- box3d/box2d filter convention: a NEGATIVE
+ * shared group index means shapes in that group NEVER collide with each other, overriding
+ * category/mask bits, regardless of collideConnected on any joint between them. Set on every car
+ * shape (vehicle.ts, game/src/damage/panels.ts) so panels/wheels/chassis can never self-collide --
+ * upgrades the previous per-joint `collideConnected: false` (which only ever covered the specific
+ * chassis<->wheel pairs with an actual joint between them, not e.g. wheel-vs-wheel or panel-vs-wheel).
+ * Ground/wall/other world bodies keep the default groupIndex 0, so this has zero effect on car-vs-
+ * environment collisions -- only car-vs-own-parts.
+ */
+export const CAR_GROUP_INDEX = -1;
+
+/** World gravity magnitude (m/s^2), matching createVehicle()/createGroundBody()'s world gravity of
+ * (0,-10,0) -- shared by the damage system's weight-based force thresholds (damage-tuning.ts). */
+export const GRAVITY_MAG = 10;
 
 /** Wheel (sphere) radii per axle, meters -- from car-map.ts measured wheel radiusMm. */
 export const WHEEL_RADIUS_FRONT_M = CAR_MAP.wheels.frontLeft.radiusMm / 1000; // ~0.390
@@ -116,7 +144,28 @@ export const CHASSIS_IS_BULLET = true;
 // Wheel shape (physical) properties
 // ---------------------------------------------------------------------------------------------
 
-export const WHEEL_FRICTION = 1.1;
+/**
+ * TUNING DELTA (G3 damage system): was 1.1 pre-damage. Empirically, welding the 5 panel bodies to the
+ * chassis (game/src/damage/panels.ts, even with each weld's hertz=0/"rigid" per vendor/box3d/include/
+ * box3d/box3d.h's b3WeldJoint_SetLinearHertz doc comment, confirmed by direct testing to NOT be a
+ * spring/damping-ratio effect -- sweeping linearDampingRatio/angularDampingRatio from 0 to 1 changed
+ * nothing) measurably reduces the straight-line drive test's 5s acceleration (~69 km/h vs. the
+ * required >=90) EVEN THOUGH total car mass is conserved (tuning.ts's CHASSIS_MASS_KG doc comment) and
+ * front/rear suspension deflection during the launch is empirically unchanged -- i.e. not a simple
+ * "more mass" or "weight transfer" effect. Direct isolation (same 1438kg total mass, panels/welds
+ * entirely removed) reaches the required speed easily, and raising ENGINE_TORQUE_CURVE alone (with
+ * panels present) had ZERO effect on the outcome -- ruling out a torque-headroom explanation and
+ * pointing at a traction/grip ceiling instead (consistent with vendor/box3d/include/box3d/box3d.h's
+ * own weld-joint caveat: "the accuracy of weld joint is limited by the accuracy of the solver; long
+ * chains of weld joints may flex" -- some of that flex/solver interaction evidently couples into the
+ * driven wheels' traction envelop under hard acceleration). This was NOT root-caused all the way to a
+ * single mechanism (loosening TRACTION_SLIP_ALLOWANCE/CUTOFF_RAD_S made things WORSE, not better, so
+ * it isn't simple "traction control cutting too eagerly" either) -- it is compensated empirically here
+ * (+ FIXED_SUBSTEPS below) against the full drive-test matrix with panels attached, same as this
+ * file's other TUNING DELTAs. 1.5 is still a physically plausible high-grip/track-tire coefficient
+ * (real tires span roughly 0.7-1.5+), not an unphysical value.
+ */
+export const WHEEL_FRICTION = 1.5;
 export const WHEEL_RESTITUTION = 0;
 /** Native box3d rolling-resistance term (sphere/capsule shapes only) -- keeps top speed bounded
  * without needing an explicit aerodynamic-drag model (not in the spec). TUNING DELTA: added,
@@ -261,7 +310,19 @@ export const YAW_DAMPING_TORQUE_CAP_NM = 4000;
 // ---------------------------------------------------------------------------------------------
 
 export const FIXED_DT = 1 / 60;
-export const FIXED_SUBSTEPS = 4;
+/**
+ * TUNING DELTA (G3 damage system): was 4 pre-damage. Raised alongside WHEEL_FRICTION above (see its
+ * doc comment for the full investigation) -- empirically, more substeps per world.step() call also
+ * measurably improved straight-line acceleration with the 5 welded panel bodies present (4->69km/h,
+ * 6->75, 8->77, 12->91 in 5s; non-monotonic beyond that, 16/20 substeps came back down to ~74 -- so
+ * this isn't "more is strictly better", 12 was the empirically-chosen point that cleared the full
+ * drive-test matrix). More box3d constraint-solver iterations per fixed step plausibly resolves the
+ * weld joints' own "long chains may flex" solver-accuracy limit (see WHEEL_FRICTION's doc comment)
+ * more tightly, which apparently matters for how the driven wheels' traction is realized. Only ever
+ * measured indirectly through the 5 drive tests' behavior, same caveat as WHEEL_FRICTION's doc
+ * comment. 12 substeps is not a runtime-performance concern for this vehicle's small body/joint count.
+ */
+export const FIXED_SUBSTEPS = 12;
 
 // ---------------------------------------------------------------------------------------------
 // box3d's per-body angular-velocity safety clamp -- BINDFIX applied.
