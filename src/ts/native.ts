@@ -189,12 +189,46 @@ function defaultWasmUrl(): URL {
 }
 
 /**
+ * Turns a wasm-loader location into the string handed to dynamic `import()`.
+ *
+ * `URL#toString()` percent-encodes reserved characters, so a `file://` URL built from a repo path
+ * containing a space (e.g. this project's own checkout, ".../crash test/build/wasm/box3d.mjs")
+ * comes out as ".../crash%20test/...". Node's native ESM loader decodes that fine, but Vite's own
+ * module resolver -- which is what's actually loading this file when it's imported as TypeScript
+ * under vitest/vite (see game/sim/harness.mjs, tests/helpers.ts) -- treats the dynamic import()
+ * argument as an opaque module id and matches it against the filesystem WITHOUT first
+ * URL-decoding it, so the encoded "%20" no longer matches the real on-disk "crash test" directory
+ * and the load fails with "Failed to load url .../crash%20test/... Does the file exist?".
+ *
+ * Decoding a `file:` URL's pathname back into a plain filesystem path before handing it to
+ * import() sidesteps that mismatch entirely -- Node's loader accepts plain absolute paths as
+ * specifiers too, so this is safe there as well. Non-`file:` locations (http(s) URLs in the
+ * browser build, bare specifiers) are returned unchanged.
+ */
+function toImportSpecifier( url: string | URL ): string {
+	let asUrl: URL | undefined;
+	if ( url instanceof URL ) {
+		asUrl = url;
+	} else {
+		try {
+			asUrl = new URL( url );
+		} catch {
+			asUrl = undefined; // not a parseable URL (e.g. a bare specifier) -- pass through as-is
+		}
+	}
+	if ( asUrl && asUrl.protocol === "file:" ) {
+		return decodeURIComponent( asUrl.pathname );
+	}
+	return url.toString();
+}
+
+/**
  * Loads box3d.mjs and returns the initialized Emscripten module (typed as {@link Native}). This is
  * the only async step in the whole binding -- everything built on top (World/Body/Shape/Joint) is
  * synchronous.
  */
 export async function init( options: InitOptions = {} ): Promise<Native> {
 	const url = options.wasmUrl ?? defaultWasmUrl();
-	const mod = ( await import( /* @vite-ignore */ url.toString() ) ) as { default: Box3DFactory };
+	const mod = ( await import( /* @vite-ignore */ toImportSpecifier( url ) ) ) as { default: Box3DFactory };
 	return mod.default();
 }
