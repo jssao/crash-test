@@ -816,6 +816,16 @@ void b3js_WeldJoint_SetAngularHertz( uint64_t jointId64, float hertz )
 	b3WeldJoint_SetAngularHertz( b3LoadJointId( jointId64 ), hertz );
 }
 
+void b3js_WeldJoint_SetLinearDampingRatio( uint64_t jointId64, float dampingRatio )
+{
+	b3WeldJoint_SetLinearDampingRatio( b3LoadJointId( jointId64 ), dampingRatio );
+}
+
+void b3js_WeldJoint_SetAngularDampingRatio( uint64_t jointId64, float dampingRatio )
+{
+	b3WeldJoint_SetAngularDampingRatio( b3LoadJointId( jointId64 ), dampingRatio );
+}
+
 // =================================================================================================
 // Wheel joint. Body A is the chassis, body B is the wheel. The wheel spins about local frame B's
 // z-axis and (optionally) translates/suspends along local frame A's x-axis -- see

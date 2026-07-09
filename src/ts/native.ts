@@ -120,6 +120,8 @@ export interface Native {
 		angularHertz: number, linearDampingRatio: number, angularDampingRatio: number, userData: number ): bigint;
 	_b3js_WeldJoint_SetLinearHertz( jointId: bigint, hertz: number ): void;
 	_b3js_WeldJoint_SetAngularHertz( jointId: bigint, hertz: number ): void;
+	_b3js_WeldJoint_SetLinearDampingRatio( jointId: bigint, dampingRatio: number ): void;
+	_b3js_WeldJoint_SetAngularDampingRatio( jointId: bigint, dampingRatio: number ): void;
 
 	// ---- Wheel joint ----
 	_b3js_CreateWheelJoint( worldId: bigint, bodyChassis: bigint, bodyWheel: bigint, faPx: number, faPy: number,

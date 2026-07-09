@@ -95,6 +95,14 @@ export class WeldJoint extends Joint {
 	setAngularHertz( hertz: number ): void {
 		this.native._b3js_WeldJoint_SetAngularHertz( this.handle, hertz );
 	}
+
+	setLinearDampingRatio( dampingRatio: number ): void {
+		this.native._b3js_WeldJoint_SetLinearDampingRatio( this.handle, dampingRatio );
+	}
+
+	setAngularDampingRatio( dampingRatio: number ): void {
+		this.native._b3js_WeldJoint_SetAngularDampingRatio( this.handle, dampingRatio );
+	}
 }
 
 /** @internal used by World.createWeldJoint(). */

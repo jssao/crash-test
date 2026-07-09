@@ -72,6 +72,8 @@
   "_b3js_CreateWeldJoint",
   "_b3js_WeldJoint_SetLinearHertz",
   "_b3js_WeldJoint_SetAngularHertz",
+  "_b3js_WeldJoint_SetLinearDampingRatio",
+  "_b3js_WeldJoint_SetAngularDampingRatio",
 
   "_b3js_CreateWheelJoint",
   "_b3js_WheelJoint_EnableSuspension",
