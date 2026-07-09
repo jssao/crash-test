@@ -135,3 +135,20 @@ export function sphericalFromCylindrical(radius: number, height: number, azimuth
     radius: Math.hypot(radius, height),
   };
 }
+
+/** Derive the spherical pose of an ACTUAL camera position around `focus` — used to seed the
+ * user-orbit controller at the exact moment the player takes control (first drag/zoom, possibly
+ * from CHASE mode), so taking over never snaps the view (user bug report: clicking "reset the
+ * camera angle" — the controller had only ever been seeded at boot/C-cycle, not at takeover).
+ * Inverse of UserOrbitController.update()'s position formula. */
+export function sphericalFromCameraPose(cameraPos: THREE.Vector3, focus: THREE.Vector3): UserOrbitSpherical {
+  const dx = cameraPos.x - focus.x;
+  const dy = cameraPos.y - focus.y;
+  const dz = cameraPos.z - focus.z;
+  const horiz = Math.hypot(dx, dz);
+  return {
+    azimuth: Math.atan2(dz, dx),
+    polar: Math.atan2(horiz, dy),
+    radius: Math.hypot(horiz, dy),
+  };
+}

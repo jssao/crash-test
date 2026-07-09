@@ -35,10 +35,11 @@ export function installPointerInput(hitTarget: HTMLElement): () => void {
 		const dy = e.clientY - lastClientY;
 		lastClientX = e.clientX;
 		lastClientY = e.clientY;
-		// Drag right -> orbit so the view swings the same way the hand moved; drag up -> tilt the
-		// camera up toward an overhead view.
-		accumAzimuth -= dx * AZIMUTH_SENSITIVITY;
-		accumPolar += dy * POLAR_SENSITIVITY;
+		// Sign convention per user playtest feedback (2026-07-09, "inverted controls"): drag right ->
+		// the camera itself swings right around the car; drag DOWN -> tilt up toward overhead
+		// (grab-the-world feel). Flipped from the first-pass convention.
+		accumAzimuth += dx * AZIMUTH_SENSITIVITY;
+		accumPolar -= dy * POLAR_SENSITIVITY;
 	};
 	const onPointerUp = () => {
 		dragging = false;

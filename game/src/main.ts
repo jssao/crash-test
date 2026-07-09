@@ -15,6 +15,7 @@ import {
   createOrbitUpdater,
   createUserOrbitController,
   sphericalFromCylindrical,
+  sphericalFromCameraPose,
 } from './scene/cameraOrbit';
 import { detachWheelVisuals, applyWheelVisual, type WheelVisual } from './scene/wheels';
 import {
@@ -608,6 +609,16 @@ async function main() {
     const dragDelta = consumeDragDelta();
     const zoomDelta = consumeZoomDelta();
     if (dragDelta.azimuth !== 0 || dragDelta.polar !== 0 || zoomDelta !== 0) {
+      if (cameraMode !== 'orbit' || !userOrbit.active) {
+        // TAKEOVER SEED (user bug: click "resets the camera angle"): the controller's pose was last
+        // seeded at boot/C-cycle, so activating it mid-chase damped the camera toward that stale
+        // pose. Seed from where the camera ACTUALLY is right now, around the car's current focus,
+        // so taking control is seamless from any prior camera state.
+        const currentPos = vehicle.chassis.getPosition();
+        carFocus.x = currentPos.x;
+        carFocus.z = currentPos.z;
+        userOrbit.reset(sphericalFromCameraPose(camera.position, carFocus));
+      }
       cameraMode = 'orbit';
       if (dragDelta.azimuth !== 0 || dragDelta.polar !== 0) userOrbit.drag(dragDelta.azimuth, dragDelta.polar);
       if (zoomDelta !== 0) userOrbit.zoom(zoomDelta);

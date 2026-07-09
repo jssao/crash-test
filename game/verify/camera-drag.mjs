@@ -200,17 +200,44 @@ async function main() {
 
     assert(afterDrag.mode === 'orbit', `drag switches to orbit mode (got ${afterDrag.mode})`);
     assert(afterDrag.userOrbitActive === true, 'user-orbit active after a drag');
-    const azimuthDelta = Math.abs(afterDrag.azimuth - before.azimuth);
-    assert(azimuthDelta > 0.15, `azimuth changed measurably (delta=${azimuthDelta.toFixed(3)})`);
-    const polarDelta = Math.abs(afterDrag.polar - before.polar);
-    assert(polarDelta > 0.05, `polar changed measurably (delta=${polarDelta.toFixed(3)})`);
+    // NOTE: `before.azimuth` is the controller's dormant boot seed -- since the takeover-seed fix
+    // (controller re-seeds from the LIVE camera pose at first drag, so taking control never snaps),
+    // it is not a meaningful drag baseline. Measure the drag itself with a SECOND drag from the
+    // now-settled orbit state instead, and separately assert the no-snap property below.
+    const A1 = afterDrag.azimuth;
+    await c.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: CX, y: CY, button: 'left', buttons: 1, clickCount: 1 });
+    for (let i = 1; i <= STEPS; i++) {
+      await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: CX + (300 * i) / STEPS, y: CY, button: 'left', buttons: 1 });
+      await sleep(16);
+    }
+    await c.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: CX + 300, y: CY, button: 'left', buttons: 0, clickCount: 1 });
+    await sleep(1200); // settle (tau=0.15s)
+    const afterDrag2 = await evalExpr('window.__GAME__.cameraDebug()');
+    const azimuthDelta = Math.abs(afterDrag2.azimuth - A1);
+    // 300px * 0.0055 rad/px = 1.65 rad expected; allow generous tolerance for damping/rounding.
+    assert(azimuthDelta > 0.8, `second drag rotates azimuth measurably (delta=${azimuthDelta.toFixed(3)})`);
+
+    // ---- NO-SNAP guard (user bug: clicking "reset the camera angle"): from a settled orbit pose,
+    // a pointerdown + 2px wiggle must NOT move the camera more than a few cm. ----
+    const posBeforeClick = await evalExpr('window.__GAME__.cameraDebug().position');
+    await c.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: CX, y: CY, button: 'left', buttons: 1, clickCount: 1 });
+    await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: CX + 2, y: CY, button: 'left', buttons: 1 });
+    await c.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: CX + 2, y: CY, button: 'left', buttons: 0, clickCount: 1 });
+    await sleep(600);
+    const posAfterClick = await evalExpr('window.__GAME__.cameraDebug().position');
+    const snapDist = Math.hypot(posAfterClick[0] - posBeforeClick[0], posAfterClick[1] - posBeforeClick[1], posAfterClick[2] - posBeforeClick[2]);
+    assert(snapDist < 0.35, `click+2px wiggle must not snap the camera (moved ${snapDist.toFixed(3)}m)`);
 
     // ---- Release keeps the orbit view: wait some more with NO further input, mode/pose must hold ----
+    // (baseline re-captured here: the second-drag + no-snap probes above moved the camera since
+    // afterDrag was recorded)
     await sleep(500);
+    const holdBaseline = await evalExpr('window.__GAME__.cameraDebug()');
+    await sleep(700);
     const afterRelease = await evalExpr('window.__GAME__.cameraDebug()');
     assert(afterRelease.mode === 'orbit', 'still in orbit mode after release + settle');
     assert(afterRelease.userOrbitActive === true, 'user-orbit still active (not reverted to auto-spin) after release');
-    const driftAfterRelease = Math.abs(afterRelease.azimuth - afterDrag.azimuth);
+    const driftAfterRelease = Math.abs(afterRelease.azimuth - holdBaseline.azimuth);
     assert(driftAfterRelease < 0.05, `camera holds still after release (drift=${driftAfterRelease.toFixed(4)})`);
 
     // ---- Wheel: zoom out (positive deltaY), then zoom in (negative deltaY) ----
