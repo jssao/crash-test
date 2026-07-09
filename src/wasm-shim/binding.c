@@ -337,7 +337,7 @@ uint32_t b3js_CastRayClosest( uint64_t worldId64, float ox, float oy, float oz, 
 
 uint64_t b3js_CreateBody( uint64_t worldId64, int type, float px, float py, float pz, float qx, float qy, float qz,
 						   float qw, float linearDamping, float angularDamping, float gravityScale, int enableSleep,
-						   int isBullet, uint32_t userData )
+						   int isBullet, int allowFastRotation, uint32_t userData )
 {
 	b3WorldId worldId = b3js_UnpackWorldId( worldId64 );
 	b3BodyDef def = b3DefaultBodyDef();
@@ -349,6 +349,10 @@ uint64_t b3js_CreateBody( uint64_t worldId64, int type, float px, float py, floa
 	def.gravityScale = gravityScale;
 	def.enableSleep = enableSleep != 0;
 	def.isBullet = isBullet != 0;
+	// Exempts this body from box3d's per-step angular-velocity safety clamp (B3_MAX_ROTATION*inv_dt,
+	// see vendor/box3d/src/solver.c's b3IntegratePositionsTask() and constants.h) -- upstream's own
+	// doc comment on this field: "Should only be used for circular objects, like wheels."
+	def.allowFastRotation = allowFastRotation != 0;
 	def.userData = b3js_U32ToPtr( userData );
 
 	b3BodyId bodyId = b3CreateBody( worldId, &def );
@@ -451,6 +455,52 @@ float b3js_Body_GetMass( uint64_t bodyId64 )
 void b3js_Body_ApplyMassFromShapes( uint64_t bodyId64 )
 {
 	b3Body_ApplyMassFromShapes( b3LoadBodyId( bodyId64 ) );
+}
+
+// outPtr must have room for 13 floats: [mass, cx,cy,cz, ixxCol.x,ixxCol.y,ixxCol.z, iyyCol.x,iyyCol.y,
+// iyyCol.z, izzCol.x,izzCol.y,izzCol.z] -- mass, local-space center of mass, then the 3x3 inertia
+// matrix (about that center of mass) as its 3 column vectors (b3Matrix3.cx/cy/cz), matching
+// b3MassData's layout in vendor/box3d/include/box3d/types.h.
+void b3js_Body_GetMassData( uint64_t bodyId64, float* outPtr )
+{
+	b3MassData m = b3Body_GetMassData( b3LoadBodyId( bodyId64 ) );
+	outPtr[0] = m.mass;
+	outPtr[1] = m.center.x;
+	outPtr[2] = m.center.y;
+	outPtr[3] = m.center.z;
+	outPtr[4] = m.inertia.cx.x;
+	outPtr[5] = m.inertia.cx.y;
+	outPtr[6] = m.inertia.cx.z;
+	outPtr[7] = m.inertia.cy.x;
+	outPtr[8] = m.inertia.cy.y;
+	outPtr[9] = m.inertia.cy.z;
+	outPtr[10] = m.inertia.cz.x;
+	outPtr[11] = m.inertia.cz.y;
+	outPtr[12] = m.inertia.cz.z;
+}
+
+// Overrides the body's mass properties (see b3Body_SetMassData's doc comment: lost if a shape is
+// added/removed or the body type changes). Scalar layout mirrors b3js_Body_GetMassData's outPtr.
+void b3js_Body_SetMassData( uint64_t bodyId64, float mass, float centerX, float centerY, float centerZ,
+							 float cxX, float cxY, float cxZ, float cyX, float cyY, float cyZ, float czX, float czY,
+							 float czZ )
+{
+	b3MassData m;
+	m.mass = mass;
+	m.center = ( b3Vec3 ){ centerX, centerY, centerZ };
+	m.inertia.cx = ( b3Vec3 ){ cxX, cxY, cxZ };
+	m.inertia.cy = ( b3Vec3 ){ cyX, cyY, cyZ };
+	m.inertia.cz = ( b3Vec3 ){ czX, czY, czZ };
+	b3Body_SetMassData( b3LoadBodyId( bodyId64 ), m );
+}
+
+// outPtr must have room for 3 floats. Center of mass position in body-local space.
+void b3js_Body_GetLocalCenter( uint64_t bodyId64, float* outPtr )
+{
+	b3Vec3 c = b3Body_GetLocalCenter( b3LoadBodyId( bodyId64 ) );
+	outPtr[0] = c.x;
+	outPtr[1] = c.y;
+	outPtr[2] = c.z;
 }
 
 void b3js_Body_SetAwake( uint64_t bodyId64, int awake )

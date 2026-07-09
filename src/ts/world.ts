@@ -135,7 +135,7 @@ export class World {
 			this.handle, o.type, o.position.x, o.position.y, o.position.z,
 			o.rotation.x, o.rotation.y, o.rotation.z, o.rotation.w,
 			o.linearDamping, o.angularDamping, o.gravityScale,
-			o.enableSleep ? 1 : 0, o.isBullet ? 1 : 0, o.userData
+			o.enableSleep ? 1 : 0, o.isBullet ? 1 : 0, o.allowFastRotation ? 1 : 0, o.userData
 		);
 		const body = new Body( this.native, this, handle );
 		this.bodyHandles.add( handle );

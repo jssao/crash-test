@@ -4,7 +4,7 @@ import type { Native } from "./native.js";
 import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
 import { withFloatOutBuffer, withInputFloatBuffer, withInputInt32Buffer } from "./scratch.js";
-import { QUAT_IDENTITY, VEC3_ZERO, type Quat, type Transform, type Vec3 } from "./math.js";
+import { QUAT_IDENTITY, VEC3_ZERO, type Matrix3, type Quat, type Transform, type Vec3 } from "./math.js";
 import {
 	Shape,
 	buildBoxArgs,
@@ -35,8 +35,22 @@ export interface BodyOptions {
 	gravityScale?: number;
 	enableSleep?: boolean;
 	isBullet?: boolean;
+	/**
+	 * Exempts this body from box3d's per-step angular-velocity safety clamp (B3_MAX_ROTATION*inv_dt,
+	 * ~47 rad/s at 60Hz -- see vendor/box3d/src/solver.c's b3IntegratePositionsTask()). Upstream's own
+	 * doc comment: "Should only be used for circular objects, like wheels." Default false.
+	 */
+	allowFastRotation?: boolean;
 	/** Entity id tag read back by move/hit events (falls back to the body's shapes if a shape has none). */
 	userData?: number;
+}
+
+/** Mirrors b3MassData (box3d/types.h): mass, local-space center of mass, and the inertia tensor
+ * (about that center of mass) as a 3x3 matrix. See Body.getMassData()/setMassData(). */
+export interface MassData {
+	mass: number;
+	center: Vec3;
+	inertia: Matrix3;
 }
 
 export interface RayCastResult {
@@ -149,6 +163,43 @@ export class Body {
 	/** Recompute mass/inertia from the body's current shapes (needed if any shape used updateBodyMass=false). */
 	applyMassFromShapes(): void {
 		this.native._b3js_Body_ApplyMassFromShapes( this.handle );
+	}
+
+	getMassData(): MassData {
+		return withFloatOutBuffer(
+			this.native,
+			13,
+			( ptr ) => this.native._b3js_Body_GetMassData( this.handle, ptr ),
+			( f, i ) => ( {
+				mass: f[i],
+				center: { x: f[i + 1], y: f[i + 2], z: f[i + 3] },
+				inertia: {
+					cx: { x: f[i + 4], y: f[i + 5], z: f[i + 6] },
+					cy: { x: f[i + 7], y: f[i + 8], z: f[i + 9] },
+					cz: { x: f[i + 10], y: f[i + 11], z: f[i + 12] },
+				},
+			} )
+		);
+	}
+
+	/** Override this body's mass properties. Lost if a shape is added/removed or the body type changes. */
+	setMassData( data: MassData ): void {
+		this.native._b3js_Body_SetMassData(
+			this.handle, data.mass, data.center.x, data.center.y, data.center.z,
+			data.inertia.cx.x, data.inertia.cx.y, data.inertia.cx.z,
+			data.inertia.cy.x, data.inertia.cy.y, data.inertia.cy.z,
+			data.inertia.cz.x, data.inertia.cz.y, data.inertia.cz.z
+		);
+	}
+
+	/** Center of mass position in body-local space. */
+	getLocalCenter(): Vec3 {
+		return withFloatOutBuffer(
+			this.native,
+			3,
+			( ptr ) => this.native._b3js_Body_GetLocalCenter( this.handle, ptr ),
+			( f, i ) => ( { x: f[i], y: f[i + 1], z: f[i + 2] } )
+		);
 	}
 
 	setAwake( awake: boolean ): void {
@@ -309,6 +360,7 @@ export function defaultBodyOptions( options: BodyOptions ) {
 		gravityScale: options.gravityScale ?? 1,
 		enableSleep: options.enableSleep ?? true,
 		isBullet: options.isBullet ?? false,
+		allowFastRotation: options.allowFastRotation ?? false,
 		userData: options.userData ?? 0,
 	};
 }

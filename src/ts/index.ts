@@ -29,13 +29,13 @@ export {
 	DEFAULT_CATEGORY_BITS,
 	DEFAULT_MASK_BITS,
 } from "./math.js";
-export type { Vec3, Quat, Transform } from "./math.js";
+export type { Vec3, Quat, Transform, Matrix3 } from "./math.js";
 
 export { World } from "./world.js";
 export type { WorldOptions, RayCastOptions } from "./world.js";
 
 export { Body, BodyType, defaultBodyOptions } from "./body.js";
-export type { BodyOptions, RayCastResult } from "./body.js";
+export type { BodyOptions, RayCastResult, MassData } from "./body.js";
 
 export { Shape } from "./shape.js";
 export type { ShapeOptions, SphereShapeOptions, CapsuleShapeOptions, BoxShapeOptions } from "./shape.js";

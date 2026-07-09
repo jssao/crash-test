@@ -34,6 +34,13 @@ export interface Transform {
 	rotation: Quat;
 }
 
+/** A 3x3 matrix as 3 column vectors, matching b3Matrix3 (box3d/math_functions.h: `cx, cy, cz`). */
+export interface Matrix3 {
+	cx: Vec3;
+	cy: Vec3;
+	cz: Vec3;
+}
+
 export const VEC3_ZERO: Readonly<Vec3> = Object.freeze( { x: 0, y: 0, z: 0 } );
 export const QUAT_IDENTITY: Readonly<Quat> = Object.freeze( { x: 0, y: 0, z: 0, w: 1 } );
 export const TRANSFORM_IDENTITY: Readonly<Transform> = Object.freeze( {

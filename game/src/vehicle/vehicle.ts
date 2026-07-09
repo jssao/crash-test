@@ -40,9 +40,6 @@ import {
 	BRAKE_TORQUE_REAR_NM,
 	CHASSIS_IS_BULLET,
 	CHASSIS_ORIGIN_HEIGHT_M,
-	ENGINE_ASSIST_FORCE_MULTIPLIER,
-	ENGINE_ASSIST_GATE_END_RATIO,
-	ENGINE_ASSIST_GATE_START_RATIO,
 	ENGINE_BRAKE_TORQUE_NM,
 	FRONT_PASSIVE_DRAG_NM,
 	GROUND_FRICTION,
@@ -61,14 +58,17 @@ import {
 	SUSPENSION_HERTZ_REAR,
 	SUSPENSION_LOWER_LIMIT_M,
 	SUSPENSION_UPPER_LIMIT_M,
+	TRACTION_SLIP_ALLOWANCE_RAD_S,
+	TRACTION_SLIP_CUTOFF_RAD_S,
 	WHEEL_FRICTION,
 	WHEEL_MASS_KG,
 	WHEEL_RADIUS_FRONT_M,
 	WHEEL_RADIUS_REAR_M,
 	WHEEL_RESTITUTION,
 	WHEEL_ROLLING_RESISTANCE,
-	WHEEL_ROTATION_CAP_RAD_S,
 	WHEEL_SPAWN_SETTLE_MARGIN_M,
+	YAW_DAMPING_GAIN_NM_PER_RAD_S,
+	YAW_DAMPING_TORQUE_CAP_NM,
 } from './tuning';
 import { CAR_MAP, type Vec3Mm } from '../assets/car-map';
 
@@ -162,7 +162,15 @@ export function createVehicle(
 	const wheels = {} as Record<WheelKey, WheelHandle>;
 	for (const def of WHEEL_DEFS) {
 		const worldPos = add(spawnPosition, rotateVector(spawnRotation, def.localMount));
-		const wheelBody = world.createBody({ type: BodyType.Dynamic, position: worldPos, rotation: spawnRotation });
+		// BINDFIX: allowFastRotation exempts wheel bodies from box3d's per-body angular-velocity
+		// safety clamp (see tuning.ts's doc comment just after FIXED_SUBSTEPS) -- upstream's own
+		// guidance is that this flag should only be used for circular objects, like wheels.
+		const wheelBody = world.createBody({
+			type: BodyType.Dynamic,
+			position: worldPos,
+			rotation: spawnRotation,
+			allowFastRotation: true,
+		});
 		const wheelDensity = WHEEL_MASS_KG / ((4 / 3) * Math.PI * def.radius ** 3);
 		wheelBody.createSphereShape({
 			radius: def.radius,
@@ -244,16 +252,31 @@ function chassisUp(rotation: Q4): V3 {
 
 /**
  * Driven-wheel angular speed IMPLIED by chassis forward speed (v/r), not read from the wheel joint
- * itself. See tuning.ts's WHEEL_ROTATION_CAP_RAD_S doc comment: the joint's own getSpinSpeed() is
- * subject to box3d's unexposed per-body rotation safety clamp, so it silently pins near ~47 rad/s at
- * 60Hz and stops reflecting real chassis speed once that happens. This chassis-derived estimate has
- * no such ceiling and is what both the gearbox's rpm estimation and the engine-assist gate (below)
- * key off of, so gearing/torque keep responding sensibly to speed even past that ceiling.
+ * itself. Used for the gearbox's rpm estimation, which wants a no-slip engine-to-wheel-hub estimate
+ * regardless of what the tire contact patch is doing.
  */
 function chassisImpliedRearOmega(vehicle: Vehicle): number {
 	const forward = chassisForward(vehicle.chassis.getRotation());
 	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forward);
 	return Math.abs(forwardSpeed) / WHEEL_RADIUS_REAR_M;
+}
+
+/**
+ * Traction-control-style torque taper: cuts a driven wheel's commanded max torque once its REAL
+ * angular speed (`realOmega`, from joint.getSpinSpeed() -- meaningful now that allowFastRotation
+ * lifts box3d's per-body rotation clamp, see the doc comment on TRACTION_SLIP_ALLOWANCE_RAD_S in
+ * tuning.ts) runs measurably ahead of `impliedOmega` (chassisImpliedRearOmega() -- what the chassis's
+ * own forward progress implies), i.e. genuine wheelspin rather than normal rolling. Full torque below
+ * TRACTION_SLIP_ALLOWANCE_RAD_S of slip, linearly cut to zero by TRACTION_SLIP_CUTOFF_RAD_S.
+ */
+function tractionLimitedTorque(realOmega: number, impliedOmega: number, maxTorqueNm: number): number {
+	const slip = Math.abs(realOmega) - impliedOmega;
+	const t = clamp(
+		(slip - TRACTION_SLIP_ALLOWANCE_RAD_S) / (TRACTION_SLIP_CUTOFF_RAD_S - TRACTION_SLIP_ALLOWANCE_RAD_S),
+		0,
+		1
+	);
+	return maxTorqueNm * (1 - t);
 }
 
 /** Active anti-roll torque about the chassis's world forward axis, proportional to roll angle & rate, capped. */
@@ -267,6 +290,18 @@ export function computeAntiRollTorque(rotation: Q4, angularVelocity: V3): V3 {
 	let magnitude = -ANTI_ROLL_GAIN_ANGLE * rollAngle - ANTI_ROLL_GAIN_RATE * rollRate;
 	magnitude = clamp(magnitude, -ANTI_ROLL_TORQUE_CAP_NM, ANTI_ROLL_TORQUE_CAP_NM);
 	return scale(forward, magnitude);
+}
+
+/**
+ * Active yaw-rate damping torque about the chassis's world-up axis, proportional to yaw rate, capped
+ * -- see YAW_DAMPING_GAIN_NM_PER_RAD_S's doc comment in tuning.ts for why this was added alongside the
+ * pre-existing anti-roll assist above.
+ */
+function computeYawDampingTorque(rotation: Q4, angularVelocity: V3): V3 {
+	const up = chassisUp(rotation);
+	const yawRate = dot(angularVelocity, up);
+	const magnitude = clamp(-YAW_DAMPING_GAIN_NM_PER_RAD_S * yawRate, -YAW_DAMPING_TORQUE_CAP_NM, YAW_DAMPING_TORQUE_CAP_NM);
+	return scale(up, magnitude);
 }
 
 export interface Telemetry {
@@ -368,22 +403,7 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 		const target = driveServoTarget(gearStep, throttle, forwardSign);
 		for (const w of [rl, rr]) {
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
-			w.joint.setMaxSpinTorque(target.maxSpinTorqueNm);
-		}
-
-		// ---- Engine-assist compensation for the wheel-rotation safety clamp ----
-		// See tuning.ts's WHEEL_ROTATION_CAP_RAD_S doc comment: box3d silently pins each wheel body's
-		// angular speed near ~47 rad/s at 60Hz (no binding-exposed way to opt out), which otherwise
-		// hard-caps chassis speed at ~65 km/h via wheel-joint friction alone. Ramps in smoothly only
-		// once chassis-implied wheel speed approaches that ceiling; contributes nothing below it,
-		// where normal torque-limited/traction-limited physics already works correctly.
-		const gateStart = ENGINE_ASSIST_GATE_START_RATIO * WHEEL_ROTATION_CAP_RAD_S;
-		const gateEnd = ENGINE_ASSIST_GATE_END_RATIO * WHEEL_ROTATION_CAP_RAD_S;
-		const gate = clamp((impliedOmega - gateStart) / (gateEnd - gateStart), 0, 1);
-		if (gate > 0) {
-			const forceMag = (target.maxSpinTorqueNm / WHEEL_RADIUS_REAR_M) * 2 * gate * ENGINE_ASSIST_FORCE_MULTIPLIER;
-			const forward = chassisForward(vehicle.chassis.getRotation());
-			vehicle.chassis.applyForceToCenter(scale(forward, forwardSign * forceMag), true);
+			w.joint.setMaxSpinTorque(tractionLimitedTorque(w.joint.getSpinSpeed(), impliedOmega, target.maxSpinTorqueNm));
 		}
 	} else {
 		const target = coastServoTarget(ENGINE_BRAKE_TORQUE_NM);
@@ -424,9 +444,13 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	fl.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 	fr.joint.setTargetSteeringAngle(vehicle.commandedSteerRad);
 
-	// ---- Anti-roll assist ----
+	// ---- Anti-roll assist + yaw damping ----
 	const transform = vehicle.chassis.getTransform();
-	const torque = computeAntiRollTorque(transform.rotation, vehicle.chassis.getAngularVelocity());
+	const angularVel = vehicle.chassis.getAngularVelocity();
+	const torque = add(
+		computeAntiRollTorque(transform.rotation, angularVel),
+		computeYawDampingTorque(transform.rotation, angularVel)
+	);
 	if (dot(torque, torque) > 0) {
 		vehicle.chassis.applyTorque(torque, true);
 	}

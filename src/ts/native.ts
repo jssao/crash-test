@@ -43,7 +43,7 @@ export interface Native {
 	// ---- Body ----
 	_b3js_CreateBody( worldId: bigint, type: number, px: number, py: number, pz: number, qx: number, qy: number,
 		qz: number, qw: number, linearDamping: number, angularDamping: number, gravityScale: number,
-		enableSleep: number, isBullet: number, userData: number ): bigint;
+		enableSleep: number, isBullet: number, allowFastRotation: number, userData: number ): bigint;
 	_b3js_DestroyBody( bodyId: bigint ): void;
 	_b3js_Body_IsValid( bodyId: bigint ): number;
 	_b3js_Body_GetTransform( bodyId: bigint, outPtr: number ): void;
@@ -63,6 +63,11 @@ export interface Native {
 	_b3js_Body_ApplyAngularImpulse( bodyId: bigint, ix: number, iy: number, iz: number, wake: number ): void;
 	_b3js_Body_GetMass( bodyId: bigint ): number;
 	_b3js_Body_ApplyMassFromShapes( bodyId: bigint ): void;
+	_b3js_Body_GetMassData( bodyId: bigint, outPtr: number ): void;
+	_b3js_Body_SetMassData( bodyId: bigint, mass: number, centerX: number, centerY: number, centerZ: number,
+		cxX: number, cxY: number, cxZ: number, cyX: number, cyY: number, cyZ: number, czX: number, czY: number,
+		czZ: number ): void;
+	_b3js_Body_GetLocalCenter( bodyId: bigint, outPtr: number ): void;
 	_b3js_Body_SetAwake( bodyId: bigint, awake: number ): void;
 	_b3js_Body_IsAwake( bodyId: bigint ): number;
 	_b3js_Body_EnableSleep( bodyId: bigint, enable: number ): void;

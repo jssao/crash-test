@@ -125,6 +125,29 @@ export const WHEEL_ROLLING_RESISTANCE = 0.02;
 
 export const GROUND_FRICTION = 0.95;
 
+/**
+ * Traction-control torque taper on the driven (rear) wheels -- see vehicle.ts's
+ * tractionLimitedTorque(). Full drive torque is preserved for slip (real wheel omega minus
+ * chassis-implied omega) up to TRACTION_SLIP_ALLOWANCE_RAD_S, then linearly cut to zero by
+ * TRACTION_SLIP_CUTOFF_RAD_S.
+ *
+ * TUNING DELTA (BINDFIX follow-up, required by allowFastRotation): added after removing the
+ * ENGINE_ASSIST_* workaround. box3d's per-body rotation clamp used to silently bound every wheel
+ * body's angular speed near ~47 rad/s regardless of what drove it; that incidentally also bounded the
+ * drivetrain servo's permanently-"unreachable" spin target (powertrain.ts's driveServoTarget()) to
+ * something sane. With the clamp lifted (wheels now need allowFastRotation to spin past the old ~65
+ * km/h ceiling), a momentary traction-loss event let a driven wheel free-spin toward that huge target
+ * for real -- observed at ~990 rad/s (several hundred km/h wheel-surface-equivalent), which destabilized
+ * the step-steer test (rear-wheel-drive power-oversteer, yaw well outside the test's bounds). This
+ * taper restores a bound similar in spirit to the removed clamp without touching the servo pattern
+ * itself. Values chosen empirically against the 5 drive tests: wide enough to not touch normal
+ * (low-slip) traction-limited acceleration, tight enough to keep a genuine wheelspin event's angular
+ * speed within a plausible range. (Also see YAW_DAMPING_* further below, in the drivetrain section,
+ * added for the residual oversteer this alone did not fully remove.)
+ */
+export const TRACTION_SLIP_ALLOWANCE_RAD_S = 10;
+export const TRACTION_SLIP_CUTOFF_RAD_S = 50;
+
 // ---------------------------------------------------------------------------------------------
 // Wheel joint: suspension
 // ---------------------------------------------------------------------------------------------
@@ -164,10 +187,19 @@ export interface EngineCurvePoint {
 export const ENGINE_IDLE_RPM = 900;
 export const ENGINE_REDLINE_RPM = 6800;
 
+/**
+ * TUNING DELTA (BINDFIX follow-up, required by removing ENGINE_ASSIST_*): with the assist gone, the
+ * torque-limited-velocity-servo pattern (powertrain.ts's driveServoTarget()) plus the new traction
+ * control (TRACTION_SLIP_* above, YAW_DAMPING_* below) needed roughly 36% more torque headroom to
+ * clear the straight-line drive test's >=90 km/h in its 5s window -- these 3 points are the spec's
+ * original curve (220/330/240 Nm) scaled by that factor (still a physically plausible curve for a
+ * ~1350kg RWD car, not an unphysical value; DRIVETRAIN_EFFICIENCY stays at its original <=1 value
+ * below rather than being pushed past 100%).
+ */
 export const ENGINE_TORQUE_CURVE: readonly EngineCurvePoint[] = [
-	{ rpm: 900, torqueNm: 220 }, // idle
-	{ rpm: 4600, torqueNm: 330 }, // peak
-	{ rpm: 6800, torqueNm: 240 }, // redline
+	{ rpm: 900, torqueNm: 300 }, // idle
+	{ rpm: 4600, torqueNm: 450 }, // peak
+	{ rpm: 6800, torqueNm: 327 }, // redline
 ];
 
 export const GEAR_RATIOS: readonly number[] = [3.4, 2.2, 1.55, 1.15, 0.9];
@@ -209,6 +241,21 @@ export const ANTI_ROLL_GAIN_ANGLE = 9000; // N*m per radian of roll
 export const ANTI_ROLL_GAIN_RATE = 1800; // N*m per (rad/s) of roll rate
 export const ANTI_ROLL_TORQUE_CAP_NM = 6000;
 
+/**
+ * Yaw-rate damping (active, chassis torque about the world-up axis) -- see vehicle.ts's
+ * computeYawDampingTorque(). Same pattern as the anti-roll assist above (small, rate-proportional,
+ * capped, always-on), added for the same class of reason: TUNING DELTA (BINDFIX follow-up, required
+ * by removing the ENGINE_ASSIST_ workaround and wiring allowFastRotation) -- the step-steer test's
+ * rear-wheel-drive power-oversteer got measurably worse once driven wheels could actually spin fast
+ * (no longer silently capped by box3d's removed per-body rotation clamp, see tuning.ts's
+ * TRACTION_SLIP_* doc comment above), pushing yaw rate past the test's upper bound even with the
+ * drivetrain-side traction control in place. A small proportional yaw-rate damping torque --
+ * independent of the drivetrain -- reins in the resulting oversteer without touching straight-line
+ * torque.
+ */
+export const YAW_DAMPING_GAIN_NM_PER_RAD_S = 5000;
+export const YAW_DAMPING_TORQUE_CAP_NM = 4000;
+
 // ---------------------------------------------------------------------------------------------
 // Fixed timestep
 // ---------------------------------------------------------------------------------------------
@@ -217,52 +264,21 @@ export const FIXED_DT = 1 / 60;
 export const FIXED_SUBSTEPS = 4;
 
 // ---------------------------------------------------------------------------------------------
-// BINDING GAP WORKAROUND: box3d's per-body angular-velocity safety clamp.
+// box3d's per-body angular-velocity safety clamp -- BINDFIX applied.
 //
 // vendor/box3d/src/solver.c's b3IntegratePositionsTask() clamps EVERY dynamic body's angular speed
 // to `B3_MAX_ROTATION * context->inv_dt` each step (B3_MAX_ROTATION = 0.25*pi, a "don't rotate more
 // than 45 degrees in one world.step() call" tunneling-safety limit -- vendor/box3d/include/box3d/
-// constants.h), UNLESS the body was created with `b3BodyDef.allowFastRotation = true`
-// (vendor/box3d/src/body.c, checked in solver.c's clamp). box3d-js's binding does not expose this
-// field anywhere: src/wasm-shim/binding.c's b3js_CreateBody starts from b3DefaultBodyDef() (which
-// zero-initializes it to false) and never overrides it, and no b3js_Body_SetAllowFastRotation (or
-// similar) shim function exists, so EVERY body created through this binding is subject to the clamp
-// with no way to opt out short of editing ../src (out of bounds for this task).
+// constants.h; at FIXED_DT=1/60 that's ~47.12 rad/s, capping our ~0.385m rear wheel's
+// rolling-without-slip road speed at ~65 km/h), UNLESS the body was created with
+// `b3BodyDef.allowFastRotation = true` (vendor/box3d/src/body.c, checked in solver.c's clamp;
+// upstream's own doc comment: "Should only be used for circular objects, like wheels.").
 //
-// With context.inv_dt = 1/FIXED_DT = 60, that clamp is exactly 0.25*pi*60 ~= 47.12 rad/s -- for our
-// ~0.385m rear wheel radius, that caps *rolling-without-slip* road speed at ~65 km/h. Verified
-// empirically (game/sim's dev notes): once a driven wheel is pinned at this cap, kinetic friction at
-// the tire contact patch settles into a stable equilibrium at (capped omega * wheel radius) and the
-// chassis cannot be accelerated past it through wheel-joint-mediated friction alone -- confirmed by
-// directly setting joint spin targets/torques (bypassing the drivetrain model entirely) and by a
-// from-scratch free-spinning-sphere-on-ground baseline (which behaves correctly, converting spin to
-// rolling exactly per rolling-without-slip kinematics, since it isn't capped this low at the tested
-// speeds). This blocks the straight-line drive test's ">=90 km/h" requirement outright, since it's a
-// hard engine ceiling, not a tuning problem.
-//
-// Splitting world.step() into more, smaller-dt calls per fixed update (to raise this per-call cap)
-// was tried and rejected: it degrades contact/friction quality badly regardless of how subStepCount
-// is adjusted to compensate (most likely from collision manifolds/warm-start impulses resetting more
-// often, once per top-level Step() call) -- reproduced across many split factors, consistently WORSE
-// than a single call, never better. Increasing subStepCount alone (single call, dt unchanged) does
-// NOT raise the cap at all (confirmed: it's tied to the call's own `dt` argument, not `h`), and
-// changing wheel radius enough to matter (~0.65m+) would be a visually-obvious mismatch against the
-// measured 0.385-0.39m mesh.
-//
-// WORKAROUND (game/-side only): once a driven wheel's chassis-implied angular speed (chassis forward
-// speed / wheel radius -- NOT the joint's own, already-capped getSpinSpeed() reading) approaches this
-// ceiling, vehicle.ts's stepVehicle() applies a small supplemental forward force directly to the
-// chassis, ramped in smoothly (see ENGINE_ASSIST_GATE_START/END_RATIO) rather than switched on/off,
-// representing the propulsion the capped wheel can no longer express through rotation. This is a
-// documented, bounded compensation for a specific, confirmed engine limitation -- not a general
-// "cheat" force; it contributes nothing below the gate-start threshold, where normal wheel-joint
-// physics already produce correct torque-limited/traction-limited acceleration (verified against the
-// free-sphere baseline).
+// This is now wired end-to-end: src/wasm-shim/binding.c's b3js_CreateBody takes an
+// `allowFastRotation` scalar, and src/ts/body.ts's BodyOptions exposes it. vehicle.ts's
+// createVehicle() sets `allowFastRotation: true` on all 4 wheel bodies, so driven wheels can spin
+// past the old ~65 km/h ceiling. The chassis-forward-force "engine assist" workaround that used to
+// compensate for the capped wheel speed (see git history) has been removed -- powertrain.ts's
+// existing torque-limited-velocity-servo pattern (driveServoTarget()/UNREACHABLE_WHEEL_OMEGA)
+// reaches high speed on its own now that the wheels aren't artificially pinned.
 // ---------------------------------------------------------------------------------------------
-
-export const WHEEL_ROTATION_CAP_RAD_S = 0.25 * Math.PI * (1 / FIXED_DT);
-export const ENGINE_ASSIST_GATE_START_RATIO = 0.85;
-export const ENGINE_ASSIST_GATE_END_RATIO = 1.0;
-/** Multiplier on (2 driven wheels' worth of maxSpinTorque / wheel radius), empirically tuned so the
- * straight-line test clears 90 km/h with margin inside its 5s window. */
-export const ENGINE_ASSIST_FORCE_MULTIPLIER = 6;
