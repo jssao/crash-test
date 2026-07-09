@@ -158,18 +158,20 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		});
 	}
 
-	stepWeldsAndWheels({
-		vehicle: system.vehicle,
-		panels: system.panels,
-		hits,
-		carMassKg: system.carMassKg,
-		timeSec: system.timeSec,
-		wheelOverThresholdSteps: system.wheelOverThresholdSteps,
-		emit: (e) => system.emitter.emit(e),
-	});
-
-	// ---- Plastic crumple: every qualifying hit (chassis or a still-attached/loosened panel) deforms
-	// nearby registered meshes. ----
+	// ---- Plastic crumple FIRST, against this step's PRE-weld panel states -- see hitTouchesCar()'s
+	// doc comment. ORDER BUG (root-caused via crash-realism monotonicity failure): stepWeldsAndWheels()
+	// below can BREAK a panel weld from the very same high-energy hit that's about to be evaluated here;
+	// hitTouchesCar() deliberately excludes hits against an already-broken panel (so debris flying away
+	// doesn't keep crumpling), but if welds ran first, a hit violent enough to break a panel in ONE step
+	// would have its OWN crumple contribution silently discarded -- exactly backwards, since the most
+	// energetic hits are the ones a crush-vs-speed model most needs to keep. Measured (headless probe,
+	// game/sim/crash-realism-harness.mjs): a 64 km/h frontal hit only LOOSENS the hood in its landing
+	// step (hitTouchesCar still true -> crumple applied, crush 0.44m), while an 80 km/h hit is energetic
+	// enough to BREAK the hood in that same step -- with welds running first, that hit was dropped
+	// entirely and crush fell to 0.31m (LESS than the 64 km/h case, sim/crash-realism.test.mjs's
+	// 'monotonic 40<64<80' failure). Running crumple first (against the pre-break state every hit this
+	// step actually struck) fixes the non-monotonicity without changing any crush-band constant --
+	// confirmed 40/64/80/120 -> 0.236/0.442/0.535/0.580m, and the full sim suite (65 files) stays green.
 	for (const hit of hits) {
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
 		if (!hitTouchesCar(hit, system.panels)) continue;
@@ -181,6 +183,16 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		});
 		for (const meshId of result.shatteredNowMeshIds) system.emitter.emit({ type: 'glassShattered', mesh: meshId });
 	}
+
+	stepWeldsAndWheels({
+		vehicle: system.vehicle,
+		panels: system.panels,
+		hits,
+		carMassKg: system.carMassKg,
+		timeSec: system.timeSec,
+		wheelOverThresholdSteps: system.wheelOverThresholdSteps,
+		emit: (e) => system.emitter.emit(e),
+	});
 
 	// ---- Broken-panel lifecycle: disable hit events after N seconds, despawn after M seconds or
 	// beyond D meters from the chassis. ----

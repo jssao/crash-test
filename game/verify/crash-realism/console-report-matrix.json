@@ -11,11 +11,11 @@
           "roof": "attached"
         },
         "stressLevels": {
-          "hood": 45.64640718494164,
-          "doorL": 1.4454447743156842,
-          "doorR": 1.476644989231717,
+          "hood": 46.957481420527486,
+          "doorL": 1.503156292844385,
+          "doorR": 1.3903339113124837,
           "hatch": 0,
-          "roof": 0.0017645181367184452
+          "roof": 0.0017513875584849133
         },
         "wheelStates": {
           "fl": "attached",
@@ -23,7 +23,7 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 1654,
+        "dentedVertexCount": 1508,
         "glassShattered": []
       }
     },
@@ -38,11 +38,11 @@
           "roof": "attached"
         },
         "stressLevels": {
-          "hood": 102.66536977195206,
-          "doorL": 3.2477954653198773,
-          "doorR": 4.214425023615974,
+          "hood": 102.35058618667293,
+          "doorL": 3.2363202929527777,
+          "doorR": 4.230355280655582,
           "hatch": 0,
-          "roof": 0.002613861930316653
+          "roof": 0.002509677736990009
         },
         "wheelStates": {
           "fl": "attached",
@@ -50,7 +50,7 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 3553,
+        "dentedVertexCount": 3561,
         "glassShattered": []
       }
     },
@@ -65,19 +65,19 @@
           "roof": "attached"
         },
         "stressLevels": {
-          "hood": 127.8581920238771,
-          "doorL": 6.867375629774593,
-          "doorR": 3.1274137533887494,
+          "hood": 132.62594549434203,
+          "doorL": 6.418339184972633,
+          "doorR": 3.038730226233037,
           "hatch": 0,
-          "roof": 0.006644370141241953
+          "roof": 0.0032158194131372314
         },
         "wheelStates": {
-          "fl": "attached",
-          "fr": "attached",
+          "fl": "detached",
+          "fr": "detached",
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 3601,
+        "dentedVertexCount": 4253,
         "glassShattered": []
       }
     },
@@ -92,11 +92,11 @@
           "roof": "attached"
         },
         "stressLevels": {
-          "hood": 110.82120480817468,
-          "doorL": 15.01598463723995,
-          "doorR": 15.31100818183641,
+          "hood": 114.31687935897573,
+          "doorL": 11.327511225923741,
+          "doorR": 19.64846291006791,
           "hatch": 0,
-          "roof": 0.023224480040799775
+          "roof": 0.012838965860537467
         },
         "wheelStates": {
           "fl": "attached",
@@ -104,7 +104,7 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 7009,
+        "dentedVertexCount": 10930,
         "glassShattered": []
       }
     }
@@ -113,5 +113,5 @@
   "noDamage": [],
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-09T21:57:25.325Z"
+  "timestamp": "2026-07-09T23:01:47.480Z"
 }
