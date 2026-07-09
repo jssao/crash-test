@@ -7,10 +7,15 @@
 // headless sim harness alike (game/sim/harness.mjs), same as chassis/wheels.
 
 import { Body, BodyType, Shape, World, WeldJoint } from '../../../src/ts/index.js';
-import { add, IDENTITY_Q, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
+import { add, IDENTITY_Q, multiplyQuat, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
 import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M } from '../vehicle/tuning';
-import { CAR_MAP, type Vec3Mm } from '../assets/car-map';
+import { CAR_MAP, type Vec3Mm, type Vec4 } from '../assets/car-map';
 import { PANEL_FRICTION, PANEL_HALF_THICKNESS_M, PANEL_MASS_KG, PANEL_THICKNESS_AXIS } from './damage-tuning';
+
+/** car-map.ts records [x,y,z,w]; box3d's Q4 is {x,y,z,w} -- same numbers, different shape. */
+function q4FromVec4(v: Vec4): Q4 {
+	return { x: v[0], y: v[1], z: v[2], w: v[3] };
+}
 
 export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'hatch' | 'roof';
 
@@ -53,11 +58,41 @@ function mmToLocalCenter(centerMm: Vec3Mm): V3 {
 
 /** Footprint from the measured bbox, with the panel's "thin" axis forced to PANEL_HALF_THICKNESS_M
  * (damage-tuning.ts's PANEL_THICKNESS_AXIS doc comment explains why the raw measured value on that
- * axis is not used directly). */
-function panelHalfExtents(key: PanelKey, sizeMm: Vec3Mm): V3 {
+ * axis is not used directly). Expressed in the CHASSIS/car-root reference frame (same convention as
+ * car-map.ts's sizeMm and PANEL_THICKNESS_AXIS's 'x'/'y' names -- e.g. "thin along y" means thin
+ * vertically). */
+function panelHalfExtentsRef(key: PanelKey, sizeMm: Vec3Mm): V3 {
 	const half: V3 = { x: sizeMm[0] / 2000, y: sizeMm[1] / 2000, z: sizeMm[2] / 2000 };
 	half[PANEL_THICKNESS_AXIS[key]] = PANEL_HALF_THICKNESS_M;
 	return half;
+}
+
+/**
+ * Remaps a box's half-extents from the chassis/car-root reference frame into the panel BODY's own
+ * local frame, given the body's rotation RELATIVE to that reference frame (`nodeWorldQuat` --
+ * car-map.ts's PanelNode.worldQuat). Needed because the panel body is no longer spawned at the bare
+ * chassis rotation (createPanels()'s doc comment): its box shape's halfExtents are always local to
+ * the body, so if the body is rotated relative to the reference frame the raw sizeMm-derived
+ * half-extents (computed in and for that reference frame) would describe the WRONG box in world
+ * space -- e.g. the hood's true 5cm vertical thinness would instead land front-to-back.
+ *
+ * Exact ONLY when `nodeWorldQuat` is an axis-permutation rotation (a multiple of 90deg about a
+ * principal axis) -- confirmed true here (measured exactly -90deg about X for every panel, see
+ * car-map.ts's PanelNode.worldQuat doc comment): rotating each body-local basis axis by the
+ * quaternion yields another axis-aligned (|component|==1 on exactly one axis) unit vector, so
+ * dotting its absolute components against `refHalf` picks out exactly the one reference-frame
+ * half-extent that ends up along that body-local axis once rotated.
+ */
+function remapHalfExtentsToBodyLocal(nodeWorldQuat: Q4, refHalf: V3): V3 {
+	const pick = (axis: V3): number => {
+		const e = rotateVector(nodeWorldQuat, axis);
+		return Math.abs(e.x) * refHalf.x + Math.abs(e.y) * refHalf.y + Math.abs(e.z) * refHalf.z;
+	};
+	return {
+		x: pick({ x: 1, y: 0, z: 0 }),
+		y: pick({ x: 0, y: 1, z: 0 }),
+		z: pick({ x: 0, y: 0, z: 1 }),
+	};
 }
 
 export interface PanelHandle {
@@ -70,6 +105,11 @@ export interface PanelHandle {
 	weldJoint: WeldJoint | null;
 	/** Chassis-local mount point (== this panel body's local offset from the chassis origin at spawn). */
 	readonly localCenter: V3;
+	/** This panel's GLB node world rotation (car-map.ts's PanelNode.worldQuat, as a Q4) -- the rigid
+	 * chassis-local ORIENTATION offset between the chassis frame and how the panel mesh is actually
+	 * authored/rendered (see createPanels()'s doc comment). Needed again by resetAttachedPanels() to
+	 * restore the same rest rotation after a reset. */
+	readonly nodeWorldQuat: Q4;
 	readonly halfExtents: V3;
 	readonly massKg: number;
 	readonly density: number;
@@ -90,22 +130,37 @@ export interface PanelHandle {
  * the spec requires total car mass to stay ~unchanged with panels included, which only holds if every
  * vehicle -- including the 5 pre-existing headless drive tests -- gets panels too (see tuning.ts's
  * CHASSIS_MASS_KG doc comment for the mass-conservation arithmetic).
+ *
+ * ROTATION (root-cause fix): every panel node in CarConcept.glb is parented under 'BodyUnderside',
+ * which carries a baked -90deg-about-X rotation (car-map.ts's PanelNode.worldQuat doc comment) --
+ * the panel MESH's actual world orientation is therefore chassisRotation * node.worldQuat, NOT bare
+ * chassisRotation. Each panel body is spawned at that composed rotation (matching the mesh exactly,
+ * not just approximately), and the weld's frameA carries the same node.worldQuat as its rotation
+ * (frameB stays identity) so the rigid constraint holds the body at exactly that composed rotation
+ * forever while attached -- i.e. the weld reproduces today's rigid attachment (same position/motion),
+ * just at the mesh's real orientation instead of the chassis's bare one. This is what makes the panel
+ * body's captured pose (panelVisuals.ts's reparentPanelVisual(), read at the instant a weld loosens/
+ * breaks) match the mesh's actual rendered pose, so the body-local offset it computes stays correct as
+ * the freed body rotates away afterward (previously that capture was ~90deg off, so the mesh diverged
+ * from the body -- e.g. the hood rendering 3.1m below its physics body after a hard crash).
  */
 export function createPanels(world: World, chassis: Body, spawnPosition: V3, spawnRotation: Q4): Record<PanelKey, PanelHandle> {
 	const result = {} as Record<PanelKey, PanelHandle>;
 	for (const key of PANEL_KEYS) {
 		const node = CAR_MAP.panels[PANEL_NODE_NAMES[key]];
 		const localCenter = mmToLocalCenter(node.centerMm);
-		const halfExtents = panelHalfExtents(key, node.sizeMm);
+		const nodeWorldQuat = q4FromVec4(node.worldQuat);
+		const halfExtents = remapHalfExtentsToBodyLocal(nodeWorldQuat, panelHalfExtentsRef(key, node.sizeMm));
 		const massKg = PANEL_MASS_KG[key];
 		const volume = 8 * halfExtents.x * halfExtents.y * halfExtents.z;
 		const density = massKg / volume;
 
 		const worldPos = add(spawnPosition, rotateVector(spawnRotation, localCenter));
+		const bodyRotation = multiplyQuat(spawnRotation, nodeWorldQuat);
 		const body = world.createBody({
 			type: BodyType.Dynamic,
 			position: worldPos,
-			rotation: spawnRotation,
+			rotation: bodyRotation,
 			userData: PANEL_ENTITY_ID[key],
 		});
 		const shape = body.createBoxShape({
@@ -118,7 +173,7 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 		});
 
 		const weldJoint = world.createWeldJoint(chassis, body, {
-			frameA: { position: localCenter, rotation: IDENTITY_Q },
+			frameA: { position: localCenter, rotation: nodeWorldQuat },
 			frameB: { position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY_Q },
 			collideConnected: false,
 			linearHertz: 0,
@@ -133,6 +188,7 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 			shape,
 			weldJoint,
 			localCenter,
+			nodeWorldQuat,
 			halfExtents,
 			massKg,
 			density,
@@ -196,7 +252,8 @@ export function resetAttachedPanels(panels: Record<PanelKey, PanelHandle>, spawn
 		const panel = panels[key];
 		if (panel.state !== 'attached') continue;
 		const worldPos = add(spawnPosition, rotateVector(spawnRotation, panel.localCenter));
-		panel.body.setTransform(worldPos, spawnRotation);
+		const bodyRotation = multiplyQuat(spawnRotation, panel.nodeWorldQuat);
+		panel.body.setTransform(worldPos, bodyRotation);
 		panel.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
 		panel.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
 		panel.body.setAwake(true);

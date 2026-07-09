@@ -2,12 +2,13 @@
 // Re-run `npm run analyze-car` after the source GLB changes to refresh these numbers.
 //
 // Source: public/assets/car/CarConcept.glb (Khronos glTF-Sample-Assets "CarConcept", CC-BY-4.0)
-// Generated: 2026-07-08T23:26:51.242Z
+// Generated: 2026-07-09T10:36:47.436Z
 // Axis convention (confirmed empirically from the file, not assumed): glTF standard
 // Y-up, X-right (car width), Z (car length, +Z ~ front). Car root sits with wheel
 // bottoms at world Y ~ 0 (identity root transform) — safe to place at scene origin.
 
 export interface Vec3Mm { readonly 0: number; readonly 1: number; readonly 2: number }
+export interface Vec4 { readonly 0: number; readonly 1: number; readonly 2: number; readonly 3: number }
 
 export interface NodeBox {
   /** World-space AABB center at load time (car root at scene origin), millimeters. */
@@ -22,16 +23,40 @@ export interface WheelNode extends NodeBox {
   widthMm: number;
   /** Rim / brake pad / brake disc / tire child node names. */
   childNodes: string[];
+  /**
+   * This node's own world-space rotation quaternion [x,y,z,w] at load time (car root at scene
+   * origin) -- the TRS-chain transform of the NODE itself, NOT derived from mesh geometry. All 4
+   * wheel nodes sit under 'BodyUnderside' (a baked -90deg-about-X ancestor) AND additionally carry
+   * their own non-identity local rotation (unlike the panels below, whose own local quat is
+   * identity) -- measured per-wheel: FL/FR/RL/RR each differ from identity by a different angle
+   * (~30/45/160/145deg), which is why wheels.ts fully strips this (does not merely subtract a
+   * shared ancestor offset) rather than deriving a "corrected" pose from it.
+   */
+  worldQuat: Vec4;
 }
 
 export interface PanelNode extends NodeBox {
   node: string;
   /** Sub-nodes that move as one rigid group with this panel (glass, mirrors, handles, trim). */
   childNodes: string[];
+  /**
+   * This node's own world-space rotation quaternion [x,y,z,w] at load time (car root at scene
+   * origin) -- the TRS-chain transform of the NODE itself, NOT derived from mesh geometry. All 5
+   * damage panels sit under 'BodyUnderside', which carries a baked -90deg-about-X rotation (each
+   * panel's OWN local quat is identity, so this equals BodyUnderside's world quat exactly);
+   * panels.ts spawns each panel's PHYSICS body at chassisSpawnRotation * worldQuat (composed, not
+   * replacing) and welds it there, so the body's rest orientation matches the mesh's actual
+   * rendered orientation instead of the chassis's bare rotation.
+   */
+  worldQuat: Vec4;
 }
 
 export interface ChassisNode extends NodeBox {
   node: string;
+  /** See WheelNode/PanelNode's worldQuat doc comment -- recorded here for BodyUnderside/Engine/
+   * Axles/InteriorCage too, mainly as a cross-check reference (BodyUnderside's own worldQuat is
+   * exactly the -90deg-about-X ancestor rotation panels/wheels inherit). */
+  worldQuat: Vec4;
 }
 
 export interface GlassMaterial {
@@ -79,7 +104,7 @@ export interface CarMap {
 
 export const CAR_MAP: CarMap = {
   "sourceFile": "public/assets/car/CarConcept.glb",
-  "generatedAt": "2026-07-08T23:26:51.242Z",
+  "generatedAt": "2026-07-09T10:36:47.436Z",
   "axisConvention": "Y-up, X-right (width), Z-forward (length); root identity transform, wheel-bottom ~ Y=0",
   "overallDimsMm": {
     "length": 4357,
@@ -108,6 +133,12 @@ export const CAR_MAP: CarMap = {
         "WheelFrontLRim",
         "WheelFrontLBrakePad",
         "WheelFrontLBrakeDisc"
+      ],
+      "worldQuat": [
+        0.25000003,
+        -0.25,
+        0.06698731,
+        0.93301269
       ]
     },
     "frontRight": {
@@ -128,6 +159,12 @@ export const CAR_MAP: CarMap = {
         "WheelFrontRRim",
         "WheelFrontRBrakePad",
         "WheelFrontRBrakeDisc"
+      ],
+      "worldQuat": [
+        -0.36964381,
+        -0.23911762,
+        -0.09904576,
+        0.8923991
       ]
     },
     "rearLeft": {
@@ -148,6 +185,12 @@ export const CAR_MAP: CarMap = {
         "WheelRearLBrakeDisc",
         "WheelRearLBrakePad",
         "WheelRearLRim"
+      ],
+      "worldQuat": [
+        0.98480775,
+        0,
+        0,
+        0.17364817
       ]
     },
     "rearRight": {
@@ -168,6 +211,12 @@ export const CAR_MAP: CarMap = {
         "WheelRearRBrakeDisc",
         "WheelRearRBrakePad",
         "WheelRearRRim"
+      ],
+      "worldQuat": [
+        0.95371695,
+        0,
+        0,
+        -0.3007058
       ]
     }
   },
@@ -190,6 +239,12 @@ export const CAR_MAP: CarMap = {
         "BodyHoodTopgrill",
         "BodyHoodUnder",
         "BodyHeadlights"
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "BodyDoorLColor1": {
@@ -219,6 +274,12 @@ export const CAR_MAP: CarMap = {
         "BodyDoorLWindowGasket",
         "BodyDoorLWindow",
         "BodyDoorLMirrorColor2"
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "BodyDoorRColor1": {
@@ -248,6 +309,12 @@ export const CAR_MAP: CarMap = {
         "InteriorDoorR04",
         "InteriorDoorR05",
         "InteriorDoorR06"
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "InteriorRearHatch": {
@@ -262,7 +329,13 @@ export const CAR_MAP: CarMap = {
         213,
         1195
       ],
-      "childNodes": []
+      "childNodes": [],
+      "worldQuat": [
+        -0.70710695,
+        0,
+        0,
+        0.70710661
+      ]
     },
     "BodyRoofPanel": {
       "node": "BodyRoofPanel",
@@ -276,7 +349,13 @@ export const CAR_MAP: CarMap = {
         32,
         744
       ],
-      "childNodes": []
+      "childNodes": [],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
+      ]
     },
     "BodyRearPanelsColor1": {
       "node": "BodyRearPanelsColor1",
@@ -298,6 +377,12 @@ export const CAR_MAP: CarMap = {
         "BodyTaillightsPanels",
         "BodyTaillights",
         "BodyRearwindow"
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "BodyPanelsColor2": {
@@ -312,7 +397,13 @@ export const CAR_MAP: CarMap = {
         414,
         4337
       ],
-      "childNodes": []
+      "childNodes": [],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
+      ]
     },
     "BodyPillars": {
       "node": "BodyPillars",
@@ -326,7 +417,13 @@ export const CAR_MAP: CarMap = {
         1034,
         1872
       ],
-      "childNodes": []
+      "childNodes": [],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
+      ]
     }
   },
   "chassis": {
@@ -341,6 +438,12 @@ export const CAR_MAP: CarMap = {
         2542,
         1149,
         4357
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "Engine": {
@@ -354,6 +457,12 @@ export const CAR_MAP: CarMap = {
         1205,
         608,
         722
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "Axles": {
@@ -367,6 +476,12 @@ export const CAR_MAP: CarMap = {
         2106,
         190,
         3001
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     },
     "InteriorCage": {
@@ -380,6 +495,12 @@ export const CAR_MAP: CarMap = {
         1904,
         306,
         1950
+      ],
+      "worldQuat": [
+        -0.70710678,
+        0,
+        0,
+        0.70710678
       ]
     }
   },

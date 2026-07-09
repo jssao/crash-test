@@ -15,13 +15,17 @@
 // car-map.ts's axisConvention). That's a FIXED baked matrix (car-map hierarchies don't animate), used
 // to convert mesh-local <-> visual-model-space once at registration. From visual-model space:
 //   chassis-local Y = visual-model Y - CHASSIS_ORIGIN_HEIGHT_M (X/Z unchanged)          -- for
-//   chassis/glass meshes (car.root's own render transform each frame IS the chassis transform)
-//   panel-local = chassis-local - panel.localCenter                                      -- for panel
-//   meshes (a panel body's transform always equals chassisTransform*translate(localCenter) while
-//   rigidly welded, same rotation -- see panels.ts's createPanels()); once loosened/broken, the panel
-//   mesh is reparented and driven directly by its own body (panelVisuals.ts), so this same PANEL-LOCAL
-//   registration frame remains correct forever (crumple.ts's positions are always in "that body's
-//   local frame", never "car.root's frame").
+//   chassis/glass meshes (car.root's own render transform each frame IS the chassis transform,
+//   SAME rotation, so this is a pure translation)
+//   panel-local = inverse(panel.nodeWorldQuat).rotate(chassis-local - panel.localCenter)  -- for panel
+//   meshes. A panel body's transform equals chassisTransform * translate(localCenter) * rotate
+//   (nodeWorldQuat) while rigidly welded (panels.ts's createPanels() doc comment: the body's rest
+//   rotation matches the mesh's ACTUAL authored orientation, chassisRot * nodeWorldQuat, not bare
+//   chassisRot) -- so converting a chassis-local point into this body's own local frame needs that
+//   extra un-rotate, not just a translation. Once loosened/broken, the panel mesh is reparented and
+//   driven directly by its own body (panelVisuals.ts), so this same PANEL-LOCAL registration frame
+//   remains correct forever (crumple.ts's positions are always in "that body's local frame", never
+//   "car.root's frame").
 
 import * as THREE from 'three';
 import { CAR_MAP } from '../assets/car-map';
@@ -29,6 +33,18 @@ import { CHASSIS_ORIGIN_HEIGHT_M } from '../vehicle/tuning';
 import { registerDeformable, type DamageSystem } from '../damage/system';
 import { PANEL_KEYS, PANEL_NODE_NAMES, type PanelHandle, type PanelKey } from '../damage/panels';
 import type { DeformableMeshHandle } from '../damage/crumple';
+
+/** Each panel's GLB node world rotation (car-map.ts's PanelNode.worldQuat), as a THREE.Quaternion --
+ * the same rigid chassis-local orientation offset panels.ts's createPanels() spawns/welds the panel
+ * BODY at, needed here to convert between "chassis-local" and "that panel body's own local" frames. */
+const PANEL_WORLD_QUAT: Record<PanelKey, THREE.Quaternion> = (() => {
+	const out = {} as Record<PanelKey, THREE.Quaternion>;
+	for (const key of PANEL_KEYS) {
+		const q = CAR_MAP.panels[PANEL_NODE_NAMES[key]].worldQuat;
+		out[key] = new THREE.Quaternion(q[0], q[1], q[2], q[3]);
+	}
+	return out;
+})();
 
 interface Binding {
 	mesh: THREE.Mesh;
@@ -95,6 +111,9 @@ export function registerCarDeformables(system: DamageSystem, carRoot: THREE.Obje
 		const basePositions = new Float32Array(vertexCount * 3);
 		const v = new THREE.Vector3();
 		const localCenter = attachedTo === 'chassis' ? null : panels[attachedTo].localCenter;
+		// inverse(nodeWorldQuat): chassis-local -> that panel BODY's own local frame (see this module's
+		// COORDINATE FRAMES doc comment) -- null for chassis/glass meshes, which need no extra rotation.
+		const invPanelQuat = attachedTo === 'chassis' ? null : PANEL_WORLD_QUAT[attachedTo].clone().invert();
 		for (let i = 0; i < vertexCount; i++) {
 			v.fromBufferAttribute(posAttr, i);
 			v.applyMatrix4(forwardMatrix); // -> visual-model space
@@ -103,6 +122,7 @@ export function registerCarDeformables(system: DamageSystem, carRoot: THREE.Obje
 				v.x -= localCenter.x;
 				v.y -= localCenter.y;
 				v.z -= localCenter.z;
+				v.applyQuaternion(invPanelQuat!); // -> panel BODY's own local frame
 			}
 			basePositions[i * 3] = v.x;
 			basePositions[i * 3 + 1] = v.y;
@@ -146,9 +166,13 @@ export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panel
 		const { handle, mesh, inverseMatrix, attachedTo } = b;
 		const posAttr = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
 		const localCenter = attachedTo === 'chassis' ? null : panels[attachedTo].localCenter;
+		// Forward nodeWorldQuat: panel BODY's own local frame -> chassis-local (see this module's
+		// COORDINATE FRAMES doc comment) -- the exact inverse of registerCarDeformables()'s conversion.
+		const panelQuat = attachedTo === 'chassis' ? null : PANEL_WORLD_QUAT[attachedTo];
 		for (let i = 0; i < handle.vertexCount; i++) {
 			scratchV.set(handle.positions[i * 3], handle.positions[i * 3 + 1], handle.positions[i * 3 + 2]);
 			if (localCenter) {
+				scratchV.applyQuaternion(panelQuat!); // -> chassis-local, panel-centered
 				scratchV.x += localCenter.x;
 				scratchV.y += localCenter.y;
 				scratchV.z += localCenter.z;
@@ -164,8 +188,12 @@ export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panel
 			// Normals only need the ROTATION part of the forward/inverse transform (no translation);
 			// THREE.Vector3.transformDirection uses the upper 3x3 -- exactly what we want here since
 			// the local-frame registration/deformation math never introduced any non-uniform scale.
+			// Panel normals additionally need the same panel-body-local -> chassis-local un-rotation
+			// applied to positions above (panelQuat), BEFORE inverseMatrix's rotation -- omitting it
+			// would leave panel normals rotated by the panel's ~90deg node offset relative to the mesh.
 			for (let i = 0; i < handle.vertexCount; i++) {
 				scratchV.set(handle.normals[i * 3], handle.normals[i * 3 + 1], handle.normals[i * 3 + 2]);
+				if (panelQuat) scratchV.applyQuaternion(panelQuat);
 				scratchV.transformDirection(inverseMatrix);
 				normAttr.setXYZ(i, scratchV.x, scratchV.y, scratchV.z);
 			}
