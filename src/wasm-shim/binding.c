@@ -103,12 +103,28 @@ typedef struct b3jsHitEvent
 	float px, py, pz;
 	float nx, ny, nz;
 	float approachSpeed;
+	// Deliberately truncated to 32 bits -- see b3ContactHitEvent::userMaterialIdA/B (uint64_t,
+	// types.h) -- this shim's convention throughout is that every id crossing into an event buffer
+	// (entity ids from userData included, see b3js_PtrToU32) is a plain 32-bit application tag, not a
+	// full 64-bit engine handle. b3js_Shape_SetSurfaceMaterial/GetSurfaceMaterial below preserve the
+	// full 64-bit userMaterialId for callers that need it; only this per-step hot-path readback narrows it.
+	uint32_t userMaterialIdA;
+	uint32_t userMaterialIdB;
 } b3jsHitEvent;
 
 typedef struct b3jsJointEvent
 {
 	uint32_t userData;
 } b3jsJointEvent;
+
+// Contact begin/end touch events (b3ContactBeginTouchEvent/b3ContactEndTouchEvent, types.h) --
+// same two-entity-id shape as a hit event's userDataA/B, without the point/normal/speed payload a
+// one-shot hit carries (begin/end are pure touch-state transitions).
+typedef struct b3jsContactEvent
+{
+	uint32_t userDataA;
+	uint32_t userDataB;
+} b3jsContactEvent;
 
 typedef struct b3jsEventBuf
 {
@@ -122,6 +138,8 @@ typedef struct b3jsEventBuf
 static b3jsEventBuf s_moveBufs[B3JS_MAX_WORLDS];
 static b3jsEventBuf s_hitBufs[B3JS_MAX_WORLDS];
 static b3jsEventBuf s_jointBufs[B3JS_MAX_WORLDS];
+static b3jsEventBuf s_contactBeginBufs[B3JS_MAX_WORLDS];
+static b3jsEventBuf s_contactEndBufs[B3JS_MAX_WORLDS];
 
 static void b3js_EnsureCapacity( b3jsEventBuf* buf, int neededCount, size_t elemSize )
 {
@@ -193,8 +211,38 @@ static void b3js_DrainEvents( b3WorldId worldId )
 		hitOut[i].ny = ev->normal.y;
 		hitOut[i].nz = ev->normal.z;
 		hitOut[i].approachSpeed = ev->approachSpeed;
+		hitOut[i].userMaterialIdA = (uint32_t)ev->userMaterialIdA;
+		hitOut[i].userMaterialIdB = (uint32_t)ev->userMaterialIdB;
 	}
 	hitBuf->count = contactEvents.hitCount;
+
+	// Begin/end touch events -- drained the same way as hit events above, resolved to application
+	// entity ids via b3js_EntityIdFromShape. This is read synchronously right after b3World_Step
+	// (nothing between the step and this drain can destroy a shape/body), so despite the "may have
+	// been destroyed" warnings on b3ContactEndTouchEvent's doc comment (which describe hazards from
+	// *storing* a shape id across steps or world mutations), every shape referenced here is still
+	// exactly as valid as it was during this step -- no b3Shape_IsValid guard needed.
+	b3jsEventBuf* beginBuf = &s_contactBeginBufs[slot];
+	b3js_EnsureCapacity( beginBuf, contactEvents.beginCount, sizeof( b3jsContactEvent ) );
+	b3jsContactEvent* beginOut = (b3jsContactEvent*)beginBuf->data;
+	for ( int i = 0; i < contactEvents.beginCount; i++ )
+	{
+		const b3ContactBeginTouchEvent* ev = &contactEvents.beginEvents[i];
+		beginOut[i].userDataA = b3js_EntityIdFromShape( ev->shapeIdA );
+		beginOut[i].userDataB = b3js_EntityIdFromShape( ev->shapeIdB );
+	}
+	beginBuf->count = contactEvents.beginCount;
+
+	b3jsEventBuf* endBuf = &s_contactEndBufs[slot];
+	b3js_EnsureCapacity( endBuf, contactEvents.endCount, sizeof( b3jsContactEvent ) );
+	b3jsContactEvent* endOut = (b3jsContactEvent*)endBuf->data;
+	for ( int i = 0; i < contactEvents.endCount; i++ )
+	{
+		const b3ContactEndTouchEvent* ev = &contactEvents.endEvents[i];
+		endOut[i].userDataA = b3js_EntityIdFromShape( ev->shapeIdA );
+		endOut[i].userDataB = b3js_EntityIdFromShape( ev->shapeIdB );
+	}
+	endBuf->count = contactEvents.endCount;
 
 	b3JointEvents jointEvents = b3World_GetJointEvents( worldId );
 	b3jsEventBuf* jointBuf = &s_jointBufs[slot];
@@ -228,6 +276,8 @@ uint64_t b3js_CreateWorld( float gx, float gy, float gz, float hitEventThreshold
 	s_moveBufs[slot].count = 0;
 	s_hitBufs[slot].count = 0;
 	s_jointBufs[slot].count = 0;
+	s_contactBeginBufs[slot].count = 0;
+	s_contactEndBufs[slot].count = 0;
 
 	return b3js_PackWorldId( worldId );
 }
@@ -299,6 +349,47 @@ int32_t b3js_GetJointEventsCount( uint64_t worldId64 )
 {
 	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
 	return s_jointBufs[slot].count;
+}
+
+int32_t b3js_GetContactBeginEventsPtr( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return (int32_t)(intptr_t)s_contactBeginBufs[slot].data;
+}
+
+int32_t b3js_GetContactBeginEventsCount( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return s_contactBeginBufs[slot].count;
+}
+
+int32_t b3js_GetContactEndEventsPtr( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return (int32_t)(intptr_t)s_contactEndBufs[slot].data;
+}
+
+int32_t b3js_GetContactEndEventsCount( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return s_contactEndBufs[slot].count;
+}
+
+// Radial explosion (b3World_Explode / b3ExplosionDef, box3d.h/types.h) -- area-aware impulse applied
+// to spheres/capsules/hulls within radius+falloff of `position`. Upstream's own default def
+// (b3DefaultExplosionDef()) only seeds maskBits; radius/falloff/impulsePerArea have no meaningful
+// default (zero-initialized), so every field is a required argument here.
+void b3js_World_Explode( uint64_t worldId64, uint64_t maskBits, float px, float py, float pz, float radius,
+						  float falloff, float impulsePerArea )
+{
+	b3WorldId worldId = b3js_UnpackWorldId( worldId64 );
+	b3ExplosionDef def = b3DefaultExplosionDef();
+	def.maskBits = maskBits;
+	def.position = ( b3Vec3 ){ px, py, pz };
+	def.radius = radius;
+	def.falloff = falloff;
+	def.impulsePerArea = impulsePerArea;
+	b3World_Explode( worldId, &def );
 }
 
 // Closest-hit ray cast. outPtr must have room for 8 floats: [hit(0/1), px,py,pz, nx,ny,nz, fraction].
@@ -528,19 +619,49 @@ uint32_t b3js_Body_GetUserData( uint64_t bodyId64 )
 	return b3js_PtrToU32( b3Body_GetUserData( b3LoadBodyId( bodyId64 ) ) );
 }
 
+// Runtime CCD toggle (box3d.h:708) -- creation-time BodyDef.isBullet was already wired, but nothing
+// let a caller bullet-ize a body spawned without it (e.g. a runtime-spawned fast projectile).
+void b3js_Body_SetBullet( uint64_t bodyId64, int flag )
+{
+	b3Body_SetBullet( b3LoadBodyId( bodyId64 ), flag != 0 );
+}
+
+int b3js_Body_IsBullet( uint64_t bodyId64 )
+{
+	return b3Body_IsBullet( b3LoadBodyId( bodyId64 ) ) ? 1 : 0;
+}
+
+// Runtime gravity-scale setter (box3d.h:666) -- creation-time BodyDef.gravityScale was already
+// wired; this lets a caller change it mid-session (e.g. a hit prop starts floating after an
+// explosion).
+void b3js_Body_SetGravityScale( uint64_t bodyId64, float gravityScale )
+{
+	b3Body_SetGravityScale( b3LoadBodyId( bodyId64 ), gravityScale );
+}
+
+float b3js_Body_GetGravityScale( uint64_t bodyId64 )
+{
+	return b3Body_GetGravityScale( b3LoadBodyId( bodyId64 ) );
+}
+
 // =================================================================================================
 // Shapes
 // =================================================================================================
 
 static void b3js_FillShapeDef( b3ShapeDef* def, float density, float friction, float restitution,
 								float rollingResistance, int enableContactEvents, int enableHitEvents, int isSensor,
-								uint64_t categoryBits, uint64_t maskBits, int groupIndex, uint32_t userData )
+								uint64_t categoryBits, uint64_t maskBits, int groupIndex, uint32_t userData,
+								uint64_t userMaterialId )
 {
 	*def = b3DefaultShapeDef();
 	def->density = density;
 	def->baseMaterial.friction = friction;
 	def->baseMaterial.restitution = restitution;
 	def->baseMaterial.rollingResistance = rollingResistance;
+	// Full 64-bit fidelity at creation time (unlike the hit-event readback, which truncates to 32
+	// bits -- see b3jsHitEvent's userMaterialIdA/B above) -- passed straight from JS as a bigint,
+	// same convention as filter.categoryBits/maskBits below.
+	def->baseMaterial.userMaterialId = userMaterialId;
 	def->enableContactEvents = enableContactEvents != 0;
 	def->enableHitEvents = enableHitEvents != 0;
 	def->isSensor = isSensor != 0;
@@ -553,12 +674,12 @@ static void b3js_FillShapeDef( b3ShapeDef* def, float density, float friction, f
 uint64_t b3js_CreateSphereShape( uint64_t bodyId64, float cx, float cy, float cz, float radius, float density,
 								  float friction, float restitution, float rollingResistance, int enableContactEvents,
 								  int enableHitEvents, int isSensor, uint64_t categoryBits, uint64_t maskBits,
-								  int groupIndex, uint32_t userData )
+								  int groupIndex, uint32_t userData, uint64_t userMaterialId )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
 
 	b3Sphere sphere = { { cx, cy, cz }, radius };
 	b3ShapeId shapeId = b3CreateSphereShape( bodyId, &def, &sphere );
@@ -566,15 +687,15 @@ uint64_t b3js_CreateSphereShape( uint64_t bodyId64, float cx, float cy, float cz
 }
 
 uint64_t b3js_CreateCapsuleShape( uint64_t bodyId64, float c1x, float c1y, float c1z, float c2x, float c2y, float c2z,
-								   float radius, float density, float friction, float restitution,
-								   float rollingResistance, int enableContactEvents, int enableHitEvents,
-								   int isSensor, uint64_t categoryBits, uint64_t maskBits, int groupIndex,
-								   uint32_t userData )
+									 float radius, float density, float friction, float restitution,
+									 float rollingResistance, int enableContactEvents, int enableHitEvents,
+									 int isSensor, uint64_t categoryBits, uint64_t maskBits, int groupIndex,
+									 uint32_t userData, uint64_t userMaterialId )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
 
 	b3Capsule capsule = { { c1x, c1y, c1z }, { c2x, c2y, c2z }, radius };
 	b3ShapeId shapeId = b3CreateCapsuleShape( bodyId, &def, &capsule );
@@ -588,12 +709,12 @@ uint64_t b3js_CreateCapsuleShape( uint64_t bodyId64, float c1x, float c1y, float
 uint64_t b3js_CreateBoxShape( uint64_t bodyId64, float hx, float hy, float hz, float density, float friction,
 							   float restitution, float rollingResistance, int enableContactEvents,
 							   int enableHitEvents, int isSensor, uint64_t categoryBits, uint64_t maskBits,
-							   int groupIndex, uint32_t userData )
+							   int groupIndex, uint32_t userData, uint64_t userMaterialId )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
 
 	b3BoxHull boxHull = b3MakeBoxHull( hx, hy, hz );
 	b3ShapeId shapeId = b3CreateHullShape( bodyId, &def, &boxHull.base );
@@ -606,12 +727,12 @@ uint64_t b3js_CreateBoxShape( uint64_t bodyId64, float hx, float hy, float hz, f
 uint64_t b3js_CreateHullShape( uint64_t bodyId64, const float* pointsPtr, int pointCount, float density,
 								float friction, float restitution, float rollingResistance, int enableContactEvents,
 								int enableHitEvents, int isSensor, uint64_t categoryBits, uint64_t maskBits,
-								int groupIndex, uint32_t userData )
+								int groupIndex, uint32_t userData, uint64_t userMaterialId )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
 
 	// b3Vec3 is exactly 3 contiguous floats, so the flat point buffer can be reinterpreted directly.
 	const b3Vec3* points = (const b3Vec3*)pointsPtr;
@@ -626,8 +747,39 @@ uint64_t b3js_CreateHullShape( uint64_t bodyId64, const float* pointsPtr, int po
 	return b3StoreShapeId( shapeId );
 }
 
+// Builds a temporary b3SurfaceMaterial[] from a flat (friction,restitution,rollingResistance) triple
+// per material, for the mesh/height-field per-triangle material path below. Only meaningful with 2+
+// materials (matching b3CreateShapeInternal's own "materialCount > 1" gate, vendor/box3d/src/shape.c
+// -- 0 or 1 materials always uses def->baseMaterial instead, same as every other shape). The callee
+// (b3CreateShapeInternal, reached via b3CreateMeshShape/b3CreateHeightFieldShape below) copies this
+// array into the shape's own heap allocation, so it is safe to free once that call returns.
+static b3SurfaceMaterial* b3js_BuildTriangleMaterials( const float* materialsPtr, int materialCount )
+{
+	if ( materialCount <= 1 || materialsPtr == NULL )
+	{
+		return NULL;
+	}
+	b3SurfaceMaterial* materials = (b3SurfaceMaterial*)malloc( (size_t)materialCount * sizeof( b3SurfaceMaterial ) );
+	for ( int i = 0; i < materialCount; i++ )
+	{
+		materials[i] = b3DefaultSurfaceMaterial();
+		materials[i].friction = materialsPtr[i * 3 + 0];
+		materials[i].restitution = materialsPtr[i * 3 + 1];
+		materials[i].rollingResistance = materialsPtr[i * 3 + 2];
+	}
+	return materials;
+}
+
 // Triangle mesh shape for static props/terrain-like geometry (verticesPtr: 3*vertexCount floats,
 // indicesPtr: 3*triangleCount int32s).
+//
+// Optional per-triangle surface materials (b3ShapeDef::materials/materialCount, types.h -- "Surface
+// material used on mesh shapes per triangle"): materialsPtr/materialCount feed
+// b3js_BuildTriangleMaterials above; materialIndicesPtr is one uint8 per triangle indexing into that
+// array (b3MeshDef::materialIndices, types.h). Pass materialCount<=1 (and NULL pointers) for the
+// ordinary single-baseMaterial path every other shape uses. A triangle material's tangentVelocity/
+// userMaterialId (not settable via the flat creation array above) can be set afterward via
+// b3js_Shape_SetMeshMaterial, once materialCount here has bounded the valid index range for that call.
 //
 // NOTE (documented deviation/limitation): unlike hulls, box3d's b3CreateMeshShape stores the raw
 // b3MeshData* pointer on the shape rather than copying it (see vendor/box3d/src/shape.c,
@@ -639,17 +791,25 @@ uint64_t b3js_CreateMeshShape( uint64_t bodyId64, const float* verticesPtr, int 
 								int triangleCount, float sx, float sy, float sz, float density, float friction,
 								float restitution, float rollingResistance, int enableContactEvents,
 								int enableHitEvents, int isSensor, uint64_t categoryBits, uint64_t maskBits,
-								int groupIndex, uint32_t userData )
+								int groupIndex, uint32_t userData, uint64_t userMaterialId,
+								const float* materialsPtr, int materialCount, const uint8_t* materialIndicesPtr )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
+
+	b3SurfaceMaterial* materials = b3js_BuildTriangleMaterials( materialsPtr, materialCount );
+	if ( materials != NULL )
+	{
+		def.materials = materials;
+		def.materialCount = materialCount;
+	}
 
 	b3MeshDef meshDef = { 0 };
 	meshDef.vertices = (b3Vec3*)(uintptr_t)verticesPtr;
 	meshDef.indices = (int32_t*)(uintptr_t)indicesPtr;
-	meshDef.materialIndices = NULL;
+	meshDef.materialIndices = ( materials != NULL ) ? (uint8_t*)(uintptr_t)materialIndicesPtr : NULL;
 	meshDef.weldTolerance = 0.0f;
 	meshDef.vertexCount = vertexCount;
 	meshDef.triangleCount = triangleCount;
@@ -657,34 +817,48 @@ uint64_t b3js_CreateMeshShape( uint64_t bodyId64, const float* verticesPtr, int 
 	meshDef.useMedianSplit = false;
 	meshDef.identifyEdges = false;
 
+	// b3CreateMesh copies vertices/indices/materialIndices into its own mesh blob (vendor/box3d/src/
+	// mesh.c), so materialIndicesPtr need not outlive this call either.
 	b3MeshData* mesh = b3CreateMesh( &meshDef, NULL, 0 );
 	if ( mesh == NULL )
 	{
+		free( materials );
 		return 0;
 	}
 
 	b3Vec3 scale = { sx, sy, sz };
 	b3ShapeId shapeId = b3CreateMeshShape( bodyId, &def, mesh, scale );
+	free( materials );
 	return b3StoreShapeId( shapeId );
 }
 
 // Height field shape for terrain (heightsPtr: countX*countZ floats, row-major). See the leak caveat
-// on b3js_CreateMeshShape above -- applies here too (shape stores the raw b3HeightFieldData*).
+// on b3js_CreateMeshShape above -- applies here too (shape stores the raw b3HeightFieldData*). Same
+// optional per-cell material scheme as b3js_CreateMeshShape above (materialIndicesPtr: one uint8 per
+// cell, (countX-1)*(countZ-1) of them, per b3HeightFieldDef::materialIndices, types.h).
 uint64_t b3js_CreateHeightFieldShape( uint64_t bodyId64, const float* heightsPtr, int countX, int countZ, float sx,
 									   float sy, float sz, float globalMinimumHeight, float globalMaximumHeight,
 									   int clockwiseWinding, float density, float friction, float restitution,
 									   float rollingResistance, int enableContactEvents, int enableHitEvents,
 									   int isSensor, uint64_t categoryBits, uint64_t maskBits, int groupIndex,
-									   uint32_t userData )
+									   uint32_t userData, uint64_t userMaterialId, const float* materialsPtr,
+									   int materialCount, const uint8_t* materialIndicesPtr )
 {
 	b3BodyId bodyId = b3LoadBodyId( bodyId64 );
 	b3ShapeDef def;
 	b3js_FillShapeDef( &def, density, friction, restitution, rollingResistance, enableContactEvents,
-						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData );
+						enableHitEvents, isSensor, categoryBits, maskBits, groupIndex, userData, userMaterialId );
+
+	b3SurfaceMaterial* materials = b3js_BuildTriangleMaterials( materialsPtr, materialCount );
+	if ( materials != NULL )
+	{
+		def.materials = materials;
+		def.materialCount = materialCount;
+	}
 
 	b3HeightFieldDef hfDef = { 0 };
 	hfDef.heights = (float*)(uintptr_t)heightsPtr;
-	hfDef.materialIndices = NULL;
+	hfDef.materialIndices = ( materials != NULL ) ? (uint8_t*)(uintptr_t)materialIndicesPtr : NULL;
 	hfDef.scale = ( b3Vec3 ){ sx, sy, sz };
 	hfDef.countX = countX;
 	hfDef.countZ = countZ;
@@ -692,13 +866,17 @@ uint64_t b3js_CreateHeightFieldShape( uint64_t bodyId64, const float* heightsPtr
 	hfDef.globalMaximumHeight = globalMaximumHeight;
 	hfDef.clockwiseWinding = clockwiseWinding != 0;
 
+	// b3CreateHeightField copies heights/materialIndices into its own blob (vendor/box3d/src/
+	// height_field.c), so materialIndicesPtr need not outlive this call either.
 	b3HeightFieldData* hf = b3CreateHeightField( &hfDef );
 	if ( hf == NULL )
 	{
+		free( materials );
 		return 0;
 	}
 
 	b3ShapeId shapeId = b3CreateHeightFieldShape( bodyId, &def, hf );
+	free( materials );
 	return b3StoreShapeId( shapeId );
 }
 
@@ -766,6 +944,100 @@ uint64_t b3js_Shape_GetFilterMaskBits( uint64_t shapeId64 )
 int32_t b3js_Shape_GetFilterGroupIndex( uint64_t shapeId64 )
 {
 	return b3Shape_GetFilter( b3LoadShapeId( shapeId64 ) ).groupIndex;
+}
+
+// ---- Runtime material setters (box3d.h:864/870/876 -- absent at runtime pre-this-run; only
+// creation-time ShapeDef.baseMaterial fields were wired) ----
+
+void b3js_Shape_SetFriction( uint64_t shapeId64, float friction )
+{
+	b3Shape_SetFriction( b3LoadShapeId( shapeId64 ), friction );
+}
+
+float b3js_Shape_GetFriction( uint64_t shapeId64 )
+{
+	return b3Shape_GetFriction( b3LoadShapeId( shapeId64 ) );
+}
+
+void b3js_Shape_SetRestitution( uint64_t shapeId64, float restitution )
+{
+	b3Shape_SetRestitution( b3LoadShapeId( shapeId64 ), restitution );
+}
+
+float b3js_Shape_GetRestitution( uint64_t shapeId64 )
+{
+	return b3Shape_GetRestitution( b3LoadShapeId( shapeId64 ) );
+}
+
+// Full base-material get/set (friction, restitution, rollingResistance, tangentVelocity, and
+// userMaterialId -- b3SurfaceMaterial, types.h). customColor is intentionally NOT exposed here (it is
+// debug-draw-only per upstream's own doc comment, and this project renders with its own three.js
+// pipeline -- see the engine coverage audit's verdict on customColor/debugMaterial): the setter reads
+// the shape's current material first and only overwrites the fields below, so an unrelated
+// customColor already on the shape survives untouched.
+void b3js_Shape_SetSurfaceMaterial( uint64_t shapeId64, float friction, float restitution, float rollingResistance,
+									 float tvx, float tvy, float tvz, uint64_t userMaterialId )
+{
+	b3ShapeId shapeId = b3LoadShapeId( shapeId64 );
+	b3SurfaceMaterial m = b3Shape_GetSurfaceMaterial( shapeId );
+	m.friction = friction;
+	m.restitution = restitution;
+	m.rollingResistance = rollingResistance;
+	m.tangentVelocity = ( b3Vec3 ){ tvx, tvy, tvz };
+	m.userMaterialId = userMaterialId;
+	b3Shape_SetSurfaceMaterial( shapeId, m );
+}
+
+// outPtr must have room for 6 floats: [friction, restitution, rollingResistance, tvx, tvy, tvz].
+// Returns userMaterialId (customColor is not exposed -- see the setter's doc comment above).
+uint64_t b3js_Shape_GetSurfaceMaterial( uint64_t shapeId64, float* outPtr )
+{
+	b3SurfaceMaterial m = b3Shape_GetSurfaceMaterial( b3LoadShapeId( shapeId64 ) );
+	outPtr[0] = m.friction;
+	outPtr[1] = m.restitution;
+	outPtr[2] = m.rollingResistance;
+	outPtr[3] = m.tangentVelocity.x;
+	outPtr[4] = m.tangentVelocity.y;
+	outPtr[5] = m.tangentVelocity.z;
+	return m.userMaterialId;
+}
+
+// ---- Per-triangle mesh/height-field materials (box3d.h:885 + b3Shape_GetMeshMaterialCount/
+// GetMeshSurfaceMaterial) -- index 0 always exists (materialCount defaults to 1, aliasing the base
+// material above, for every shape kind); index > 0 is only valid on a shape actually created with 2+
+// materials via b3js_CreateMeshShape/CreateHeightFieldShape's materialsPtr/materialCount. The engine's
+// own bounds check on `index` (B3_ASSERT) is compiled out in this Release/NDEBUG build (same class of
+// hazard documented on b3js_DestroyJoint above) -- callers MUST bound `index` against
+// getMeshMaterialCount() themselves before calling the setter/getter below.
+int32_t b3js_Shape_GetMeshMaterialCount( uint64_t shapeId64 )
+{
+	return b3Shape_GetMeshMaterialCount( b3LoadShapeId( shapeId64 ) );
+}
+
+void b3js_Shape_SetMeshMaterial( uint64_t shapeId64, int32_t index, float friction, float restitution,
+								  float rollingResistance, float tvx, float tvy, float tvz, uint64_t userMaterialId )
+{
+	b3SurfaceMaterial m = b3DefaultSurfaceMaterial();
+	m.friction = friction;
+	m.restitution = restitution;
+	m.rollingResistance = rollingResistance;
+	m.tangentVelocity = ( b3Vec3 ){ tvx, tvy, tvz };
+	m.userMaterialId = userMaterialId;
+	b3Shape_SetMeshMaterial( b3LoadShapeId( shapeId64 ), m, index );
+}
+
+// outPtr must have room for 6 floats: [friction, restitution, rollingResistance, tvx, tvy, tvz].
+// Returns userMaterialId.
+uint64_t b3js_Shape_GetMeshSurfaceMaterial( uint64_t shapeId64, int32_t index, float* outPtr )
+{
+	b3SurfaceMaterial m = b3Shape_GetMeshSurfaceMaterial( b3LoadShapeId( shapeId64 ), index );
+	outPtr[0] = m.friction;
+	outPtr[1] = m.restitution;
+	outPtr[2] = m.rollingResistance;
+	outPtr[3] = m.tangentVelocity.x;
+	outPtr[4] = m.tangentVelocity.y;
+	outPtr[5] = m.tangentVelocity.z;
+	return m.userMaterialId;
 }
 
 // =================================================================================================

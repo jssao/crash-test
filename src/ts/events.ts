@@ -25,16 +25,28 @@ export interface HitEventCursor {
 	readonly point: { x: number; y: number; z: number };
 	readonly normal: { x: number; y: number; z: number };
 	approachSpeed: number;
+	/** b3ContactHitEvent.userMaterialIdA/B (types.h), truncated to 32 bits -- see b3jsHitEvent's doc
+	 * comment in src/wasm-shim/binding.c. 0 if the shape wasn't tagged with a userMaterialId. */
+	userMaterialIdA: number;
+	userMaterialIdB: number;
 }
 
 export interface JointEventCursor {
 	userData: number;
 }
 
+/** A contact begin/end touch event -- just the two entity ids, no point/normal/speed payload (see
+ * World.contactBeginEvents()/contactEndEvents()). */
+export interface ContactEventCursor {
+	userDataA: number;
+	userDataB: number;
+}
+
 // Word (4-byte) strides -- must match the b3js*Event structs in binding.c exactly.
 const MOVE_EVENT_STRIDE_WORDS = 9; // userData, px,py,pz, qx,qy,qz,qs, flags
-const HIT_EVENT_STRIDE_WORDS = 9; // userDataA, userDataB, px,py,pz, nx,ny,nz, approachSpeed
+const HIT_EVENT_STRIDE_WORDS = 11; // userDataA, userDataB, px,py,pz, nx,ny,nz, approachSpeed, materialIdA, materialIdB
 const JOINT_EVENT_STRIDE_WORDS = 1; // userData
+const CONTACT_EVENT_STRIDE_WORDS = 2; // userDataA, userDataB
 
 export class MoveEventsView {
 	private readonly cursor: MoveEventCursor = {
@@ -81,6 +93,8 @@ export class HitEventsView {
 		point: { x: 0, y: 0, z: 0 },
 		normal: { x: 0, y: 0, z: 0 },
 		approachSpeed: 0,
+		userMaterialIdA: 0,
+		userMaterialIdB: 0,
 	};
 
 	constructor( private readonly native: Native, private readonly ptr: number, readonly count: number ) {}
@@ -102,10 +116,37 @@ export class HitEventsView {
 		( c.normal as { x: number; y: number; z: number } ).y = f[base + 6];
 		( c.normal as { x: number; y: number; z: number } ).z = f[base + 7];
 		c.approachSpeed = f[base + 8];
+		c.userMaterialIdA = u[base + 9];
+		c.userMaterialIdB = u[base + 10];
 		return c;
 	}
 
 	forEach( fn: ( event: HitEventCursor, index: number ) => void ): void {
+		for ( let i = 0; i < this.count; i++ ) {
+			fn( this.at( i ), i );
+		}
+	}
+}
+
+/** Zero-allocation cursor over a step's contact begin/end touch events (see
+ * World.contactBeginEvents()/contactEndEvents()). Same two-entity-id shape for both begin and end. */
+export class ContactEventsView {
+	private readonly cursor: ContactEventCursor = { userDataA: 0, userDataB: 0 };
+
+	constructor( private readonly native: Native, private readonly ptr: number, readonly count: number ) {}
+
+	at( index: number ): ContactEventCursor {
+		if ( index < 0 || index >= this.count ) {
+			throw new RangeError( `contact event index ${ index } out of range [0, ${ this.count })` );
+		}
+		const base = ( this.ptr >> 2 ) + index * CONTACT_EVENT_STRIDE_WORDS;
+		const u = this.native.HEAPU32;
+		this.cursor.userDataA = u[base];
+		this.cursor.userDataB = u[base + 1];
+		return this.cursor;
+	}
+
+	forEach( fn: ( event: ContactEventCursor, index: number ) => void ): void {
 		for ( let i = 0; i < this.count; i++ ) {
 			fn( this.at( i ), i );
 		}

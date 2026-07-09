@@ -32,13 +32,21 @@ export {
 export type { Vec3, Quat, Transform, Matrix3 } from "./math.js";
 
 export { World } from "./world.js";
-export type { WorldOptions, RayCastOptions } from "./world.js";
+export type { WorldOptions, RayCastOptions, ExplosionOptions } from "./world.js";
 
 export { Body, BodyType, defaultBodyOptions } from "./body.js";
 export type { BodyOptions, RayCastResult, MassData } from "./body.js";
 
 export { Shape } from "./shape.js";
-export type { ShapeOptions, SphereShapeOptions, CapsuleShapeOptions, BoxShapeOptions, ShapeFilter } from "./shape.js";
+export type {
+	ShapeOptions,
+	SphereShapeOptions,
+	CapsuleShapeOptions,
+	BoxShapeOptions,
+	ShapeFilter,
+	SurfaceMaterial,
+	MeshMaterialEntry,
+} from "./shape.js";
 
 export { Joint, WeldJoint, WheelJoint, RevoluteJoint, DistanceJoint, SphericalJoint } from "./joint.js";
 export type {
@@ -51,8 +59,8 @@ export type {
 	SphericalJointOptions,
 } from "./joint.js";
 
-export { MoveEventsView, HitEventsView, JointEventsView } from "./events.js";
-export type { MoveEventCursor, HitEventCursor, JointEventCursor } from "./events.js";
+export { MoveEventsView, HitEventsView, JointEventsView, ContactEventsView } from "./events.js";
+export type { MoveEventCursor, HitEventCursor, JointEventCursor, ContactEventCursor } from "./events.js";
 
 export {
 	registerHandle,

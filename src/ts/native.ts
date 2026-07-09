@@ -37,6 +37,12 @@ export interface Native {
 	_b3js_GetHitEventsCount( worldId: bigint ): number;
 	_b3js_GetJointEventsPtr( worldId: bigint ): number;
 	_b3js_GetJointEventsCount( worldId: bigint ): number;
+	_b3js_GetContactBeginEventsPtr( worldId: bigint ): number;
+	_b3js_GetContactBeginEventsCount( worldId: bigint ): number;
+	_b3js_GetContactEndEventsPtr( worldId: bigint ): number;
+	_b3js_GetContactEndEventsCount( worldId: bigint ): number;
+	_b3js_World_Explode( worldId: bigint, maskBits: bigint, px: number, py: number, pz: number, radius: number,
+		falloff: number, impulsePerArea: number ): void;
 	_b3js_CastRayClosest( worldId: bigint, ox: number, oy: number, oz: number, tx: number, ty: number, tz: number,
 		categoryBits: bigint, maskBits: bigint, outPtr: number ): number;
 
@@ -73,31 +79,39 @@ export interface Native {
 	_b3js_Body_EnableSleep( bodyId: bigint, enable: number ): void;
 	_b3js_Body_SetUserData( bodyId: bigint, userData: number ): void;
 	_b3js_Body_GetUserData( bodyId: bigint ): number;
+	_b3js_Body_SetBullet( bodyId: bigint, flag: number ): void;
+	_b3js_Body_IsBullet( bodyId: bigint ): number;
+	_b3js_Body_SetGravityScale( bodyId: bigint, gravityScale: number ): void;
+	_b3js_Body_GetGravityScale( bodyId: bigint ): number;
 
 	// ---- Shapes ----
 	_b3js_CreateSphereShape( bodyId: bigint, cx: number, cy: number, cz: number, radius: number, density: number,
 		friction: number, restitution: number, rollingResistance: number, enableContactEvents: number,
 		enableHitEvents: number, isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number,
-		userData: number ): bigint;
+		userData: number, userMaterialId: bigint ): bigint;
 	_b3js_CreateCapsuleShape( bodyId: bigint, c1x: number, c1y: number, c1z: number, c2x: number, c2y: number,
 		c2z: number, radius: number, density: number, friction: number, restitution: number,
 		rollingResistance: number, enableContactEvents: number, enableHitEvents: number, isSensor: number,
-		categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number ): bigint;
+		categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number, userMaterialId: bigint ): bigint;
 	_b3js_CreateBoxShape( bodyId: bigint, hx: number, hy: number, hz: number, density: number, friction: number,
 		restitution: number, rollingResistance: number, enableContactEvents: number, enableHitEvents: number,
-		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number ): bigint;
+		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number,
+		userMaterialId: bigint ): bigint;
 	_b3js_CreateHullShape( bodyId: bigint, pointsPtr: number, pointCount: number, density: number, friction: number,
 		restitution: number, rollingResistance: number, enableContactEvents: number, enableHitEvents: number,
-		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number ): bigint;
+		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number,
+		userMaterialId: bigint ): bigint;
 	_b3js_CreateMeshShape( bodyId: bigint, verticesPtr: number, vertexCount: number, indicesPtr: number,
 		triangleCount: number, sx: number, sy: number, sz: number, density: number, friction: number,
 		restitution: number, rollingResistance: number, enableContactEvents: number, enableHitEvents: number,
-		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number ): bigint;
+		isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number, userData: number,
+		userMaterialId: bigint, materialsPtr: number, materialCount: number, materialIndicesPtr: number ): bigint;
 	_b3js_CreateHeightFieldShape( bodyId: bigint, heightsPtr: number, countX: number, countZ: number, sx: number,
 		sy: number, sz: number, globalMin: number, globalMax: number, clockwise: number, density: number,
 		friction: number, restitution: number, rollingResistance: number, enableContactEvents: number,
 		enableHitEvents: number, isSensor: number, categoryBits: bigint, maskBits: bigint, groupIndex: number,
-		userData: number ): bigint;
+		userData: number, userMaterialId: bigint, materialsPtr: number, materialCount: number,
+		materialIndicesPtr: number ): bigint;
 	_b3js_DestroyShape( shapeId: bigint, updateBodyMass: number ): void;
 	_b3js_Shape_IsValid( shapeId: bigint ): number;
 	_b3js_Shape_SetUserData( shapeId: bigint, userData: number ): void;
@@ -109,6 +123,17 @@ export interface Native {
 	_b3js_Shape_GetFilterCategoryBits( shapeId: bigint ): bigint;
 	_b3js_Shape_GetFilterMaskBits( shapeId: bigint ): bigint;
 	_b3js_Shape_GetFilterGroupIndex( shapeId: bigint ): number;
+	_b3js_Shape_SetFriction( shapeId: bigint, friction: number ): void;
+	_b3js_Shape_GetFriction( shapeId: bigint ): number;
+	_b3js_Shape_SetRestitution( shapeId: bigint, restitution: number ): void;
+	_b3js_Shape_GetRestitution( shapeId: bigint ): number;
+	_b3js_Shape_SetSurfaceMaterial( shapeId: bigint, friction: number, restitution: number, rollingResistance: number,
+		tvx: number, tvy: number, tvz: number, userMaterialId: bigint ): void;
+	_b3js_Shape_GetSurfaceMaterial( shapeId: bigint, outPtr: number ): bigint;
+	_b3js_Shape_GetMeshMaterialCount( shapeId: bigint ): number;
+	_b3js_Shape_SetMeshMaterial( shapeId: bigint, index: number, friction: number, restitution: number,
+		rollingResistance: number, tvx: number, tvy: number, tvz: number, userMaterialId: bigint ): void;
+	_b3js_Shape_GetMeshSurfaceMaterial( shapeId: bigint, index: number, outPtr: number ): bigint;
 
 	// ---- Joints (common) ----
 	_b3js_DestroyJoint( jointId: bigint, wakeAttached: number ): void;

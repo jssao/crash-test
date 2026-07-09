@@ -49,3 +49,16 @@ export function withInputInt32Buffer<T>( native: Native, data: ArrayLike<number>
 		native._free( ptr );
 	}
 }
+
+/** Copies `data` into a freshly malloc'd uint8 buffer, calls `fn(ptr)`, then frees it. Used for the
+ * per-triangle/per-cell material index arrays (see Body.createMeshShape/createHeightFieldShape). */
+export function withInputUint8Buffer<T>( native: Native, data: ArrayLike<number>, fn: ( ptr: number ) => T ): T {
+	const byteLength = data.length;
+	const ptr = native._malloc( byteLength );
+	try {
+		native.HEAPU8.set( data, ptr );
+		return fn( ptr );
+	} finally {
+		native._free( ptr );
+	}
+}

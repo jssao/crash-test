@@ -3,7 +3,7 @@
 import type { Native } from "./native.js";
 import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
-import { withFloatOutBuffer, withInputFloatBuffer, withInputInt32Buffer } from "./scratch.js";
+import { withFloatOutBuffer, withInputFloatBuffer, withInputInt32Buffer, withInputUint8Buffer } from "./scratch.js";
 import { QUAT_IDENTITY, VEC3_ZERO, type Matrix3, type Quat, type Transform, type Vec3 } from "./math.js";
 import {
 	Shape,
@@ -13,9 +13,26 @@ import {
 	buildSphereArgs,
 	type BoxShapeOptions,
 	type CapsuleShapeOptions,
+	type MeshMaterialEntry,
 	type ShapeOptions,
 	type SphereShapeOptions,
 } from "./shape.js";
+
+/** @internal flattens an optional per-triangle/per-cell materials array into the
+ * (friction,restitution,rollingResistance) triples the shim's b3js_BuildTriangleMaterials expects. */
+function flattenMeshMaterials( materials: MeshMaterialEntry[] | undefined ): Float32Array | undefined {
+	if ( materials === undefined || materials.length < 2 ) {
+		return undefined;
+	}
+	const flat = new Float32Array( materials.length * 3 );
+	for ( let i = 0; i < materials.length; i++ ) {
+		const m = materials[i];
+		flat[i * 3] = m.friction ?? 0.6;
+		flat[i * 3 + 1] = m.restitution ?? 0;
+		flat[i * 3 + 2] = m.rollingResistance ?? 0;
+	}
+	return flat;
+}
 
 /** Mirrors b3BodyType (box3d/types.h): static=0, kinematic=1, dynamic=2. */
 export enum BodyType {
@@ -214,6 +231,27 @@ export class Body {
 		this.native._b3js_Body_EnableSleep( this.handle, enable ? 1 : 0 );
 	}
 
+	/** Runtime CCD toggle (b3Body_SetBullet, box3d.h) -- creation-time BodyOptions.isBullet already
+	 * covers bodies known to need it up front; this lets a runtime-spawned body (e.g. a fast
+	 * projectile) opt in afterward. */
+	setBullet( flag: boolean ): void {
+		this.native._b3js_Body_SetBullet( this.handle, flag ? 1 : 0 );
+	}
+
+	isBullet(): boolean {
+		return this.native._b3js_Body_IsBullet( this.handle ) !== 0;
+	}
+
+	/** Runtime gravity-scale setter (b3Body_SetGravityScale, box3d.h) -- e.g. making a hit prop float
+	 * after an explosion. Creation-time BodyOptions.gravityScale already covers the initial value. */
+	setGravityScale( gravityScale: number ): void {
+		this.native._b3js_Body_SetGravityScale( this.handle, gravityScale );
+	}
+
+	getGravityScale(): number {
+		return this.native._b3js_Body_GetGravityScale( this.handle );
+	}
+
 	setUserData( userData: number ): void {
 		this.native._b3js_Body_SetUserData( this.handle, userData );
 	}
@@ -230,7 +268,7 @@ export class Body {
 			this.handle, a.center.x, a.center.y, a.center.z, a.radius,
 			a.density, a.friction, a.restitution, a.rollingResistance,
 			a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-			a.categoryBits, a.maskBits, a.groupIndex, a.userData
+			a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId
 		);
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
@@ -243,7 +281,7 @@ export class Body {
 			this.handle, a.center1.x, a.center1.y, a.center1.z, a.center2.x, a.center2.y, a.center2.z, a.radius,
 			a.density, a.friction, a.restitution, a.rollingResistance,
 			a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-			a.categoryBits, a.maskBits, a.groupIndex, a.userData
+			a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId
 		);
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
@@ -257,7 +295,7 @@ export class Body {
 			this.handle, a.halfExtents.x, a.halfExtents.y, a.halfExtents.z,
 			a.density, a.friction, a.restitution, a.rollingResistance,
 			a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-			a.categoryBits, a.maskBits, a.groupIndex, a.userData
+			a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId
 		);
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
@@ -273,7 +311,7 @@ export class Body {
 				this.handle, ptr, pointCount,
 				a.density, a.friction, a.restitution, a.rollingResistance,
 				a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-				a.categoryBits, a.maskBits, a.groupIndex, a.userData
+				a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId
 			) );
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
@@ -284,21 +322,34 @@ export class Body {
 	 * Static triangle mesh shape. `vertices` is a flat (x,y,z)-tuple array, `indices` is a flat
 	 * (i0,i1,i2)-per-triangle array. Intended for static props/terrain created a handful of times,
 	 * not per-frame -- see the leak caveat on b3js_CreateMeshShape in src/wasm-shim/binding.c.
+	 *
+	 * `options.materials` (2+ entries) + `options.materialIndices` (one uint8 per triangle, indexing
+	 * into `materials`) wire b3ShapeDef's per-triangle surface material path (types.h) -- e.g. a mud
+	 * patch vs asphalt on the one terrain mesh. Omit both for the ordinary single-material shape every
+	 * other shape kind uses.
 	 */
 	createMeshShape( vertices: Float32Array, indices: Int32Array, scale: Vec3 = { x: 1, y: 1, z: 1 },
-		options: ShapeOptions = {} ): Shape {
+		options: ShapeOptions & { materials?: MeshMaterialEntry[]; materialIndices?: Uint8Array } = {} ): Shape {
 		const a = buildShapeArgs( options );
 		const vertexCount = vertices.length / 3;
 		const triangleCount = indices.length / 3;
+		const flatMaterials = flattenMeshMaterials( options.materials );
+		const materialCount = flatMaterials !== undefined ? options.materials!.length : 0;
+		const materialIndices = flatMaterials !== undefined ?
+			( options.materialIndices ?? new Uint8Array( triangleCount ) ) : new Uint8Array( 0 );
+
 		const handle = withInputFloatBuffer( this.native, vertices, ( verticesPtr ) =>
 			withInputInt32Buffer( this.native, indices, ( indicesPtr ) =>
-				this.native._b3js_CreateMeshShape(
-					this.handle, verticesPtr, vertexCount, indicesPtr, triangleCount,
-					scale.x, scale.y, scale.z,
-					a.density, a.friction, a.restitution, a.rollingResistance,
-					a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-					a.categoryBits, a.maskBits, a.groupIndex, a.userData
-				) ) );
+				withInputFloatBuffer( this.native, flatMaterials ?? new Float32Array( 0 ), ( materialsPtr ) =>
+					withInputUint8Buffer( this.native, materialIndices, ( materialIndicesPtr ) =>
+						this.native._b3js_CreateMeshShape(
+							this.handle, verticesPtr, vertexCount, indicesPtr, triangleCount,
+							scale.x, scale.y, scale.z,
+							a.density, a.friction, a.restitution, a.rollingResistance,
+							a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
+							a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId,
+							materialsPtr, materialCount, materialIndicesPtr
+						) ) ) ) );
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
 		return shape;
@@ -306,11 +357,14 @@ export class Body {
 
 	/**
 	 * Height field terrain shape. `heights` is row-major, countX*countZ floats. Same "create a
-	 * handful of times" caveat as createMeshShape().
+	 * handful of times" caveat as createMeshShape(), and the same optional `materials`/
+	 * `materialIndices` per-cell material scheme (materialIndices: one uint8 per cell,
+	 * (countX-1)*(countZ-1) of them).
 	 */
 	createHeightFieldShape( heights: Float32Array, countX: number, countZ: number,
 		scale: Vec3 = { x: 1, y: 1, z: 1 }, options: ShapeOptions & { globalMinimumHeight?: number;
-			globalMaximumHeight?: number; clockwiseWinding?: boolean } = {} ): Shape {
+			globalMaximumHeight?: number; clockwiseWinding?: boolean; materials?: MeshMaterialEntry[];
+			materialIndices?: Uint8Array } = {} ): Shape {
 		const a = buildShapeArgs( options );
 		let min = options.globalMinimumHeight;
 		let max = options.globalMaximumHeight;
@@ -326,14 +380,23 @@ export class Body {
 				max = 0;
 			}
 		}
+		const cellCount = ( countX - 1 ) * ( countZ - 1 );
+		const flatMaterials = flattenMeshMaterials( options.materials );
+		const materialCount = flatMaterials !== undefined ? options.materials!.length : 0;
+		const materialIndices = flatMaterials !== undefined ?
+			( options.materialIndices ?? new Uint8Array( Math.max( cellCount, 0 ) ) ) : new Uint8Array( 0 );
+
 		const handle = withInputFloatBuffer( this.native, heights, ( ptr ) =>
-			this.native._b3js_CreateHeightFieldShape(
-				this.handle, ptr, countX, countZ, scale.x, scale.y, scale.z, min!, max!,
-				options.clockwiseWinding ? 1 : 0,
-				a.density, a.friction, a.restitution, a.rollingResistance,
-				a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
-				a.categoryBits, a.maskBits, a.groupIndex, a.userData
-			) );
+			withInputFloatBuffer( this.native, flatMaterials ?? new Float32Array( 0 ), ( materialsPtr ) =>
+				withInputUint8Buffer( this.native, materialIndices, ( materialIndicesPtr ) =>
+					this.native._b3js_CreateHeightFieldShape(
+						this.handle, ptr, countX, countZ, scale.x, scale.y, scale.z, min!, max!,
+						options.clockwiseWinding ? 1 : 0,
+						a.density, a.friction, a.restitution, a.rollingResistance,
+						a.enableContactEvents ? 1 : 0, a.enableHitEvents ? 1 : 0, a.isSensor ? 1 : 0,
+						a.categoryBits, a.maskBits, a.groupIndex, a.userData, a.userMaterialId,
+						materialsPtr, materialCount, materialIndicesPtr
+					) ) ) );
 		const shape = new Shape( this.native, this.world, handle );
 		this.world._trackShape( handle );
 		return shape;

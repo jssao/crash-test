@@ -3,6 +3,7 @@
 import type { Native } from "./native.js";
 import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
+import { withFloatOutBuffer } from "./scratch.js";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, VEC3_ZERO, type Vec3 } from "./math.js";
 
 /** Mirrors b3Filter (box3d/types.h): categoryBits/maskBits (uint64) + groupIndex (int32). */
@@ -10,6 +11,32 @@ export interface ShapeFilter {
 	categoryBits: bigint;
 	maskBits: bigint;
 	groupIndex: number;
+}
+
+/**
+ * Mirrors b3SurfaceMaterial (box3d/types.h): friction, restitution, rollingResistance (spheres/
+ * capsules only), tangentVelocity (conveyor-belt surface speed, projected onto the contact plane),
+ * and userMaterialId (an opaque application tag -- arrives back on hit events, see
+ * HitEventCursor.userMaterialIdA/B in events.ts). `customColor` (debug-draw only) is intentionally
+ * not exposed -- see Shape.setSurfaceMaterial()'s doc comment.
+ */
+export interface SurfaceMaterial {
+	friction: number;
+	restitution: number;
+	rollingResistance: number;
+	tangentVelocity: Vec3;
+	/** Opaque application tag, e.g. for surface-typed impact audio (metal vs concrete vs glass). */
+	userMaterialId: bigint;
+}
+
+/** A single entry in a mesh/height-field shape's per-triangle material array (see
+ * MeshShapeOptions.materials / HeightFieldShapeOptions.materials). Only friction/restitution/
+ * rollingResistance are settable at creation time -- tangentVelocity/userMaterialId per entry can be
+ * set afterward via Shape.setMeshMaterial(index, ...) once the shape exists. */
+export interface MeshMaterialEntry {
+	friction?: number;
+	restitution?: number;
+	rollingResistance?: number;
 }
 
 /** Common fields shared by every shape type. Mirrors b3ShapeDef's scalar fields (box3d/types.h). */
@@ -34,6 +61,9 @@ export interface ShapeOptions {
 	groupIndex?: number;
 	/** Entity id tag. Falls back to the owning body's userData for event resolution if left at 0. */
 	userData?: number;
+	/** b3SurfaceMaterial.userMaterialId (types.h) -- an opaque application tag that arrives back on
+	 * hit events (see HitEventCursor.userMaterialIdA/B, events.ts). Default 0n. */
+	userMaterialId?: bigint;
 }
 
 function shapeDefaults( options: ShapeOptions ) {
@@ -49,6 +79,7 @@ function shapeDefaults( options: ShapeOptions ) {
 		maskBits: options.maskBits ?? DEFAULT_MASK_BITS,
 		groupIndex: options.groupIndex ?? 0,
 		userData: options.userData ?? 0,
+		userMaterialId: options.userMaterialId ?? 0n,
 	};
 }
 
@@ -115,6 +146,88 @@ export class Shape {
 			maskBits: this.native._b3js_Shape_GetFilterMaskBits( this.handle ),
 			groupIndex: this.native._b3js_Shape_GetFilterGroupIndex( this.handle ),
 		};
+	}
+
+	/** Runtime friction setter (b3Shape_SetFriction, box3d.h) -- distinct from setSurfaceMaterial()
+	 * below (which overwrites the whole material); this only touches friction. */
+	setFriction( friction: number ): void {
+		this.native._b3js_Shape_SetFriction( this.handle, friction );
+	}
+
+	getFriction(): number {
+		return this.native._b3js_Shape_GetFriction( this.handle );
+	}
+
+	/** Runtime restitution (bounciness) setter (b3Shape_SetRestitution, box3d.h). */
+	setRestitution( restitution: number ): void {
+		this.native._b3js_Shape_SetRestitution( this.handle, restitution );
+	}
+
+	getRestitution(): number {
+		return this.native._b3js_Shape_GetRestitution( this.handle );
+	}
+
+	/**
+	 * Overwrites this shape's base surface material (friction, restitution, rollingResistance,
+	 * tangentVelocity, userMaterialId) in one call -- e.g. a mid-session wet-road/ice grip change, or
+	 * tagging a shape's userMaterialId after creation. `customColor` (debug-draw only) is left
+	 * untouched -- see b3js_Shape_SetSurfaceMaterial's doc comment, src/wasm-shim/binding.c.
+	 */
+	setSurfaceMaterial( material: SurfaceMaterial ): void {
+		this.native._b3js_Shape_SetSurfaceMaterial(
+			this.handle, material.friction, material.restitution, material.rollingResistance,
+			material.tangentVelocity.x, material.tangentVelocity.y, material.tangentVelocity.z,
+			material.userMaterialId
+		);
+	}
+
+	getSurfaceMaterial(): SurfaceMaterial {
+		let userMaterialId = 0n;
+		return withFloatOutBuffer(
+			this.native, 6,
+			( ptr ) => { userMaterialId = this.native._b3js_Shape_GetSurfaceMaterial( this.handle, ptr ); },
+			( f, i ) => ( {
+				friction: f[i], restitution: f[i + 1], rollingResistance: f[i + 2],
+				tangentVelocity: { x: f[i + 3], y: f[i + 4], z: f[i + 5] },
+				userMaterialId,
+			} )
+		);
+	}
+
+	/** Number of per-triangle materials on a mesh/height-field shape (always >= 1 -- see
+	 * MeshShapeOptions.materials/HeightFieldShapeOptions.materials). Index 0 always exists (and
+	 * aliases the base material) even on shapes created without per-triangle materials. */
+	getMeshMaterialCount(): number {
+		return this.native._b3js_Shape_GetMeshMaterialCount( this.handle );
+	}
+
+	/**
+	 * Sets the surface material at `index` on a mesh/height-field shape created with 2+ materials
+	 * (MeshShapeOptions.materials/HeightFieldShapeOptions.materials) -- or index 0 on any shape.
+	 * @param index MUST be < getMeshMaterialCount() -- box3d's own bounds check on this is compiled
+	 * out in this Release build (see b3js_Shape_SetMeshMaterial's doc comment, binding.c), so an
+	 * out-of-range index is a real memory-safety hazard, not just a thrown error.
+	 */
+	setMeshMaterial( index: number, material: SurfaceMaterial ): void {
+		this.native._b3js_Shape_SetMeshMaterial(
+			this.handle, index, material.friction, material.restitution, material.rollingResistance,
+			material.tangentVelocity.x, material.tangentVelocity.y, material.tangentVelocity.z,
+			material.userMaterialId
+		);
+	}
+
+	/** @param index see setMeshMaterial()'s bounds-safety warning -- the same applies here. */
+	getMeshSurfaceMaterial( index: number ): SurfaceMaterial {
+		let userMaterialId = 0n;
+		return withFloatOutBuffer(
+			this.native, 6,
+			( ptr ) => { userMaterialId = this.native._b3js_Shape_GetMeshSurfaceMaterial( this.handle, index, ptr ); },
+			( f, i ) => ( {
+				friction: f[i], restitution: f[i + 1], rollingResistance: f[i + 2],
+				tangentVelocity: { x: f[i + 3], y: f[i + 4], z: f[i + 5] },
+				userMaterialId,
+			} )
+		);
 	}
 
 	/** @param updateBodyMass recompute the owning body's mass from its remaining shapes (default true). */

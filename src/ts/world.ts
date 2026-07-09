@@ -4,7 +4,7 @@ import type { Native } from "./native.js";
 import { registerHandle, unregisterHandle, forgetHandle } from "./registry.js";
 import { withFloatOutBuffer } from "./scratch.js";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_GRAVITY, DEFAULT_MASK_BITS, type Vec3 } from "./math.js";
-import { HitEventsView, JointEventsView, MoveEventsView } from "./events.js";
+import { ContactEventsView, HitEventsView, JointEventsView, MoveEventsView } from "./events.js";
 import { Body, defaultBodyOptions, type BodyOptions } from "./body.js";
 import type { RayCastResult } from "./body.js";
 import {
@@ -41,6 +41,23 @@ export interface WorldOptions {
 
 export interface RayCastOptions {
 	categoryBits?: bigint;
+	maskBits?: bigint;
+}
+
+/** Mirrors b3ExplosionDef (types.h) -- see World.explode(). Upstream's own default def
+ * (b3DefaultExplosionDef()) only seeds maskBits; radius/falloff/impulsePerArea have no meaningful
+ * default, so they are required here. */
+export interface ExplosionOptions {
+	/** Center of the explosion in world space. */
+	position: Vec3;
+	/** Shapes farther than this from `position` feel no impulse. */
+	radius: number;
+	/** Falloff distance beyond `radius` -- impulse ramps down to zero over this distance. */
+	falloff: number;
+	/** Impulse per unit shape area facing the explosion. Only applies to spheres, capsules, and
+	 * hulls (box3d.h's b3World_Explode doc comment). Negative values implode instead. */
+	impulsePerArea: number;
+	/** Filters which shapes are affected. Default: all bits set (affects everything). */
 	maskBits?: bigint;
 }
 
@@ -109,6 +126,40 @@ export class World {
 		const ptr = this.native._b3js_GetJointEventsPtr( this.handle );
 		const count = this.native._b3js_GetJointEventsCount( this.handle );
 		return new JointEventsView( this.native, ptr, count );
+	}
+
+	/**
+	 * Zero-allocation cursor over this step's contact begin-touch events (types.h's
+	 * b3ContactBeginTouchEvent) -- fires once when two shapes start touching. Only reported for
+	 * shapes created with `enableContactEvents: true` (Shape.enableContactEvents()/ShapeOptions).
+	 * Pairs with contactEndEvents() for sustained-contact tracking (e.g. scrape/skid detection) that
+	 * one-shot hitEvents() cannot express.
+	 */
+	contactBeginEvents(): ContactEventsView {
+		const ptr = this.native._b3js_GetContactBeginEventsPtr( this.handle );
+		const count = this.native._b3js_GetContactBeginEventsCount( this.handle );
+		return new ContactEventsView( this.native, ptr, count );
+	}
+
+	/** Zero-allocation cursor over this step's contact end-touch events (types.h's
+	 * b3ContactEndTouchEvent) -- fires once when two shapes stop touching. See contactBeginEvents(). */
+	contactEndEvents(): ContactEventsView {
+		const ptr = this.native._b3js_GetContactEndEventsPtr( this.handle );
+		const count = this.native._b3js_GetContactEndEventsCount( this.handle );
+		return new ContactEventsView( this.native, ptr, count );
+	}
+
+	/**
+	 * Applies a radial explosion (b3World_Explode, box3d.h) -- an area-aware impulse to spheres/
+	 * capsules/hulls within `options.radius` (+`options.falloff`) of `options.position`. Takes effect
+	 * immediately (not queued for the next step).
+	 */
+	explode( options: ExplosionOptions ): void {
+		this.native._b3js_World_Explode(
+			this.handle, options.maskBits ?? DEFAULT_MASK_BITS,
+			options.position.x, options.position.y, options.position.z,
+			options.radius, options.falloff, options.impulsePerArea
+		);
 	}
 
 	castRayClosest( origin: Vec3, translation: Vec3, options: RayCastOptions = {} ): RayCastResult {
