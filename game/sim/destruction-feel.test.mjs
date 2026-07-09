@@ -49,6 +49,20 @@ function launch(vehicle, speedKmh) {
 }
 const COAST = { throttle: 0, brake: 0, steer: 0, handbrake: false };
 
+// The 120km/h brick-wall runs need a REAL run-up, not just a bigger instantaneous velocity. At the
+// standard 16m approach (BRICK_WALL_CENTER.z=24, approachZ=8) a 120km/h launch only gets ~25 physics
+// steps of travel before impact -- too few for the freshly-spawned chassis/wheels/panels (still
+// carrying spawn-transient contact state from the instantaneous launch()) to settle into a normal
+// rolling contact posture. That lands the wall hit mid-transient, and the single-frame collision
+// response it produces is measurably WEAKER than the 70km/h hit's (peak debris 15.96 m/s < 70's
+// 19.8), inverting the intended energy ordering. Measured fix (game/verify/asymmetric-launch-style
+// real run-up, sim/_measure-tmp.test.mjs scratch harness): tripling the approach distance to 36m
+// gives the 120km/h launch ~64 steps of ordinary travel to settle before impact, which restores
+// strictly-rising peak debris (30->5.7, 70->16.8, 120->26.3 m/s) with comfortable margin over every
+// band below. 30/70 already have ample run-up/settle time at the standard distance (115/44 steps to
+// impact) and are untouched.
+const HIGH_SPEED_APPROACH_Z = -12;
+
 /** Drive a coasting impact into `structure` and return its debris/deformation signature. `kind` filters
  * the measured pieces to one material (e.g. 'brick'); null measures every dynamic piece. */
 async function impactSignature(build, centerX, approachZ, kind, speedKmh, steps = 200) {
@@ -99,7 +113,7 @@ describe('destruction-feel: buildings bend-then-break + staged debris', () => {
 		// debris flies), and low-speed damage tumbles as CLUMPS (many bricks move while few joints break,
 		// i.e. connected 2-4-brick chunks fall together) rather than shattering into individual bricks.
 		const low = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 30);
-		const high = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 120);
+		const high = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, HIGH_SPEED_APPROACH_Z, 'brick', 120);
 		console.log(
 			`[brick crack-vs-shatter] low(30): broken=${low.brokenJoints} bent=${low.bentJoints} moved>0.3=${low.moved03} peakDebris=${low.peakDebrisSpeed.toFixed(1)}m/s meanDisp=${low.meanDisp.toFixed(2)}m | ` +
 				`high(120): broken=${high.brokenJoints} bent=${high.bentJoints} peakDebris=${high.peakDebrisSpeed.toFixed(1)}m/s meanDisp=${high.meanDisp.toFixed(2)}m`,
@@ -127,7 +141,7 @@ describe('destruction-feel: buildings bend-then-break + staged debris', () => {
 	it('brick wall: low/mid/high produce a strictly increasing debris velocity + spread signature', async () => {
 		const lo = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 30);
 		const mid = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 70);
-		const hi = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, 8, 'brick', 120);
+		const hi = await impactSignature(buildBrickWall, BRICK_WALL_CENTER.x, HIGH_SPEED_APPROACH_Z, 'brick', 120);
 		console.log(
 			`[brick staged] peakDebrisSpd 30=${lo.peakDebrisSpeed.toFixed(1)} 70=${mid.peakDebrisSpeed.toFixed(1)} 120=${hi.peakDebrisSpeed.toFixed(1)} m/s | ` +
 				`broken 30=${lo.brokenJoints} 70=${mid.brokenJoints} 120=${hi.brokenJoints} | meanDisp 30=${lo.meanDisp.toFixed(2)} 70=${mid.meanDisp.toFixed(2)} 120=${hi.meanDisp.toFixed(2)} m`,
