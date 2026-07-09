@@ -24,6 +24,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PANEL_NODES, poseDeltaVsAttached } from './panel-pose/attached-pose.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const gameRoot = path.resolve(__dirname, '..');
@@ -38,6 +39,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ANGLE_TOL_DEG = 5;
 const POS_TOL_M = 0.05;
 const WHEEL_LR_TOL_DEG = 2;
+
+// BODY-vs-ATTACHED-POSE tolerances (game/sim/panel-loosen-pose.test.mjs's investigation): distinct from
+// checkPoses() above, which only proves the VISUAL MESH tracks its PHYSICS BODY -- these instead check
+// that a still-`loosened` panel's body itself settled NEAR the pose a rigid weld would hold it at
+// (chassisPos + chassisRot*localCenter, chassisRot*nodeWorldQuat), i.e. "sags near its attached pose"
+// rather than "swings to a ~1m/90deg wrong rest pose". Deliberately NOT checked for `broken` panels --
+// a broken panel tumbling far from its attached pose is correct, already-asserted behavior (see
+// game/sim/damage-hard-frontal.test.mjs: a broken hood must diverge from the chassis by >0.5m within 2s
+// of breaking), not a regression.
+const LOOSEN_SETTLE_POS_TOL_M = 0.3;
+const LOOSEN_SETTLE_ANGLE_TOL_DEG = 25;
+
+function checkAttachedPose(label, poses, failures) {
+  for (const key of Object.keys(PANEL_NODES)) {
+    const p = poses.panels[key];
+    if (!p || p.despawnedOrMissing || p.state !== 'loosened') continue;
+    const { posM, angleDeg } = poseDeltaVsAttached(key, p.bodyPos, p.bodyQuat, poses.chassis.pos, poses.chassis.quat);
+    if (posM > LOOSEN_SETTLE_POS_TOL_M) {
+      failures.push(`[${label}] panel "${key}" (loosened) posDeltaVsAttached=${posM.toFixed(3)}m exceeds ${LOOSEN_SETTLE_POS_TOL_M}m`);
+    }
+    if (angleDeg > LOOSEN_SETTLE_ANGLE_TOL_DEG) {
+      failures.push(`[${label}] panel "${key}" (loosened) angleDeltaVsAttached=${angleDeg.toFixed(2)}deg exceeds ${LOOSEN_SETTLE_ANGLE_TOL_DEG}deg`);
+    }
+  }
+}
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -234,6 +260,7 @@ async function main() {
     results.afterHardCrash = await evalExpr('window.__DIAG__.dumpPoses("afterHardCrash")');
     results.afterHardCrashTelemetry = await evalExpr('window.__DIAG__.telemetry()');
     checkPoses('afterHardCrash', results.afterHardCrash, baseline, failures);
+    checkAttachedPose('afterHardCrash', results.afterHardCrash, failures);
     console.log('[shoot-alignment] afterHardCrash telemetry:', JSON.stringify(results.afterHardCrashTelemetry.panelStates));
 
     for (const view of ['front', 'side', 'rear3q']) {
