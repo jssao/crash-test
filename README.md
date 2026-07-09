@@ -1,5 +1,37 @@
 # box3d-js
 
+## Crash Sandbox -- a driving/destruction game built on this binding
+
+![Crash sandbox: a car plowing through a stack of crates, mid-collision](docs/media/hero.png)
+
+Drive a car through a sandbox full of crates, barrels, and ramps -- every prop is a dynamic rigid
+body simulated by the Box3D wasm physics core below, rendered with Three.js. No install needed once
+it's deployed; playable locally right now.
+
+**Play it locally, right now:**
+
+```sh
+cd game && npm install && npm run dev
+```
+
+Opens at `http://localhost:5173`. The wasm binary is pre-built and checked in
+(`build/wasm/box3d.wasm`) -- no emscripten toolchain required just to play.
+
+**Deploy it to GitHub Pages:** see [`DEPLOY.md`](./DEPLOY.md) for the exact commands (repo isn't
+published yet -- `DEPLOY.md` has the two-command path to get it live at
+`https://<user>.github.io/box3d-js/`).
+
+**Controls:** `WASD` drive * `Space` handbrake * `R` repair car * `Shift+R` repair + reset world *
+`C` toggle camera * `Q` render quality * `F` perf overlay.
+
+**Credits:** car model "Car Concept" -- Eric Chadwick (model & textures), © Darmstadt Graphics
+Group GmbH, packaged by Khronos Group, **CC BY 4.0**. HDRIs -- Poly Haven, **CC0**. Full provenance
+in [`game/CREDITS.md`](./game/CREDITS.md).
+
+---
+
+## The binding
+
 A WASM + TypeScript binding of **[Box3D](https://github.com/erincatto/box3d)** -- Erin Catto's C17
 3D rigid-body physics engine (the 3D successor to Box2D) -- for use from browser games, in
 particular **Three.js**. Box3D compiles to a single-threaded WebAssembly module; a hand-written
@@ -132,10 +164,16 @@ scripts/build-wasm.sh
 
 This configures an out-of-tree CMake project (`scripts/wasm/CMakeLists.txt`) that builds *only*
 `vendor/box3d/src` (not upstream's samples/tests/benchmarks, and not upstream's root
-`CMakeLists.txt` with its pthread branch), producing `build/wasm/box3d.mjs` + `build/wasm/box3d.wasm`
-(gitignored build artifacts). The script is idempotent and self-verifying: it checks the output
-exists, greps for `SharedArrayBuffer` (must be absent), and runs `scripts/smoke-wasm.mjs` (loads the
-module in plain Node, creates and steps a world, with no `--experimental-*` flags).
+`CMakeLists.txt` with its pthread branch), producing `build/wasm/box3d.mjs` + `build/wasm/box3d.wasm`.
+The script is idempotent and self-verifying: it checks the output exists, greps for
+`SharedArrayBuffer` (must be absent), and runs `scripts/smoke-wasm.mjs` (loads the module in plain
+Node, creates and steps a world, with no `--experimental-*` flags).
+
+**Note:** `build/wasm/box3d.mjs` and `build/wasm/box3d.wasm` are checked into this repo (a
+deliberate, narrow exception carved out of `.gitignore` -- the rest of `build/` stays ignored) so
+CI and GitHub Pages deploys don't need an emscripten toolchain installed. Re-run
+`scripts/build-wasm.sh` any time you change `vendor/box3d` or the C shim (`src/wasm-shim/`) to
+regenerate them, then commit the result.
 
 ## npm packaging
 

@@ -1,0 +1,77 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Only one deploy at a time; cancel any in-progress run when a newer one starts.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (box3d-js binding)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No emscripten/cmake toolchain needed here: build/wasm/box3d.{mjs,wasm} are checked into
+      # the repo (see .gitignore + README's "Build from source" note), so the binding's own test
+      # suite runs against the same wasm artifacts a contributor built and committed locally.
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Run binding tests
+        run: npx vitest run
+
+  deploy:
+    name: deploy (game/ -> GitHub Pages)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies (game/)
+        working-directory: game
+        run: npm ci
+
+      # `npm run build` in game/ runs `tsc --noEmit && vite build`. Vite's syncWasmBinaryPlugin
+      # (game/vite.config.ts) copies ../build/wasm/box3d.wasm into public/assets/box3d.wasm during
+      # buildStart -- which works in CI precisely because build/wasm/box3d.wasm is checked in.
+      # We deliberately do NOT run the sim/browser verify suites here (game/test:sim, verify:*) --
+      # they need a real browser binary and are out of scope for this lean deploy pipeline.
+      - name: Build game
+        working-directory: game
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: game/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

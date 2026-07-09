@@ -1,8 +1,15 @@
 vendor/
 node_modules/
-build/
+build/*
 dist/
 *.wasm
 .DS_Store
 *.o
 *.a
+
+# Exception: the compiled wasm artifacts are checked in so CI/deploy don't need emscripten
+# installed (see scripts/build-wasm.sh and the README's "Build from source" section). Everything
+# else under build/ (e.g. build/wasm-cmake/, the CMake scratch dir) stays ignored.
+!build/wasm/
+!build/wasm/box3d.mjs
+!build/wasm/box3d.wasm
