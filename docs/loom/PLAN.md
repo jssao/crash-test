@@ -72,3 +72,10 @@ deformation feeds back into physics.
 ## Pass log
 
 (append: date · phase · evaluator verdict · directive)
+
+- 2026-07-08 · GATE-PORT · PASS (pass 1) · all 6 items + constraints, file:line evidence.
+- 2026-07-09 · GATE-GAME · FAIL (pass 1) · items 7,9,11,12,honesty YES; item 8 NO (browser drive
+  script asserts throttle only — steering yaw asserted only in node sim test); item 10 PARTIAL
+  (topple proven by screenshot, no code assertion of body displacement). Directive → FIXGATE
+  worker after playtest lands: (a) add steering segment + yaw assert to shoot-driving.mjs,
+  (b) add displaced-destructible-count assertion to shoot-world.mjs; then re-gate (pass 2 of 3).
