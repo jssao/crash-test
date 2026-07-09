@@ -9,7 +9,6 @@ import {
   createVehicle,
   createGroundBody,
   destroyVehicle,
-  resetVehicle,
   stepVehicle,
   NEUTRAL_INPUT,
   type Vehicle,

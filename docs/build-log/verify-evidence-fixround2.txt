@@ -1,0 +1,64 @@
+=== GATE EVIDENCE: FIXROUND-2 (fresh orchestrator runs, Thu Jul  9 06:38:36 CDT 2026) ===
+--- git log ---
+5fb6b9f Vehicle dynamics foundation: gate airborne assists, fix drift, bound top speed
+1f0b38c Fix panel/wheel visual-transform: rotate panel bodies to match GLB node frame, strip wheel authoring garbage
+b6964f0 fix(native): decode file: URLs before dynamic import to fix space-in-path failures
+4390710 Rename project folder box3d-js -> 'crash test'; de-loom docs/loom -> docs/build-log
+
+--- root npm test ---
+      Tests  7 passed (7)
+   Start at  06:38:36
+   Duration  254ms (transform 101ms, setup 0ms, collect 338ms, tests 167ms, environment 0ms, prepare 222ms)
+
+
+--- game test:sim ---
+[suspension] maxExtraDeflection=0.131m maxRideHeightRise=0.218m maxAbsAccelY=106.4 headingDeg=1.64
+[braking-g] peak braking decel = 1.77 g (realistic road car ~0.9-1.1g)
+[launch-slip] peak rear contact-patch slip = 19.77 m/s at t=1.83s
+[lateral-g] samples: [{"k":0,"speedKmh":"60.7","yawRate":"-0.050","latG":"0.085","roll":"0.23"},{"k":30,"speedKmh":"63.7","yawRate":"-0.375","latG":"0.677","roll":"-0.14"},{"k":60,"speedKmh":"66.2","yawRate":"-0.378","latG":"0.709","roll":"-0.10"},{"k":90,"speedKmh":"68.6","yawRate":"-0.347","latG":"0.674","roll":"-0.19"},{"k":120,"speedKmh":"70.9","yawRate":"-0.328","latG":"0.659","roll":"-0.18"},{"k":150,"speedKmh":"72.2","yawRate":"-0.299","latG":"0.611","roll":"-0.04"},{"k":180,"speedKmh":"72.5","yawRate":"-0.406","latG":"0.833","roll":"-0.12"},{"k":210,"speedKmh":"73.7","yawRate":"-0.342","latG":"0.714","roll":"-0.24"}]
+[lateral-g] steady-state peak lateral g (mild steer, sub-limit) = 0.865 g (realistic road car ~0.8-1.0g at limit; this is sub-limit steer)
+[DIAG airborne-pitch] airborne samples: 57
+[DIAG airborne-pitch] pitchRate first=0.0310 last=0.3176 over 0.933s (decay=-0.2866 rad/s, upDot first=0.8591 last=0.9705)
+[airborne-momentum] airborne samples=57 early(idx=5)=0.2652 last=0.3176
+[airborne-momentum] post-landing upDot=1.000
+[kicker-jump] rest wheel heights={"fl":0.38893482089042664,"fr":0.38893380761146545,"rl":0.38276436924934387,"rr":0.3827633559703827} maxConsecutiveAirSteps=57 (need >=18)
+[kicker-jump] post-landing upDot=1.000 pos={"x":-1.1555637121200562,"y":0.2619529664516449,"z":66.91023254394531}
+[kicker-jump] post-landing drive displacement=75.62m
+[wheel-detach] detachedAtStep=4 wheelStates={"fl":"detached","fr":"detached","rl":"attached","rr":"attached"}
+[wheel-detach] post-detach 3s throttle displacement=47.24m sawNaN=false
+[straight-line-30s] finalYawDeg=-3.406 yawRate=0.1020 speedKmh=110.6 minGroundedCount=4 upDot=1.000
+[cornering-progressive] [{"frac":0.25,"latG":0.6431987739074498},{"frac":0.5,"latG":0.9061592327575435},{"frac":0.75,"latG":1.1140033317590239},{"frac":1,"latG":1.1476041202699112}]
+[hard-frontal] panelStates={"hood":"broken","doorL":"loosened","doorR":"broken","hatch":"attached","roof":"loosened"} dentedVertexCount=39
+[hard-frontal] hood-chassis relative displacement: before=1.54m after=1.54m
+[hard-frontal] chassis-front dentedCount=25
+[moderate-impact] hitEvents=4 dentedVertexCount=49 panelStates={"hood":"loosened","doorL":"attached","doorR":"attached","hatch":"attached","roof":"attached"}
+[moderate-impact] post-crash throttle displacement=47.66m
+[sustained-oscillation] minUpDot=0.9999 maxAbsRollDeg=0.28 finalUpDot=1.0000 finalSpeedKmh=50.2
+[top-speed-bounded] finalSpeed=111.5km/h maxSpeedEver=112.3km/h last5s range=[110.1,112.0] minGroundedCount=4
+[idle-stability] drift=0.00000m varX=2.91e-15 varY=2.21e-16 varZ=1.10e-15
+[straight-line] displacement=68.93m maxSpeed=88.5km/h finalSpeed=88.5km/h minUpDot=0.9999 gear=2
+[determinism] run A: panelStates={"hood":"broken","doorL":"attached","doorR":"loosened","hatch":"attached","roof":"loosened"} dented=39
+[determinism] run B: panelStates={"hood":"broken","doorL":"attached","doorR":"loosened","hatch":"attached","roof":"loosened"} dented=39
+[brake-speed-trace] 80.15,80.36,80.03,79.43,78.91,77.99,77.32,76.49,75.45,74.71,74.19,73.49,72.88,72.34,71.74,71.11,70.46,69.76,69.06,68.37,67.66,66.94,66.23,65.52,64.79,64.08,63.36,62.64,61.92,61.19,60.48,59.76,59.04,58.33,57.60,56.89,56.17,55.46,54.73,54.02,53.31,52.58,51.86,51.15,50.43,49.71,49.00,48.28,47.56,46.84,46.12,45.41,44.69,43.97
+[brake-decel-g-per-step] -0.357,0.561,1.019,0.883,1.563,1.138,1.410,1.767,1.257,0.883,1.189,1.036,0.917,1.019,1.070,1.104,1.189,1.189,1.172,1.206,1.223,1.206,1.206,1.240,1.206,1.223,1.223,1.223,1.240,1.206,1.223,1.223,1.206,1.240,1.206,1.223,1.206,1.240,1.206,1.206,1.240,1.223,1.206,1.223,1.223,1.206,1.223,1.223,1.223,1.223,1.206,1.223,1.223
+[braking] stopped after 21.98m, minUpDot=0.9999
+[crumple-bounded] dentedVertexCount history: 45,70,121,134,203,227,227,227,228,228,228,228
+[crumple-bounded] earlyGrowth(trials 1-3)=76 tailGrowth(last 3 trials)=0
+[crumple-bounded] max observed per-vertex displacement: 0.2500m
+[threshold-ordering] 20km/h states={"hood":"attached","doorL":"attached","doorR":"attached","hatch":"attached","roof":"attached"}
+[threshold-ordering] 55km/h states={"hood":"broken","doorL":"loosened","doorR":"attached","hatch":"attached","roof":"attached"}
+[threshold-ordering] 100km/h states={"hood":"broken","doorL":"loosened","doorR":"broken","hatch":"attached","roof":"loosened"}
+[benign-driving] after 60s mild driving: panelStates={"hood":"attached","doorL":"attached","doorR":"attached","hatch":"attached","roof":"attached"} stressLevels={"hood":0,"doorL":0,"doorR":0,"hatch":0,"roof":0}
+[benign-driving] after 55km/h wall crash: panelStates={"hood":"broken","doorL":"loosened","doorR":"attached","hatch":"attached","roof":"attached"}
+ Test Files  24 passed (24)
+      Tests  28 passed (28)
+
+--- game build ---
+✓ built in 268ms
+
+--- shoot-alignment (Brave CDP) ---
+[shoot-alignment] console errors: 0
+[shoot-alignment] page exceptions: 0
+[shoot-alignment] assertion failures: 0
+[shoot-alignment] wrote console-report-alignment.json
+[shoot-alignment] PASS
