@@ -19,6 +19,7 @@ import { InterpolatedTransform } from '../../../core/loop';
 import { buildCarDetailMaterials, disposeCarDetailMaterials, type CarDetailMaterials } from './materials';
 import { SHAPE_BUILDERS } from './shapes';
 import {
+	ATTACHED_SENSOR_OVERRIDE_IDS,
 	BREAKS_EASILY_FORCE_N,
 	BREAKS_EASILY_TORQUE_NM,
 	CARDETAIL_BODY_ID_BASE,
@@ -62,22 +63,37 @@ function capsuleVolume(length_: number, radius: number): number {
 }
 
 /** Builds (or rebuilds, after a break) this spec's collision shape on `body`, with the given
- * groupIndex (CAR_GROUP_INDEX while attached to the car's own no-self-collide group, 0/neutral once
- * broken -- exactly damage/panels.ts's breakPanelWeld() pattern).
+ * groupIndex (CAR_GROUP_INDEX both while attached AND once broken -- see breakComponent()'s doc
+ * comment for why post-break stays on the shared car group rather than flipping neutral like damage/
+ * panels.ts's breakPanelWeld() does).
  *
- * `isSensor` (true while attached/collapsed, false once broken): a RIGIDLY-welded component's world
- * position is 100% determined by the weld constraint, never by its own collision response -- so real
- * (non-sensor) collision while still attached serves no purpose and is actively harmful. FOUND
- * EMPIRICALLY (game/sim/features-cardetail.test.mjs's drive-up-to-a-wall scenario): several
- * components (seats/bench/pedal cluster, whose box centers sit low per the spec's H-point-style Y
- * values -- see tuning.ts's ground-clearance comments) clip the ground plane during ordinary
- * acceleration squat; being rigidly welded, that contact fights the weld every step instead of being
- * smoothly absorbed (no suspension of their own), which was measured to nearly stall the WHOLE car's
- * driveline, not just the clipping part -- 39 attached parts dropped a 34 km/h/2s baseline to <1 km/h.
- * Making attached/collapsed shapes sensors (still fully positioned via the weld, but generating no
- * contact response against the ground/wall/anything else) removes this failure mode entirely; once
- * broken, the shape is recreated as a real (non-sensor) shape so it can scatter/rest/collide normally,
- * matching the "scatters believably on impact" requirement. */
+ * `isSensor`: TIER-3 STAGE 3 (docs/build-log/specs/compound-hull-design.md) retires the original
+ * "every attached/collapsed part is a sensor" blanket rule -- see this function's OLD doc comment
+ * (preserved below) for why that existed. Now only `ATTACHED_SENSOR_OVERRIDE_IDS` (tuning.ts, 3 of 27
+ * post-cull parts, MEASURED not assumed) stay sensors while attached/collapsed; every other part is a
+ * REAL (non-sensor) shape while attached, colliding with the ground/walls/debris exactly like the
+ * chassis's own Stage-1 cabin-tub shapes already do -- filtered against the car's OWN shapes (chassis/
+ * wheels/panels/other cardetail) via the SAME shared groupIndex those shapes use (CAR_GROUP_INDEX is a
+ * negative group: shapes sharing it never collide with each other, in box3d/box2d's own filter
+ * convention -- see tuning.ts's CAR_GROUP_INDEX doc comment in vehicle/tuning.ts), so this holds
+ * regardless of whatever the chassis's own collision geometry looks like underneath (solid crush
+ * volume today, hollow cavity once the chassis side of Tier-3 stage 3 lands -- this feature's own
+ * filtering behavior is identical either way).
+ *
+ * ORIGINAL FINDING (why sensors existed at all, still true for the 3 override ids above): a RIGIDLY-
+ * welded component's world position is 100% determined by the weld constraint, never by its own
+ * collision response -- so real (non-sensor) collision while still attached, if the shape is actually
+ * penetrating something, fights the weld every step instead of being smoothly absorbed (no suspension
+ * of its own). FOUND EMPIRICALLY (game/sim/features-cardetail.test.mjs's drive-up-to-a-wall scenario,
+ * pre-model-first-cull): 39 attached parts including several LOW interior components (seats/bench/
+ * pedal cluster -- all since CULLED, see tuning.ts's top doc comment) clipping the ground plane during
+ * ordinary acceleration squat nearly stalled the whole car's driveline, dropping a 34 km/h/2s baseline
+ * to <1 km/h. Stage 3's own ground-clearance probe (game/sim/cardetail-ground-contact.test.mjs) found
+ * this is now a MUCH narrower problem post-cull: only 3 rear underbody parts (fuelTank,
+ * mufflerTailpipe, rearSubframe) still cross below the ground plane during ordinary driving, all by a
+ * few cm -- those 3 keep the sensor treatment (ATTACHED_SENSOR_OVERRIDE_IDS); the other 24 measured
+ * clear. Once broken, EVERY component (even the 3 overrides) becomes a real shape so it can scatter/
+ * rest/collide normally, matching the "scatters believably on impact" requirement. */
 function createShapeFor(body: Body, spec: CarDetailSpec, groupIndex: number, bodyUserData: number, isSensor: boolean): Shape {
 	const common = {
 		density: 1, // overwritten below once we know the volume
@@ -176,7 +192,7 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 				rotation: spawnRotation,
 				userData: bodyUserData,
 			});
-			const shape = createShapeFor(body, spec, CAR_GROUP_INDEX, bodyUserData, true);
+			const shape = createShapeFor(body, spec, CAR_GROUP_INDEX, bodyUserData, ATTACHED_SENSOR_OVERRIDE_IDS.has(spec.id));
 
 			const weld = ctx.world.createWeldJoint(chassis, body, {
 				frameA: { position: spec.localCenter, rotation: IDENTITY_Q },
@@ -227,15 +243,25 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 		// DELIBERATE DEVIATION from damage/panels.ts's breakPanelWeld(): panels sit at the car's
 		// EXTERIOR surface, so flipping to a neutral (0) group so a broken panel can bounce off the
 		// car body is exactly the desired crash visual. Every cardetail component instead starts fully
-		// EMBEDDED inside the chassis hull's own convex collision shape (interior/engine-bay parts are,
-		// by definition, inside the exterior shell while attached) -- giving a freshly-broken one a
-		// neutral group was found to make it instantly, violently interpenetration-resolve against the
-		// hull it was always sitting inside, which measurably fights the chassis's own motion (see
-		// createShapeFor()'s isSensor doc comment for the matching ground-clipping failure mode this
-		// shares the same root cause with). Keeping CAR_GROUP_INDEX post-break means a scattered part
-		// still never collides with the chassis/wheels/panels/other cardetail parts, only the ground/
-		// walls/world -- it can fly out through the (now-open, per the hood/door panel system) body
-		// opening and land in the world, just never explosively off the car's own hull.
+		// EMBEDDED inside the chassis's own collision shapes (interior/engine-bay parts are, by
+		// definition, inside the exterior shell while attached) -- giving a freshly-broken one a neutral
+		// group was RE-TESTED for this stage (docs/build-log/specs/compound-hull-design.md's Tier-3
+		// stage 3: "detached parts interact with the bay walls on their way out") on the CURRENT Stage-1
+		// chassis, not just assumed carried over from the pre-Tier-3 single hull: measured directly
+		// (game/sim/features-cardetail.test.mjs's 90km/h wall crash, groupIndex temporarily flipped to
+		// 0 here), the scatter regressed from 3+ parts clearing 1.5m in 4s to ZERO -- detached parts got
+		// caught/arrested against the chassis's still-solid nose/tail crush volumes (Stage 1 opens the
+		// CABIN greenhouse's sides, per geometry.ts's buildCabinShapes(), but its own top doc comment is
+		// explicit that "the engine bay is opened into a cavity only in stage 3" -- that chassis-side
+		// cavity is a SEPARATE, not-yet-landed piece of work outside this feature's own file scope, see
+		// game/src/vehicle/geometry.ts). So the "bounce off the bay wall on the way out" drama this
+		// stage wants is a real, MEASURED dependency on that chassis-side opening, not deliverable from
+		// this feature alone yet -- keeping CAR_GROUP_INDEX post-break (unchanged from pre-Stage-3) means
+		// a scattered part still never collides with the chassis/wheels/panels/other cardetail parts,
+		// only the ground/walls/world -- it can fly out through the (now-open, per the hood/door panel
+		// system) body opening and land in the world, just never bounces off the (still invisible-solid)
+		// engine-bay volume it started inside. GAP, not silently worked around: revisit this decision
+		// (try neutral group again) once the chassis's own nose/tail shapes are hollowed.
 		handle.shape = createShapeFor(handle.body, handle.spec, CAR_GROUP_INDEX, CARDETAIL_BODY_ID_BASE + handle.index, false);
 		handle.state = 'broken';
 	}
@@ -382,6 +408,14 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			 * cardetail-containment.test.mjs assert the "exterior proxies are invisible while attached"
 			 * visibility policy (tuning.ts's EXTERIOR_PROXY_IDS) without a scene/renderer. */
 			meshVisible: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.mesh.visible])),
+			/** TIER-3 STAGE 3 diagnostic/test hook: whether THIS component's CURRENT shape is a sensor
+			 * (no collision response) rather than solid -- lets cardetail-containment.test.mjs assert the
+			 * "solid while attached, except ATTACHED_SENSOR_OVERRIDE_IDS" policy directly (Shape itself
+			 * has no isSensor getter -- box3d-js's Shape.getFilter() only exposes category/mask/group, see
+			 * src/ts/shape.ts -- so this is tracked from the same createShapeFor() call args index.ts's
+			 * own spawnAll()/breakComponent() already use, not a native readback). Once `broken`, every
+			 * component (even the 3 overrides) is solid -- see createShapeFor()'s doc comment. */
+			isSensor: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.state === 'broken' ? false : ATTACHED_SENSOR_OVERRIDE_IDS.has(h.spec.id)])),
 			/** Diagnostic: current weld constraint-force magnitude (N) per component, or null once
 			 * broken (no weld left to read). Useful for calibrating tuning.ts's break thresholds. */
 			constraintForces: () => Object.fromEntries(handles.map((h) => [h.spec.id, h.weld ? length(h.weld.getConstraintForce()) : null])),

@@ -6,6 +6,11 @@
 // headless sim test (game/sim/features-cardetail.test.mjs imports this feature module directly, per
 // feature.ts's contract note).
 //
+// TIER-3 STAGE 3 (open engine bay, docs/build-log/specs/compound-hull-design.md): retires the
+// blanket "every attached part is a sensor" rule -- see ATTACHED_SENSOR_OVERRIDE_IDS below (the 3
+// parts, of 27, that measurably still need it) and index.ts's createShapeFor()/breakComponent() doc
+// comments for the full mechanism + what's still gated on a chassis-side (not this file's) change.
+//
 // MUSTANG-65 MODEL-FIRST CULL (orchestrator directive, "i want the model's models to be the ones
 // that are used"): the spec below was originally written for a generic modern turbocharged sports
 // coupe (Khronos CarConcept.glb) and ported wholesale onto the Mustang-65 hero asset, which already
@@ -244,6 +249,45 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
  * only earns its keep as the flying-debris MASS" treatment as engineBlock above.
  */
 export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['engineBlock', 'driveshaft', 'mufflerTailpipe']);
+
+/**
+ * TIER-3 STAGE 3 (open engine bay, docs/build-log/specs/compound-hull-design.md): parts in this set
+ * stay SENSORS while `attached` (index.ts's createShapeFor()) -- every OTHER component is now SOLID
+ * while attached (real collision with world/debris, the whole point of this stage), see that file's
+ * doc comment for the mechanism. This is the "keep sensors for the specific offending parts only"
+ * fallback the stage explicitly allows, applied per-part rather than repo-wide.
+ *
+ * MEASURED (not assumed): a dedicated ground-clearance probe (transforms each spec's own box/capsule
+ * geometry through its live body pose every fixed step, no solver dependency -- a sensor's kinematics
+ * while rigidly welded are identical to a solid shape's UNLESS/UNTIL real penetration would occur, so
+ * this measures the would-be solid outcome using the pre-Stage-3 sensor codebase) run across 3
+ * benign-driving scenarios (240-step full-throttle, straight-line 5s, launch+brake+swerve) found
+ * exactly 3 of the 27 post-cull components genuinely cross below world Y=0 (the ground plane) during
+ * ordinary driving, all rear-mounted underbody parts sagging under sustained rear-biased load: fuelTank
+ * (worst -0.045m @5s straight-line), mufflerTailpipe (-0.034m), rearSubframe (-0.025m). Every other
+ * component (including the other 14 underbody/extremity parts -- front subframe, both control-arm
+ * pairs, driveshaft, both bumper beams -- and all 10 engine-bay parts) stayed comfortably positive
+ * (>=0.017m clearance) across all 3 scenarios. This is a MUCH smaller-scope problem than the ORIGINAL
+ * sensor-while-attached finding this stage retires (createShapeFor()'s doc comment: 39 parts including
+ * several LOW interior components -- seats/bench/pedal-cluster, all culled since, see this file's top
+ * doc comment -- stalled the whole driveline from 34km/h to <1km/h): only 3 parts, all shallow (<5cm)
+ * penetration, and the interior parts that caused the severe stall no longer exist in this table at
+ * all. Stage 1's cabin-tub floorpan/sills genuinely fixed the problem for the OTHER 24 parts; these 3
+ * sit further aft/lower than the floorpan's own Z/Y coverage (mm() locations pre-date Stage 1 and were
+ * never re-validated against it) and were not.
+ *
+ * DYNAMIC CONFIRMATION (not just the geometric probe above): re-ran a 5s full-throttle launch with
+ * these 3 parts' sensor override ACTUALLY REMOVED (all 27 solid) and compared against the as-shipped
+ * (3 overridden) run -- speed-at-5s dropped 90.8 -> 73.9 km/h (~19% down) and distance covered 63.9 ->
+ * 56.3m (~12% down), a real, repeatable drivetrain drag from their ground contact, confirming the
+ * geometric prediction with an actual dynamics measurement (not a catastrophic near-total stall like
+ * the original 39-part interior bug, but a clearly measurable regression this stage's own "if
+ * solid-while-attached genuinely regresses driving after honest effort (measure!), keep sensors for
+ * the specific offending parts only" clause exists for). Confirms the override choice; not a
+ * permanently closed question -- worth re-measuring if these 3 parts' mount points or the chassis's
+ * own underbody/floor geometry change.
+ */
+export const ATTACHED_SENSOR_OVERRIDE_IDS: ReadonlySet<string> = new Set(['fuelTank', 'mufflerTailpipe', 'rearSubframe']);
 
 export const EXTERIOR_PROXY_IDS: ReadonlySet<string> = new Set([
 	'frontBumperBeam',

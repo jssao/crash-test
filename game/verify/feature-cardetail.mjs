@@ -12,6 +12,23 @@
 // drive-up-to-a-wall mechanics are what game/sim/features-cardetail.test.mjs actually verifies
 // numerically (>=5 parts, >=1.5m scatter, timed from a REAL impact).
 //
+// TIER-3 STAGE 3 (open engine bay, docs/build-log/specs/compound-hull-design.md): parts are now SOLID
+// while attached (tuning.ts's ATTACHED_SENSOR_OVERRIDE_IDS is the only exception, 3 of 27, measured).
+// The screenshot-cardetail-scatter.png / -crash140-scatter.png shots below double as this stage's
+// "debris resting after a crash" eyes-on evidence -- broken/scattered parts (and the hood panel) now
+// visibly rest ON the ground near the car rather than floating/sinking (proven numerically too, see
+// game/sim/cardetail-containment.test.mjs's "scattered parts settle to REST on the ground" gate).
+// HONEST GAP (not silently worked around, see index.ts's breakComponent()/createShapeFor() doc
+// comments for the full measured writeup): "debris lands INSIDE the bay" and "a part bounces off the
+// bay wall on its way out" are NOT deliverable from this feature alone -- the chassis's own 'nose'
+// crush-volume shape (vehicle/geometry.ts) is still a single solid mass filling the whole engine-bay
+// footprint from ground to roofline in Stage 1 (that file's own top comment: "the engine bay is opened
+// into a cavity only in stage 3" -- a chassis-side change, out of this feature's file scope), so
+// anything dropped into that space today gets arrested on its invisible TOP face, well above the
+// actual engine-bay parts, not down among them -- confirmed directly with a dedicated physics probe
+// before deciding not to stage a screenshot of it (it would show debris floating in visibly empty air,
+// which is not evidence of anything working). Revisit once that chassis-side cavity lands.
+//
 // SINGLE-EVAL STEPPING (found empirically): window.__GAME__ keeps its own requestAnimationFrame loop
 // running the whole time this script drives the page via separate CDP round-trips -- if crash()/
 // spawnTestWall()/stepN() are issued as SEPARATE Runtime.evaluate calls, real wall-clock time passes

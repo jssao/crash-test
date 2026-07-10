@@ -10,6 +10,18 @@
 // tuning.ts's per-component comments (mufflerTailpipe/rearBumperBeam/taillightL/R/headlightL/R/
 // mirrorL/R/dashboard) for the specific corrections this guards.
 //
+// TIER-3 STAGE 3 (open engine bay, docs/build-log/specs/compound-hull-design.md) additions: the whole-
+// car ENVELOPE check above stays (still the right, looser bound for underbody/extremity parts, which
+// legitimately hang below/outside the chassis's own Stage-1 collision shapes by design -- subframes/
+// control-arms/fuel tank/muffler all measurably do, that's real underbody hardware). NEW: engine-bay
+// parts get a TIGHTER check against the chassis's own actual Stage-1 'nose' crush-volume shape (from
+// vehicle/geometry.ts's buildCabinShapes() -- the real collision geometry these parts are welded
+// inside, not just the car's overall visual silhouette) -- this is "containment... inside bay/cabin/
+// underbody envelopes" read literally, against Stage 1's real shapes rather than a single whole-car
+// box. Also NEW: a solid-collision assertion (parts genuinely REST on the ground post-crash, not float
+// or sink) and an attached-solidity assertion (every part is a real, non-sensor shape while attached
+// except the 3 measured ATTACHED_SENSOR_OVERRIDE_IDS -- see tuning.ts's doc comment on that set).
+//
 // Same headless-import pattern as features-cardetail.test.mjs (imports the feature module directly,
 // skipping registry.ts's vite-only import.meta.glob -- see feature.ts's doc comment).
 
@@ -18,9 +30,11 @@ import { describe, expect, it } from 'vitest';
 import { Sim, loadNative } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
 import { FIXED_DT, CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
+import { buildCabinShapes } from '../src/vehicle/geometry.ts';
 import createCarDetailFeature from '../src/world/features/cardetail/index.ts';
-import { CAR_DETAIL_SPECS, EXTERIOR_PROXY_IDS, MODELED_PROXY_IDS } from '../src/world/features/cardetail/tuning.ts';
+import { ATTACHED_SENSOR_OVERRIDE_IDS, CAR_DETAIL_SPECS, EXTERIOR_PROXY_IDS, MODELED_PROXY_IDS } from '../src/world/features/cardetail/tuning.ts';
 import { CAR_MAP } from '../src/assets/car-map.ts';
+import { rotateVector } from '../src/vehicle/mathUtil.ts';
 
 async function makeFeature(sim) {
 	const ctx = {
@@ -92,6 +106,53 @@ function within(box, bound) {
 	return box.xMin >= bound.xMin - 1e-9 && box.xMax <= bound.xMax + 1e-9 && box.yMin >= bound.yMin - 1e-9 && box.yMax <= bound.yMax + 1e-9 && box.zMin >= bound.zMin - 1e-9 && box.zMax <= bound.zMax + 1e-9;
 }
 
+// ---------------------------------------------------------------------------------------------
+// TIER-3 STAGE 3: the actual Stage-1 'nose' crush-volume AABB (vehicle/geometry.ts's
+// buildCabinShapes(), the REAL chassis collision geometry every engine-bay part is welded inside),
+// derived the same way (min/max over the shape's own point cloud) rather than duplicating any
+// constant out of that file -- stays correct automatically if Stage-1 tuning ever shifts.
+// ---------------------------------------------------------------------------------------------
+function aabbOfPoints(points) {
+	let xMin = Infinity,
+		xMax = -Infinity,
+		yMin = Infinity,
+		yMax = -Infinity,
+		zMin = Infinity,
+		zMax = -Infinity;
+	for (let i = 0; i < points.length; i += 3) {
+		xMin = Math.min(xMin, points[i]);
+		xMax = Math.max(xMax, points[i]);
+		yMin = Math.min(yMin, points[i + 1]);
+		yMax = Math.max(yMax, points[i + 1]);
+		zMin = Math.min(zMin, points[i + 2]);
+		zMax = Math.max(zMax, points[i + 2]);
+	}
+	return { xMin, xMax, yMin, yMax, zMin, zMax };
+}
+const CABIN_SHAPES = buildCabinShapes();
+const NOSE_AABB = aabbOfPoints(CABIN_SHAPES.find((s) => s.name === 'nose').points);
+
+function boxCorners(hx, hy, hz) {
+	const out = [];
+	for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) out.push({ x: sx * hx, y: sy * hy, z: sz * hz });
+	return out;
+}
+/** Returns fn(pos, rot) -> this shape's own lowest world-Y point at that live transform (exact for
+ * both box and capsule -- see sim/cardetail-ground-contact.test.mjs's identical helper doc comment). */
+function lowestWorldYFn(spec) {
+	if (spec.phys === 'box') {
+		const { hx, hy, hz } = spec.dims;
+		const corners = boxCorners(hx, hy, hz);
+		return (pos, rot) => Math.min(...corners.map((c) => pos.y + rotateVector(rot, c).y));
+	}
+	const { length, radius } = spec.dims;
+	const half = length / 2;
+	const axisOffset = spec.phys === 'capsuleX' ? { x: half, y: 0, z: 0 } : { x: 0, y: 0, z: half };
+	const c1 = { x: -axisOffset.x, y: -axisOffset.y, z: -axisOffset.z };
+	const c2 = axisOffset;
+	return (pos, rot) => Math.min(pos.y + rotateVector(rot, c1).y, pos.y + rotateVector(rot, c2).y) - radius;
+}
+
 // Underbody/extremity mechanicals -- subframes, driveshaft, fuel tank, muffler, bumper beams, lights,
 // mirrors -- legitimately sit outside the (now nonexistent, see below) cabin footprint.
 const UNDERBODY_EXTREMITY_IDS = new Set([
@@ -128,6 +189,22 @@ describe('cardetail containment (numeric audit gate)', () => {
 			if (!within(box, ENVELOPE)) offenders.push({ id: spec.id, box, ENVELOPE });
 		}
 		if (offenders.length) console.log('[cardetail-containment] envelope offenders:', JSON.stringify(offenders, null, 2));
+		expect(offenders).toEqual([]);
+	});
+
+	// TIER-3 STAGE 3: a TIGHTER check than the whole-car envelope above -- every engine-bay part must
+	// sit fully inside the chassis's own ACTUAL Stage-1 'nose' crush-volume shape (the real collision
+	// geometry it's welded inside), not just somewhere in the car's overall silhouette. All 10 measured
+	// clear this with margin (verified directly against buildCabinShapes() -- see this file's top doc
+	// comment); underbody/extremity parts are deliberately NOT held to this bound (they legitimately
+	// hang outside the nose/tail shapes -- real subframe/control-arm/exhaust hardware does).
+	it('every engine-bay part sits fully inside the real Stage-1 nose crush-volume shape', () => {
+		const offenders = [];
+		for (const spec of CAR_DETAIL_SPECS.filter((s) => s.engineBay)) {
+			const box = aabbOf(spec);
+			if (!within(box, NOSE_AABB)) offenders.push({ id: spec.id, box, NOSE_AABB });
+		}
+		if (offenders.length) console.log('[cardetail-containment] nose-zone offenders:', JSON.stringify(offenders, null, 2));
 		expect(offenders).toEqual([]);
 	});
 
@@ -211,6 +288,92 @@ describe('cardetail containment (numeric audit gate)', () => {
 			for (const id of EXTERIOR_PROXY_IDS) {
 				if (states[id] === 'attached') expect(visible[id]).toBe(false);
 			}
+			feature.dispose?.();
+		} finally {
+			sim.destroy();
+		}
+	});
+
+	// ---------------------------------------------------------------------------------------------
+	// TIER-3 STAGE 3: solid-while-attached policy + genuine solid-collision behavior once scattered.
+	// ---------------------------------------------------------------------------------------------
+
+	it('every part is SOLID (non-sensor) while attached, except the 3 measured ATTACHED_SENSOR_OVERRIDE_IDS', async () => {
+		const native = await loadNative();
+		const sim = new Sim(native);
+		try {
+			const { feature } = await makeFeature(sim);
+			expect(ATTACHED_SENSOR_OVERRIDE_IDS.size).toBe(3);
+			const isSensor = feature.hooks.isSensor();
+			for (const spec of CAR_DETAIL_SPECS) {
+				expect(isSensor[spec.id]).toBe(ATTACHED_SENSOR_OVERRIDE_IDS.has(spec.id));
+			}
+			feature.dispose?.();
+		} finally {
+			sim.destroy();
+		}
+	});
+
+	it('every part becomes SOLID (non-sensor) once broken, including the 3 override parts', async () => {
+		const native = await loadNative();
+		const sim = new Sim(native);
+		try {
+			const { feature } = await makeFeature(sim);
+			spawnTestWall(sim.world, sim.vehicle, 8);
+			crashSetup(sim.vehicle, 140);
+			for (let i = 0; i < 300; i++) {
+				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+				feature.afterFixedStep(FIXED_DT);
+			}
+			const states = feature.hooks.states();
+			const isSensor = feature.hooks.isSensor();
+			const broken = CAR_DETAIL_SPECS.filter((s) => states[s.id] !== 'attached');
+			expect(broken.length).toBeGreaterThan(0);
+			for (const spec of broken) expect(isSensor[spec.id]).toBe(false);
+			feature.dispose?.();
+		} finally {
+			sim.destroy();
+		}
+	});
+
+	// Proves solid-while-attached genuinely delivers real world/debris collision, not just a flag flip:
+	// a hard frontal crash + a long settle window, then every scattered part's OWN shape must have come
+	// to rest actually ON the ground (lowest point close to world Y=0), not floating or sunk through --
+	// the same class of correctness gate as game/sim/cardetail-ground-contact.test.mjs, applied to the
+	// SCATTERED (post-break) state instead of the attached-driving state.
+	it('scattered parts settle to REST on the ground after a crash (genuine solid collision, no floating/sinking)', async () => {
+		const native = await loadNative();
+		const sim = new Sim(native);
+		try {
+			const { feature } = await makeFeature(sim);
+			spawnTestWall(sim.world, sim.vehicle, 60);
+			for (let i = 0; i < 320; i++) {
+				sim.step({ throttle: 1, brake: 0, steer: 0, handbrake: false });
+				feature.afterFixedStep(FIXED_DT);
+			}
+			// Long settle window -- long enough for scattered parts' velocity to die down under friction.
+			for (let i = 0; i < 600; i++) {
+				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+				feature.afterFixedStep(FIXED_DT);
+			}
+			const states = feature.hooks.states();
+			const bodies = feature.hooks.bodies();
+			const lowestFns = CAR_DETAIL_SPECS.map(lowestWorldYFn);
+			const rows = CAR_DETAIL_SPECS.map((spec, k) => {
+				const t = bodies[k].getTransform();
+				return { id: spec.id, state: states[spec.id], lowestY: lowestFns[k](t.position, t.rotation) };
+			});
+			const broken = rows.filter((r) => r.state !== 'attached');
+			console.log(`[cardetail-containment] scattered=${broken.length}/27 lowestY=${JSON.stringify(broken.map((r) => [r.id, Number(r.lowestY.toFixed(3))]))}`);
+			expect(broken.length).toBeGreaterThan(0);
+			// REST_TOLERANCE_M: generous both ways -- slightly negative (a few mm of resting speculative
+			// penetration/settle) and slightly positive (resting at an angle, or momentarily still settling)
+			// are both physically normal; the point is nothing is grossly floating (still meters up in the
+			// air) or has fallen through the world (deeply negative).
+			const REST_TOLERANCE_M = 0.15;
+			const offenders = broken.filter((r) => Math.abs(r.lowestY) > REST_TOLERANCE_M);
+			if (offenders.length) console.log('[cardetail-containment] rest offenders:', JSON.stringify(offenders));
+			expect(offenders).toEqual([]);
 			feature.dispose?.();
 		} finally {
 			sim.destroy();
