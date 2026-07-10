@@ -44,6 +44,17 @@ export interface WheelVisual {
 	 * type/call shape stays stable if a future asset ever needs a real per-wheel baseline again.
 	 */
 	initialWorldQuat: THREE.Quaternion;
+	/**
+	 * Offset (in the re-parented node's own local frame) from the wheel NODE's pivot to its geometry
+	 * CENTROID (= the axle centre the physics body sits at). ZERO for the legacy CarConcept rig (whose
+	 * wheel node pivots already sit at the wheel centre). NON-ZERO for the Mustang split, whose flat
+	 * baked wheel parts have their pivot at the model origin (0,0,0) while the tyre geometry sits out at
+	 * the wheel centre -- without compensating for it, applyWheelVisual() would place the pivot at the
+	 * physics body and render the tyre a second wheel-centre-vector away (tyres flung metres outside the
+	 * arches). Subtracting bodyQuat*centroidOffset from the body position keeps the geometry centroid ON
+	 * the physics body while the body's rotation still spins the tyre about that centre.
+	 */
+	centroidOffset: THREE.Vector3;
 }
 
 /** Finds each wheel group node by name (car-map.ts), detaches it from the car hierarchy, and
@@ -60,9 +71,17 @@ export function detachWheelVisuals(carRoot: THREE.Object3D, scene: THREE.Scene):
 		const worldPos = new THREE.Vector3();
 		const worldQuat = new THREE.Quaternion();
 		const worldScale = new THREE.Vector3();
-		object.updateWorldMatrix(true, false);
+		object.updateWorldMatrix(true, true); // fresh self + child matrices (child meshes feed the Box3 below)
 		object.matrixWorld.decompose(worldPos, worldQuat, worldScale); // worldQuat unused for rotation
 		// (see NEUTRAL_QUAT's doc comment) -- only worldPos/worldScale are kept from this decompose.
+
+		// Geometry-centroid offset from the node pivot (see WheelVisual.centroidOffset): measured NOW,
+		// while the node still sits at its authored (identity-rotation for both cars) world transform, as
+		// the world-space vector from the node pivot to the tyre geometry's AABB centre. Zero when the
+		// pivot already sits at the wheel centre (CarConcept), the wheel-centre vector when it does not
+		// (Mustang). Captured before the rotation is stripped below.
+		const geomCenter = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
+		const centroidOffset = geomCenter.sub(worldPos);
 
 		scene.attach(object); // re-parents while preserving world transform (position/scale only --
 		// rotation is overridden below)
@@ -70,7 +89,7 @@ export function detachWheelVisuals(carRoot: THREE.Object3D, scene: THREE.Scene):
 		object.quaternion.copy(NEUTRAL_QUAT); // strip ALL authored rotation, fronts AND rears
 		object.scale.copy(worldScale);
 
-		result[key] = { object, transform: new InterpolatedTransform(), initialWorldQuat: NEUTRAL_QUAT.clone() };
+		result[key] = { object, transform: new InterpolatedTransform(), initialWorldQuat: NEUTRAL_QUAT.clone(), centroidOffset };
 	}
 	return result;
 }
@@ -78,6 +97,7 @@ export function detachWheelVisuals(carRoot: THREE.Object3D, scene: THREE.Scene):
 const scratchDelta = new THREE.Quaternion();
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
+const scratchCentroid = new THREE.Vector3();
 
 /** Applies one wheel visual's interpolated physics transform (position direct, rotation as a delta
  * on top of its preserved authored orientation) for the current render frame. */
@@ -89,6 +109,12 @@ export function applyWheelVisual(visual: WheelVisual, spawnBodyQuat: THREE.Quate
 	// (authored) world orientation.
 	scratchDelta.copy(spawnBodyQuat).invert();
 	scratchDelta.premultiply(scratchQuat);
-	visual.object.position.copy(scratchPos);
-	visual.object.quaternion.copy(scratchDelta).multiply(visual.initialWorldQuat);
+	const finalQuat = scratchDelta.multiply(visual.initialWorldQuat);
+	visual.object.quaternion.copy(finalQuat);
+	// Place the node so its geometry CENTROID (the axle centre) lands on the physics body position:
+	// pivot = bodyPos - finalQuat*centroidOffset. The centroid then renders exactly at bodyPos while
+	// finalQuat still spins/steers the tyre about that centre. centroidOffset is zero for the legacy
+	// CarConcept wheels, so this reduces to `position = bodyPos` there (unchanged behaviour).
+	scratchCentroid.copy(visual.centroidOffset).applyQuaternion(finalQuat);
+	visual.object.position.copy(scratchPos).sub(scratchCentroid);
 }
