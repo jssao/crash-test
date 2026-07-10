@@ -1,0 +1,37 @@
+{
+  "totalMsRequested": 750000,
+  "actualDurationMs": 750013,
+  "sampleCount": 25,
+  "wasmDead": false,
+  "wasmError": null,
+  "anyNaN": false,
+  "heapFirstMB": 48.98728275299072,
+  "heapLastMB": 50.103169441223145,
+  "heapSlopePerSecMB": 0.0012603257986215444,
+  "handlesFirst": 2393,
+  "handlesLast": 2389,
+  "handleSlopePerSec": -0.0032564102564102563,
+  "audioFirst": 9,
+  "audioLast": 12,
+  "audioSlopePerSec": 0.0003846153846153846,
+  "fpsFirst": 71,
+  "fpsLast": 12,
+  "kickerStallRate": "2/7",
+  "totalConsoleErrors": 4,
+  "totalConsoleWarnings": 0,
+  "totalPageErrors": 0,
+  "findings": [
+    {
+      "severity": "major",
+      "issue": "fps decayed >30% over the session",
+      "fpsFirst": 71,
+      "fpsLast": 12
+    },
+    {
+      "severity": "major",
+      "issue": "kicker-ramp stall observations during long session: 2/7 kicker-laps segments ended stalled before the gate",
+      "kickerStalls": 2,
+      "kickerLapsRun": 7
+    }
+  ]
+}

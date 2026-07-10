@@ -1,0 +1,477 @@
+[
+  {
+    "tSec": 30,
+    "segment": "perimeter-fast",
+    "speedKmh": 323.04207615645555,
+    "chassisPos": {
+      "x": -571.9425048828125,
+      "y": -361.4633483886719,
+      "z": -553.80615234375
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 9,
+    "audioContextState": "running",
+    "fps": 71,
+    "heapMB": 48.98728275299072,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 60,
+    "segment": "kicker-laps",
+    "speedKmh": 0.0011885585890964888,
+    "chassisPos": {
+      "x": -0.9303962588310242,
+      "y": 0.7753922939300537,
+      "z": 46.75303268432617
+    },
+    "finite": true,
+    "liveHandles": 2395,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.047356605529785,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 90,
+    "segment": "gate-loop-drive",
+    "speedKmh": 0.0005889778936531306,
+    "chassisPos": {
+      "x": -0.930840015411377,
+      "y": 0.775970995426178,
+      "z": 46.75290298461914
+    },
+    "finite": true,
+    "liveHandles": 2395,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.12349033355713,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 120,
+    "segment": "repair",
+    "speedKmh": 0.0006813326668231108,
+    "chassisPos": {
+      "x": -0.721551239490509,
+      "y": 0.22299033403396606,
+      "z": 156.48101806640625
+    },
+    "finite": true,
+    "liveHandles": 2389,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 49.47546100616455,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 150,
+    "segment": "gate-loop-drive",
+    "speedKmh": 0.008613545323478003,
+    "chassisPos": {
+      "x": -0.26241129636764526,
+      "y": 0.13379350304603577,
+      "z": 156.44424438476562
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.95352363586426,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 180,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.008563733442392293,
+    "chassisPos": {
+      "x": -0.25940173864364624,
+      "y": 0.13478437066078186,
+      "z": 156.4419708251953
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 49.640400886535645,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 210,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.008757655491932099,
+    "chassisPos": {
+      "x": -0.2563733160495758,
+      "y": 0.13420940935611725,
+      "z": 156.4382781982422
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.68620014190674,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 240,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.01824150249523535,
+    "chassisPos": {
+      "x": -0.2531827390193939,
+      "y": 0.13352517783641815,
+      "z": 156.43399047851562
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 49.687405586242676,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 270,
+    "segment": "gate-loop-drive",
+    "speedKmh": 0.010307087558832306,
+    "chassisPos": {
+      "x": -0.2523987293243408,
+      "y": 0.13450507819652557,
+      "z": 156.43325805664062
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 13,
+    "heapMB": 49.699936866760254,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 300,
+    "segment": "yard-weave",
+    "speedKmh": 3.5367846127085393e-7,
+    "chassisPos": {
+      "x": -0.2524119019508362,
+      "y": 0.13653001189231873,
+      "z": 156.4337615966797
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 9,
+    "audioContextState": "running",
+    "fps": 13,
+    "heapMB": 49.749470710754395,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 330,
+    "segment": "kicker-laps",
+    "speedKmh": 0.002064074224853887,
+    "chassisPos": {
+      "x": 3.500204086303711,
+      "y": 0.1723899096250534,
+      "z": 155.9715576171875
+    },
+    "finite": true,
+    "liveHandles": 2390,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 49.83665180206299,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 360,
+    "segment": "kicker-laps",
+    "speedKmh": 184.98952514974698,
+    "chassisPos": {
+      "x": 95.43412017822266,
+      "y": -49.38600540161133,
+      "z": 527.3169555664062
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 9,
+    "audioContextState": "running",
+    "fps": 45,
+    "heapMB": 49.86036777496338,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 390,
+    "segment": "gate-loop-drive",
+    "speedKmh": 668.746421805333,
+    "chassisPos": {
+      "x": 241.46144104003906,
+      "y": -3969.163818359375,
+      "z": 1357.6602783203125
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 9,
+    "audioContextState": "running",
+    "fps": 116,
+    "heapMB": 50.185349464416504,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 420,
+    "segment": "kicker-laps",
+    "speedKmh": 142.26067565785584,
+    "chassisPos": {
+      "x": 63.6439094543457,
+      "y": -0.005057908594608307,
+      "z": 404.68157958984375
+    },
+    "finite": true,
+    "liveHandles": 2390,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 18,
+    "heapMB": 49.8589448928833,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 450,
+    "segment": "kicker-laps",
+    "speedKmh": 0.0005776156855406949,
+    "chassisPos": {
+      "x": -0.826736569404602,
+      "y": 0.7523766756057739,
+      "z": 46.8032341003418
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.96801471710205,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 480,
+    "segment": "yard-weave",
+    "speedKmh": 0.0004214265527329641,
+    "chassisPos": {
+      "x": -0.8267375230789185,
+      "y": 0.7523649334907532,
+      "z": 46.8032341003418
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 49.989583015441895,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 510,
+    "segment": "gate-loop-drive",
+    "speedKmh": 0.0005376972537262134,
+    "chassisPos": {
+      "x": -0.8267399072647095,
+      "y": 0.7523564696311951,
+      "z": 46.8032341003418
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 50.00814151763916,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 540,
+    "segment": "yard-weave",
+    "speedKmh": 0.00042304551812237783,
+    "chassisPos": {
+      "x": -0.8267418742179871,
+      "y": 0.7523508071899414,
+      "z": 46.8032341003418
+    },
+    "finite": true,
+    "liveHandles": 2393,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 10,
+    "heapMB": 50.008015632629395,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 570,
+    "segment": "repair",
+    "speedKmh": 0.006559003881895459,
+    "chassisPos": {
+      "x": 2.7901530265808105,
+      "y": 0.17192481458187103,
+      "z": 155.6019287109375
+    },
+    "finite": true,
+    "liveHandles": 2389,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.045464515686035,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 600,
+    "segment": "yard-weave",
+    "speedKmh": 0.006591859089515469,
+    "chassisPos": {
+      "x": 2.7905633449554443,
+      "y": 0.17204546928405762,
+      "z": 155.60189819335938
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.042344093322754,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 630,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.2068725241173664,
+    "chassisPos": {
+      "x": 2.570159912109375,
+      "y": 0.1679632067680359,
+      "z": 155.58453369140625
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.04825305938721,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 660,
+    "segment": "yard-weave",
+    "speedKmh": 0.000921781387538041,
+    "chassisPos": {
+      "x": 2.5698764324188232,
+      "y": 0.17449811100959778,
+      "z": 155.58416748046875
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.04310703277588,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 690,
+    "segment": "kicker-laps",
+    "speedKmh": 0.011224446849191645,
+    "chassisPos": {
+      "x": 1.3202073574066162,
+      "y": 0.1329050362110138,
+      "z": 155.52281188964844
+    },
+    "finite": true,
+    "liveHandles": 2389,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.08619022369385,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 720,
+    "segment": "yard-weave",
+    "speedKmh": 0.0000344282689237929,
+    "chassisPos": {
+      "x": 1.3190971612930298,
+      "y": 0.13634926080703735,
+      "z": 155.5222625732422
+    },
+    "finite": true,
+    "liveHandles": 2387,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 9,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.09114933013916,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 750,
+    "segment": "kicker-laps",
+    "speedKmh": 0.005559036031867055,
+    "chassisPos": {
+      "x": 3.135960817337036,
+      "y": 0.15101811289787292,
+      "z": 155.90357971191406
+    },
+    "finite": true,
+    "liveHandles": 2389,
+    "featureBodies": 759,
+    "audioLiveNodeCount": 12,
+    "audioContextState": "running",
+    "fps": 12,
+    "heapMB": 50.103169441223145,
+    "consoleErrorsCum": 4,
+    "consoleWarningsCum": 0
+  }
+]

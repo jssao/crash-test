@@ -1,0 +1,23 @@
+{
+  "seed": 12648430,
+  "cyclesRun": 50,
+  "cyclesRequested": 50,
+  "wasmDead": false,
+  "baselineFeatureBodyCount": 759,
+  "handleGrowth": {
+    "first": 2413,
+    "last": 2421,
+    "netGrowth": 8,
+    "grew": false
+  },
+  "audioGrowth": {
+    "first": 9,
+    "last": 14,
+    "netGrowth": 5,
+    "grew": false
+  },
+  "kickerStallRate": "0/3",
+  "totalConsoleErrors": 0,
+  "totalPageErrors": 0,
+  "findings": []
+}
