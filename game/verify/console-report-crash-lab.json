@@ -1,0 +1,69 @@
+{
+  "assertions": [
+    {
+      "label": "all 7 protocols present",
+      "pass": true,
+      "detail": [
+        "nhtsa-frontal-56",
+        "iihs-moderate-64",
+        "iihs-small-64",
+        "side-mdb-50",
+        "side-pole-32",
+        "rear-80",
+        "free"
+      ]
+    },
+    {
+      "label": "run settled after 600 fixed steps",
+      "pass": true,
+      "detail": "settled"
+    },
+    {
+      "label": "front crush within reference band [0.18, 0.50]",
+      "pass": true,
+      "detail": {
+        "depthM": 0.4164183437824249,
+        "dentedCount": 11440
+      }
+    },
+    {
+      "label": "hood shows damage (loosened or broken)",
+      "pass": true,
+      "detail": "broken"
+    },
+    {
+      "label": "neither door BREAKS/detaches (frontal, direction-aware weld model)",
+      "pass": true,
+      "detail": {
+        "hood": "broken",
+        "doorL": "attached",
+        "doorR": "attached",
+        "trunk": "attached"
+      }
+    },
+    {
+      "label": "trunk does not BREAK/detach (frontal)",
+      "pass": true,
+      "detail": "attached"
+    },
+    {
+      "label": "dented vertex count > 0",
+      "pass": true,
+      "detail": 13763
+    },
+    {
+      "label": "4 occupant seats reported",
+      "pass": true,
+      "detail": 4
+    },
+    {
+      "label": "export report carries the run protocol id",
+      "pass": true,
+      "detail": "nhtsa-frontal-56"
+    }
+  ],
+  "failed": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-10T19:21:25.363Z"
+}

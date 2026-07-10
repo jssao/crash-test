@@ -104,7 +104,8 @@ export function createHud(mount: HTMLElement): HudController {
 			<div class="hud-title">box3d crash sandbox</div>
 			<div class="hud-credits">car: "Rigged Car Mustang 1965 with Engine" by Godspeed, CC BY 4.0 &middot; HDRI: Poly Haven &middot;
 				<a href="./CREDITS.md" target="_blank" rel="noopener">credits</a>
-				&middot; quality: <span id="hud-quality-value">-</span></div>
+				&middot; quality: <span id="hud-quality-value">-</span>
+				&middot; <a href="./crash-lab.html" title="Standardized NHTSA/IIHS-style crash test protocols on this car">Crash Lab</a></div>
 		</div>
 		<div class="hud-panel hud-speed-cluster">
 			<div><span id="hud-speed-value" class="hud-speed-value">0</span><span class="hud-speed-unit">km/h</span></div>

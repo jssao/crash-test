@@ -49,6 +49,18 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    // Multi-page app (Crash Lab): the main game (index.html -> src/main.ts) stays the default page;
+    // crash-lab.html -> src/lab/main.ts is a second, independent entry that reuses the game's vehicle/
+    // damage/occupants/renderer modules but runs its own minimal scene (src/lab/labScene.ts). `npm run
+    // dev` needs no equivalent config (Vite's dev server serves any .html file in the project root
+    // automatically); this only matters for `vite build`/`vite preview`, which otherwise only know
+    // about index.html.
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        crashLab: path.resolve(__dirname, 'crash-lab.html'),
+      },
+    },
   },
   server: {
     port: 5173,
