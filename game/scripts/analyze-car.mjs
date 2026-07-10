@@ -1,11 +1,18 @@
 #!/usr/bin/env node
-// Analyze CarConcept.glb and (re)generate src/assets/car-map.ts.
+// Analyze a car GLB and (re)generate src/assets/car-map.ts.
 //
 // Walks the raw glTF node graph via manual GLB/JSON/accessor parsing —
 // deliberately NOT GLTFLoader, which needs image/canvas decode not available
 // headlessly in plain Node — and computes exact world-space bounding boxes per
 // node-of-interest from the ACTUAL geometry (not eyeballed). Only three's pure
 // math classes (Matrix4/Vector3/Quaternion/Box3, no DOM dependency) are used.
+//
+// CAR-AGNOSTIC: a per-car CONFIG (see CAR_CONFIGS below) names the wheel/panel/
+// chassis/glass nodes and how to find glass + logo materials for THAT asset.
+// The active config is auto-detected from the node names present in the GLB
+// (so both the legacy Khronos CarConcept.glb and the Mustang-65 hero asset can
+// be re-analyzed with the same script). The emitted schema is identical across
+// cars — only the measured numbers + node names differ.
 //
 // Usage: node scripts/analyze-car.mjs [path-to-glb]
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -14,9 +21,66 @@ import path from 'node:path';
 import * as THREE from 'three';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const glbPath = process.argv[2] || path.join(__dirname, '../public/assets/car/CarConcept.glb');
+const glbPath = process.argv[2] || path.join(__dirname, '../public/assets/car/mustang65.glb');
 const outPath = path.join(__dirname, '../src/assets/car-map.ts');
 const buf = readFileSync(glbPath);
+
+// ---------------------------------------------------------------------------------------------
+// Per-car CONFIG registry. `detect(nodeNames)` picks the config that matches the loaded GLB.
+// ---------------------------------------------------------------------------------------------
+const CAR_CONFIGS = {
+  // Mustang-65 hero asset: scripts/split-mustang.py output — flat, one mesh per part, identity
+  // transforms baked into vertices (so every node's worldQuat is identity), Z-forward game frame.
+  mustang65: {
+    sourceFile: 'public/assets/car/mustang65.glb',
+    detect: (names) => names.has('BodyShell') && names.has('WheelFL'),
+    axisConvention:
+      'Y-up, X-right (width), Z-forward (length); left/front-left wheel at +X/+Z; wheel-bottoms ~ Y=0; identity node transforms (baked)',
+    header:
+      "// Source: public/assets/car/mustang65.glb (Sketchfab \"Rigged Car Mustang 1965 with Engine\", CC-BY-4.0,\n" +
+      "// split into named rigid parts by scripts/split-mustang.py). Axis convention (confirmed empirically\n" +
+      "// from the file, not assumed): Y-up, X-right (width), +Z forward (length); front-left wheel at +X/+Z.\n" +
+      "// Every part is a top-level node with an IDENTITY transform (the split baked pose + game-frame reorient\n" +
+      "// straight into vertices), so every worldQuat below is identity — unlike the legacy CarConcept rig,\n" +
+      "// there is no shared -90deg BodyUnderside ancestor. Car root sits with wheel bottoms at world Y ~ 0.",
+    wheels: { frontLeft: 'WheelFL', frontRight: 'WheelFR', rearLeft: 'WheelRL', rearRight: 'WheelRR' },
+    // Damage panels: hood + 2 doors + trunk (NO roof panel — a 2-door fastback folds the roof into the
+    // shell; the rear lid is a trunk, which replaces the concept car's hatch semantics).
+    panels: ['Hood', 'DoorL', 'DoorR', 'Trunk'],
+    // Chassis (non-panel structural/visual bodies). EngineBlock = compact under-hood block (the modeled
+    // engine-bay reveal); Drivetrain = the underbody drivetrain/exhaust run. Both fall back gracefully
+    // to a single 'Engine' node if the sub-split wasn't produced (see split-mustang.py).
+    chassis: ['BodyShell', 'EngineBlock', 'Drivetrain', 'Engine'],
+    // Glass detected by MATERIAL NAME (this asset carries no KHR_materials_transmission extension).
+    glassMaterialNames: new Set(['TransparentGlass', 'refract glass']),
+    // No KHR_materials_variants and no trademarked-logo textures in this asset (all flat color factors).
+    logoMaterialsToSanitize: [],
+  },
+  // Legacy Khronos CarConcept.glb (kept working so the original asset can still be re-analyzed).
+  carConcept: {
+    sourceFile: 'public/assets/car/CarConcept.glb',
+    detect: (names) => names.has('BodyHood') && names.has('WheelFrontL'),
+    axisConvention: 'Y-up, X-right (width), Z-forward (length); root identity transform, wheel-bottom ~ Y=0',
+    header:
+      "// Source: public/assets/car/CarConcept.glb (Khronos glTF-Sample-Assets \"CarConcept\", CC-BY-4.0)\n" +
+      "// Axis convention (confirmed empirically from the file, not assumed): glTF standard Y-up, X-right\n" +
+      "// (car width), Z (car length, +Z ~ front). Car root sits with wheel bottoms at world Y ~ 0.",
+    wheels: { frontLeft: 'WheelFrontL', frontRight: 'WheelFrontR', rearLeft: 'WheelRearL', rearRight: 'WheelRearR' },
+    panels: ['BodyHood', 'BodyDoorLColor1', 'BodyDoorRColor1', 'InteriorRearHatch', 'BodyRoofPanel', 'BodyRearPanelsColor1', 'BodyPanelsColor2', 'BodyPillars'],
+    chassis: ['BodyUnderside', 'Engine', 'Axles', 'InteriorCage'],
+    glassMaterialNames: new Set(),
+    chosenVariantIndex: 2, // "Torched Graphite"
+    logoMaterialsToSanitize: [
+      { name: 'License', slot: 'map', reason: 'baseColorTexture is the Khronos Group wordmark PNG (license-plate decal)' },
+      { name: 'Tireside', slot: 'map', reason: 'baseColorTexture is Khronos + 3D Commerce logos (tire sidewall decal)' },
+      { name: 'Hardware', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
+      { name: 'Mirror', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
+      { name: 'Brake', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
+      { name: 'Rim1', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
+      { name: 'Rim2', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
+    ],
+  },
+};
 
 // ---- 1. Split GLB container into JSON + BIN chunks ----
 function parseGLB(buffer) {
@@ -77,22 +141,14 @@ function localMatrix(node) {
     const t = node.translation || [0, 0, 0];
     const r = node.rotation || [0, 0, 0, 1];
     const s = node.scale || [1, 1, 1];
-    m.compose(
-      new THREE.Vector3(t[0], t[1], t[2]),
-      new THREE.Quaternion(r[0], r[1], r[2], r[3]),
-      new THREE.Vector3(s[0], s[1], s[2]),
-    );
+    m.compose(new THREE.Vector3(t[0], t[1], t[2]), new THREE.Quaternion(r[0], r[1], r[2], r[3]), new THREE.Vector3(s[0], s[1], s[2]));
   }
   return m;
 }
 
 // ---- 4. Walk hierarchy, compute world matrices, per-node mesh AABB ----
 const nodeAABB = new Map(); // nodeIndex -> Box3 (this node's own mesh only, world-space)
-const nodeWorldMatrix = new Map(); // nodeIndex -> Matrix4 (TRS-chain world transform of the NODE itself,
-// as opposed to nodeAABB's geometry-derived box -- this is what lets us recover each node's actual
-// world ROTATION, needed because several nodes (all 4 wheels, all 5 damage panels) sit under
-// 'BodyUnderside', which carries a baked -90deg-about-X rotation the mesh geometry silently
-// compensates for. See panels.ts/wheels.ts for how this is consumed.
+const nodeWorldMatrix = new Map(); // nodeIndex -> Matrix4 (TRS-chain world transform of the NODE itself)
 
 function meshWorldBox3(meshIndex, matrix) {
   const box = new THREE.Box3();
@@ -121,10 +177,7 @@ function walk(nodeIndex, parentMatrix) {
 const sceneRoots = json.scenes[json.scene || 0].nodes;
 for (const rootIdx of sceneRoots) walk(rootIdx, new THREE.Matrix4());
 
-// subtree AABB = this node's own mesh (if any) unioned with all descendants —
-// correct for "wheel" groups (pure transform nodes whose meshes live on Rim/
-// BrakePad/BrakeDisc/tire children) and for "panel" assemblies (a door's glass/
-// mirror/handle/interior-trim children move as one rigid group with the panel).
+// subtree AABB = this node's own mesh (if any) unioned with all descendants.
 function subtreeBox(nodeIndex) {
   const node = json.nodes[nodeIndex];
   const box = new THREE.Box3();
@@ -135,6 +188,11 @@ function subtreeBox(nodeIndex) {
 
 const nameToIndex = new Map();
 json.nodes.forEach((n, i) => { if (n.name) nameToIndex.set(n.name, i); });
+
+// ---- Select the active per-car config from the node names present ----
+const nodeNames = new Set(nameToIndex.keys());
+const CONFIG = Object.values(CAR_CONFIGS).find((c) => c.detect(nodeNames));
+if (!CONFIG) throw new Error('analyze-car: no CAR_CONFIG matches the nodes in ' + glbPath + ' — add one to CAR_CONFIGS.');
 
 function childNames(nodeName) {
   const idx = nameToIndex.get(nodeName);
@@ -158,9 +216,7 @@ const bboxMm = (nodeName) => {
   return { centerMm: b.center.map(mm), sizeMm: b.size.map(mm) };
 };
 
-// ---- 4b. Per-node world ROTATION quaternion (the node's own TRS-chain transform, not the mesh AABB)
-// -- rounded to 8 decimals: plenty of precision for physics/visual alignment (sub-micro-degree), while
-// keeping the emitted file's numbers stable/diffable across re-runs of the same source GLB.
+// ---- 4b. Per-node world ROTATION quaternion (identity for the baked Mustang parts) ----
 const roundQ = (q) => [q.x, q.y, q.z, q.w].map((v) => Math.round(v * 1e8) / 1e8);
 const worldQuatOf = (nodeName) => {
   const idx = nameToIndex.get(nodeName);
@@ -173,22 +229,21 @@ const worldQuatOf = (nodeName) => {
   return roundQ(quat);
 };
 
-// ---- 5. Whole-car AABB — confirms axis convention empirically ----
-// Result: Y = up (height), Z = length (front/back), X = width (left/right) —
-// standard glTF Y-up; smallest extent is Y, largest is Z. Ground (wheel bottom)
-// sits at world Y ~ 0 already (root node has identity transform), confirmed by
-// the wheel AABBs' min.y being ~0.
-const rootName = json.nodes[sceneRoots[0]].name;
-const rootBbox = bboxMm(rootName);
+// ---- 5. Whole-car AABB (union of ALL scene roots — the Mustang has 11 sibling roots, not one) ----
+const overallBox = new THREE.Box3();
+for (const rootIdx of sceneRoots) overallBox.union(subtreeBox(rootIdx));
+const overallSize = new THREE.Vector3();
+const overallCenter = new THREE.Vector3();
+overallBox.getSize(overallSize);
+overallBox.getCenter(overallCenter);
+const overallDimsMm = { length: mm(overallSize.z), width: mm(overallSize.x), height: mm(overallSize.y) };
+// World-space center of the whole-body AABB (mm). The car is NOT symmetric front/rear, so this Z is
+// non-zero -- consumers (e.g. cardetail-containment.test.mjs's ENVELOPE) need it to place the body box.
+const overallCenterMm = [mm(overallCenter.x), mm(overallCenter.y), mm(overallCenter.z)];
 
-const WHEELS = {
-  frontLeft: 'WheelFrontL',
-  frontRight: 'WheelFrontR',
-  rearLeft: 'WheelRearL',
-  rearRight: 'WheelRearR',
-};
+// ---- Wheels ----
 const wheelData = {};
-for (const [key, nodeName] of Object.entries(WHEELS)) {
+for (const [key, nodeName] of Object.entries(CONFIG.wheels)) {
   const raw = bbox(nodeName);
   const radiusM = Math.max(raw.size[1], raw.size[2]) / 2; // circular cross-section is Y-Z plane
   const widthM = raw.size[0]; // extent along the axle (X) axis
@@ -203,71 +258,64 @@ for (const [key, nodeName] of Object.entries(WHEELS)) {
   };
 }
 
-const PANELS = ['BodyHood', 'BodyDoorLColor1', 'BodyDoorRColor1', 'InteriorRearHatch', 'BodyRoofPanel', 'BodyRearPanelsColor1', 'BodyPanelsColor2', 'BodyPillars'];
+// ---- Panels ----
 const panelData = {};
-for (const nodeName of PANELS) {
+for (const nodeName of CONFIG.panels) {
+  if (!nameToIndex.has(nodeName)) continue; // config may list optional panels
   const b = bboxMm(nodeName);
   panelData[nodeName] = { node: nodeName, ...b, childNodes: childNames(nodeName), worldQuat: worldQuatOf(nodeName) };
 }
 
-const CHASSIS = ['BodyUnderside', 'Engine', 'Axles', 'InteriorCage'];
+// ---- Chassis (skip config entries not present, e.g. Engine vs EngineBlock/Drivetrain sub-split) ----
 const chassisData = {};
-for (const nodeName of CHASSIS) {
+for (const nodeName of CONFIG.chassis) {
+  if (!nameToIndex.has(nodeName)) continue;
   const b = bboxMm(nodeName);
   chassisData[nodeName] = { node: nodeName, ...b, worldQuat: worldQuatOf(nodeName) };
 }
 
-const wheelbaseMm = mm(Math.abs(bbox('WheelFrontL').center[2] - bbox('WheelRearL').center[2]));
-const trackFrontMm = mm(Math.abs(bbox('WheelFrontL').center[0] - bbox('WheelFrontR').center[0]));
-const trackRearMm = mm(Math.abs(bbox('WheelRearL').center[0] - bbox('WheelRearR').center[0]));
+const wheelbaseMm = mm(Math.abs(bbox(CONFIG.wheels.frontLeft).center[2] - bbox(CONFIG.wheels.rearLeft).center[2]));
+const trackFrontMm = mm(Math.abs(bbox(CONFIG.wheels.frontLeft).center[0] - bbox(CONFIG.wheels.frontRight).center[0]));
+const trackRearMm = mm(Math.abs(bbox(CONFIG.wheels.rearLeft).center[0] - bbox(CONFIG.wheels.rearRight).center[0]));
 
-// ---- 6. Variants ----
+// ---- 6. Material variants (KHR_materials_variants, if any) ----
 const variantsExt = json.extensions && json.extensions.KHR_materials_variants;
 const variants = variantsExt ? variantsExt.variants.map((v) => v.name) : [];
-const CHOSEN_VARIANT_INDEX = 2; // "Torched Graphite" — dark metallic paint, reads well under HDRI specular
+const CHOSEN_VARIANT_INDEX = variants.length ? (CONFIG.chosenVariantIndex ?? 0) : 0;
 
-// ---- 7. Glass / transmission survey ----
+// ---- 7. Glass / transmission survey (transmission ext OR config material-name allowlist) ----
+const glassMatNames = CONFIG.glassMaterialNames || new Set();
+const isGlassMaterial = (m) =>
+  (m.extensions && m.extensions.KHR_materials_transmission) || glassMatNames.has(m.name);
 const glassMaterials = [];
 json.materials.forEach((m) => {
-  if (m.extensions && m.extensions.KHR_materials_transmission) {
-    glassMaterials.push({ name: m.name, transmissionFactor: m.extensions.KHR_materials_transmission.transmissionFactor });
-  }
+  if (!isGlassMaterial(m)) return;
+  glassMaterials.push({ name: m.name, transmissionFactor: m.extensions?.KHR_materials_transmission?.transmissionFactor ?? 0 });
 });
+// Only DEDICATED glass panes count as shatter-glass. Door windows are baked into the door PANEL
+// meshes (they travel + crumple with the door, not as a separately-swappable pane), so panel nodes
+// are excluded here even though their meshes contain a glass-material primitive.
+const panelNameSet = new Set(CONFIG.panels);
+const chassisNameSet = new Set(CONFIG.chassis);
 const glassMeshNodes = [];
 json.nodes.forEach((n) => {
-  if (n.mesh === undefined) return;
+  if (n.mesh === undefined || !n.name) return;
+  if (panelNameSet.has(n.name) || chassisNameSet.has(n.name)) return;
   const mesh = json.meshes[n.mesh];
-  const usesGlass = mesh.primitives.some((p) => json.materials[p.material]?.extensions?.KHR_materials_transmission);
+  const usesGlass = mesh.primitives.some((p) => p.material !== undefined && isGlassMaterial(json.materials[p.material]));
   if (usesGlass) glassMeshNodes.push(n.name);
 });
 
-// ---- 8. Trademarked-logo textures found in this file (render-time sanitization) ----
-// image 3  = Khronos Group wordmark  -> material "License" (baseColorTexture), node "License Plate"
-// image 10 = Khronos + 3D Commerce   -> material "Tireside" (baseColorTexture), all 4 tire sidewalls
-// Several trim materials (Hardware/Mirror/Brake/Rim1/Rim2 + one unnamed) reuse image 3
-// as an emissiveTexture; UV footprint on those small trim meshes is unverified, so they
-// are neutralized defensively too. None of this is gated by KHR_materials_variants —
-// picking a non-"branded" variant name is NOT sufficient by itself.
-const logoMaterialsToSanitize = [
-  { name: 'License', slot: 'map', reason: 'baseColorTexture is the Khronos Group wordmark PNG (license-plate decal)' },
-  { name: 'Tireside', slot: 'map', reason: 'baseColorTexture is Khronos + 3D Commerce logos (tire sidewall decal)' },
-  { name: 'Hardware', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
-  { name: 'Mirror', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
-  { name: 'Brake', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
-  { name: 'Rim1', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
-  { name: 'Rim2', slot: 'emissiveMap', reason: 'reuses the Khronos wordmark image as emissiveTexture' },
-];
+// ---- 8. Trademarked-logo textures to neutralize at load (config-provided; empty for the Mustang) ----
+const logoMaterialsToSanitize = CONFIG.logoMaterialsToSanitize || [];
 
 // ---- 9. Emit src/assets/car-map.ts ----
 const generatedAt = new Date().toISOString();
 const ts = `// AUTO-GENERATED by scripts/analyze-car.mjs — DO NOT HAND-EDIT.
 // Re-run \`npm run analyze-car\` after the source GLB changes to refresh these numbers.
 //
-// Source: public/assets/car/CarConcept.glb (Khronos glTF-Sample-Assets "CarConcept", CC-BY-4.0)
+${CONFIG.header}
 // Generated: ${generatedAt}
-// Axis convention (confirmed empirically from the file, not assumed): glTF standard
-// Y-up, X-right (car width), Z (car length, +Z ~ front). Car root sits with wheel
-// bottoms at world Y ~ 0 (identity root transform) — safe to place at scene origin.
 
 export interface Vec3Mm { readonly 0: number; readonly 1: number; readonly 2: number }
 export interface Vec4 { readonly 0: number; readonly 1: number; readonly 2: number; readonly 3: number }
@@ -283,41 +331,32 @@ export interface WheelNode extends NodeBox {
   node: string;
   radiusMm: number;
   widthMm: number;
-  /** Rim / brake pad / brake disc / tire child node names. */
+  /** Rim / brake pad / brake disc / tire child node names (empty for the flat Mustang parts). */
   childNodes: string[];
   /**
-   * This node's own world-space rotation quaternion [x,y,z,w] at load time (car root at scene
-   * origin) -- the TRS-chain transform of the NODE itself, NOT derived from mesh geometry. All 4
-   * wheel nodes sit under 'BodyUnderside' (a baked -90deg-about-X ancestor) AND additionally carry
-   * their own non-identity local rotation (unlike the panels below, whose own local quat is
-   * identity) -- measured per-wheel: FL/FR/RL/RR each differ from identity by a different angle
-   * (~30/45/160/145deg), which is why wheels.ts fully strips this (does not merely subtract a
-   * shared ancestor offset) rather than deriving a "corrected" pose from it.
+   * This node's own world-space rotation quaternion [x,y,z,w] at load time (car root at scene origin).
+   * For the Mustang split every part carries an IDENTITY transform (pose baked into vertices), so this
+   * is [0,0,0,1] for all nodes — wheels.ts strips authored wheel rotation regardless (a wheel is
+   * rotationally symmetric about its hub, so any authored spin is discarded).
    */
   worldQuat: Vec4;
 }
 
 export interface PanelNode extends NodeBox {
   node: string;
-  /** Sub-nodes that move as one rigid group with this panel (glass, mirrors, handles, trim). */
+  /** Sub-nodes that move as one rigid group with this panel (empty for the flat Mustang parts). */
   childNodes: string[];
   /**
-   * This node's own world-space rotation quaternion [x,y,z,w] at load time (car root at scene
-   * origin) -- the TRS-chain transform of the NODE itself, NOT derived from mesh geometry. All 5
-   * damage panels sit under 'BodyUnderside', which carries a baked -90deg-about-X rotation (each
-   * panel's OWN local quat is identity, so this equals BodyUnderside's world quat exactly);
-   * panels.ts spawns each panel's PHYSICS body at chassisSpawnRotation * worldQuat (composed, not
-   * replacing) and welds it there, so the body's rest orientation matches the mesh's actual
-   * rendered orientation instead of the chassis's bare rotation.
+   * This node's own world-space rotation quaternion [x,y,z,w] at load time. Identity for the Mustang
+   * (baked transforms); panels.ts still composes chassisSpawnRotation * worldQuat when spawning/welding
+   * each panel body, which reduces to the bare chassis rotation when worldQuat is identity.
    */
   worldQuat: Vec4;
 }
 
 export interface ChassisNode extends NodeBox {
   node: string;
-  /** See WheelNode/PanelNode's worldQuat doc comment -- recorded here for BodyUnderside/Engine/
-   * Axles/InteriorCage too, mainly as a cross-check reference (BodyUnderside's own worldQuat is
-   * exactly the -90deg-about-X ancestor rotation panels/wheels inherit). */
+  /** See WheelNode/PanelNode's worldQuat doc comment — identity for the Mustang parts. */
   worldQuat: Vec4;
 }
 
@@ -339,6 +378,8 @@ export interface CarMap {
   generatedAt: string;
   axisConvention: string;
   overallDimsMm: { length: number; width: number; height: number };
+  /** World-space center of the whole-body AABB, mm (X≈0, Y≈height/2, Z non-zero: front/rear asymmetry). */
+  overallCenterMm: Vec3Mm;
   wheelbaseMm: number;
   trackFrontMm: number;
   trackRearMm: number;
@@ -351,25 +392,24 @@ export interface CarMap {
   panels: Record<string, PanelNode>;
   chassis: Record<string, ChassisNode>;
   materialVariants: string[];
-  /** Index into materialVariants selected at load (see render/car.ts). */
+  /** Index into materialVariants selected at load (see render/car.ts). 0 when the asset has no variants. */
   chosenVariantIndex: number;
   glassMaterials: GlassMaterial[];
   glassMeshNodes: string[];
   /**
-   * Materials carrying a Khronos Group / 3D Commerce trademarked logo texture,
-   * found in THIS file regardless of KHR_materials_variants selection (the
-   * logo is NOT variant-gated — selecting a "non-logo" variant name is not
-   * sufficient by itself). scene/car.ts clears these texture slots at load.
+   * Materials carrying a trademarked logo texture to neutralize at load (scene/car.ts clears these
+   * texture slots). Empty for the Mustang asset (no logo textures — all flat color factors).
    */
   logoMaterialsToSanitize: LogoSanitizeEntry[];
 }
 
 export const CAR_MAP: CarMap = ${JSON.stringify(
   {
-    sourceFile: 'public/assets/car/CarConcept.glb',
+    sourceFile: CONFIG.sourceFile,
     generatedAt,
-    axisConvention: 'Y-up, X-right (width), Z-forward (length); root identity transform, wheel-bottom ~ Y=0',
-    overallDimsMm: { length: rootBbox.sizeMm[2], width: rootBbox.sizeMm[0], height: rootBbox.sizeMm[1] },
+    axisConvention: CONFIG.axisConvention,
+    overallDimsMm,
+    overallCenterMm,
     wheelbaseMm,
     trackFrontMm,
     trackRearMm,
@@ -388,8 +428,11 @@ export const CAR_MAP: CarMap = ${JSON.stringify(
 `;
 
 writeFileSync(outPath, ts, 'utf8');
-console.log('wrote', outPath);
-console.log('overall dims mm (L x W x H):', rootBbox.sizeMm[2], 'x', rootBbox.sizeMm[0], 'x', rootBbox.sizeMm[1]);
+console.log('wrote', outPath, '(config:', Object.keys(CAR_CONFIGS).find((k) => CAR_CONFIGS[k] === CONFIG) + ')');
+console.log('overall dims mm (L x W x H):', overallDimsMm.length, 'x', overallDimsMm.width, 'x', overallDimsMm.height);
 console.log('wheelbase mm:', wheelbaseMm, 'track F/R mm:', trackFrontMm, '/', trackRearMm);
 console.log('wheel radius mm (FL):', wheelData.frontLeft.radiusMm, 'width mm:', wheelData.frontLeft.widthMm);
-console.log('chosen variant:', variants[CHOSEN_VARIANT_INDEX]);
+console.log('panels:', Object.keys(panelData).join(', '));
+console.log('chassis:', Object.keys(chassisData).join(', '));
+console.log('glass materials:', glassMaterials.map((g) => g.name).join(', ') || '(none)', '| glass nodes:', glassMeshNodes.join(', ') || '(none)');
+console.log('variants:', variants.join(', ') || '(none)', '| logo-sanitize:', logoMaterialsToSanitize.length);

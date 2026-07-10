@@ -174,6 +174,96 @@ for o in allobjs:
     o.data.update()
 bpy.context.view_layer.update()
 
+# 6b) RESIDUAL SUB-SPLITS (integration wave). All object matrices are identity now (baked), and axes
+#     are the final game frame: +X width, +Y up, +Z forward. So vertex .co coordinates ARE world/game
+#     coordinates and can be predicated on directly.
+def select_verts_predicate(obj, pred):
+    """Select exactly the verts satisfying pred(v.co); return count selected."""
+    bpy.ops.object.mode_set(mode='OBJECT')
+    n = 0
+    for v in obj.data.vertices:
+        v.select = bool(pred(v.co))
+        if v.select:
+            n += 1
+    return n
+
+def separate_selected(obj):
+    """Separate the currently-selected verts of obj into a new object; return it (or None)."""
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    before = set(bpy.data.objects)
+    bpy.ops.object.mode_set(mode='EDIT')  # carries the object-mode vert selection in
+    bpy.ops.mesh.separate(type='SELECTED')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    new = list(set(bpy.data.objects) - before)
+    return new[0] if new else None
+
+def zmid(o):
+    zs = [v.co.z for v in o.data.vertices]
+    return (min(zs) + max(zs)) / 2 if zs else 0.0
+
+# RESIDUAL 1: the 'Engine' vertex group spans the whole drivetrain (~4030mm). Sub-split it by a
+# forward-Z plane at the firewall into a compact EngineBlock (the under-hood bay region, +Z of the
+# plane -- the extreme-frontal detachable heavy part / the engine-bay reveal when the hood is off) and
+# a Drivetrain remainder (transmission/driveshaft/exhaust running back under the floor). Both stay
+# welded to the shell as chassis geometry in-game; the split just gives the bay a compact, sensibly-
+# bounded block instead of one 4m-long "engine" that stretches the whole underbody.
+ENGINE_SPLIT_Z = 0.90  # meters forward of the wheelbase midpoint (~ firewall / front of cabin)
+engine = parts.get('Engine')
+if engine is not None:
+    sel = select_verts_predicate(engine, lambda co: co.z > ENGINE_SPLIT_Z)
+    print(f"Engine sub-split: {sel} verts forward of z={ENGINE_SPLIT_Z}")
+    if 0 < sel < len(engine.data.vertices):
+        block = separate_selected(engine)
+        if block is not None:
+            block.name = 'EngineBlock'
+            engine.name = 'Drivetrain'
+            parts['EngineBlock'] = block
+            parts['Drivetrain'] = engine
+            del parts['Engine']
+            print(f"  -> EngineBlock zmid={zmid(block):.3f}  Drivetrain zmid={zmid(parts['Drivetrain']):.3f}")
+    else:
+        print("  -> split plane produced a degenerate side; keeping Engine whole")
+
+# RESIDUAL 2: 'Glass' is one merged mesh (windshield + rear window; door windows are baked into the
+# door meshes). Split into loose islands, then regroup by forward/back Z sign into Windshield (+Z) and
+# RearWindow (-Z) so they shatter as separate panes. If the islands don't cleanly separate into two
+# non-empty groups, keep the single Glass node and let the integration map windshield-only + document.
+glass = parts.get('Glass')
+if glass is not None:
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = glass
+    glass.select_set(True)
+    before = set(bpy.data.objects)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.separate(type='LOOSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    islands = [glass] + list(set(bpy.data.objects) - before)
+    islands = [o for o in islands if o.type == 'MESH' and len(o.data.vertices) > 0]
+    front = [o for o in islands if zmid(o) >= 0.0]
+    back = [o for o in islands if zmid(o) < 0.0]
+    print(f"Glass loose-split: {len(islands)} islands -> front(+Z)={len(front)} back(-Z)={len(back)}")
+    def join_into(group, name):
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in group:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = group[0]
+        if len(group) > 1:
+            bpy.ops.object.join()
+        group[0].name = name
+        return group[0]
+    del parts['Glass']
+    if front and back:
+        parts['Windshield'] = join_into(front, 'Windshield')
+        parts['RearWindow'] = join_into(back, 'RearWindow')
+        print(f"  -> Windshield zmid={zmid(parts['Windshield']):.3f}  RearWindow zmid={zmid(parts['RearWindow']):.3f}")
+    else:
+        # degenerate: rejoin everything back into a single Glass node
+        parts['Glass'] = join_into(islands, 'Glass')
+        print("  -> islands did not split front/back cleanly; kept single Glass node")
+
 # 7) export (passthrough: Blender axes == glTF axes)
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 bpy.ops.object.select_all(action='SELECT')
