@@ -4,18 +4,16 @@
       "speed": 40,
       "damage": {
         "panelStates": {
-          "hood": "loosened",
+          "hood": "attached",
           "doorL": "attached",
           "doorR": "attached",
-          "hatch": "attached",
-          "roof": "attached"
+          "trunk": "attached"
         },
         "stressLevels": {
-          "hood": 46.957481420527486,
-          "doorL": 1.503156292844385,
-          "doorR": 1.3903339113124837,
-          "hatch": 0,
-          "roof": 0.0017513875584849133
+          "hood": 0,
+          "doorL": 0,
+          "doorR": 0,
+          "trunk": 0
         },
         "wheelStates": {
           "fl": "attached",
@@ -23,7 +21,7 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 1508,
+        "dentedVertexCount": 0,
         "glassShattered": []
       }
     },
@@ -34,15 +32,13 @@
           "hood": "broken",
           "doorL": "attached",
           "doorR": "attached",
-          "hatch": "attached",
-          "roof": "attached"
+          "trunk": "attached"
         },
         "stressLevels": {
-          "hood": 102.35058618667293,
-          "doorL": 3.2363202929527777,
-          "doorR": 4.230355280655582,
-          "hatch": 0,
-          "roof": 0.002509677736990009
+          "hood": 103.4422333567783,
+          "doorL": 0.6816442644524121,
+          "doorR": 1.3889653608531667,
+          "trunk": 0
         },
         "wheelStates": {
           "fl": "attached",
@@ -50,8 +46,10 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 3561,
-        "glassShattered": []
+        "dentedVertexCount": 5475,
+        "glassShattered": [
+          "glass-Cube012_1-38"
+        ]
       }
     },
     {
@@ -61,24 +59,24 @@
           "hood": "broken",
           "doorL": "attached",
           "doorR": "attached",
-          "hatch": "attached",
-          "roof": "attached"
+          "trunk": "attached"
         },
         "stressLevels": {
-          "hood": 132.62594549434203,
-          "doorL": 6.418339184972633,
-          "doorR": 3.038730226233037,
-          "hatch": 0,
-          "roof": 0.0032158194131372314
+          "hood": 147.65694402430415,
+          "doorL": 2.1582557218650473,
+          "doorR": 1.0632373262058972,
+          "trunk": 0
         },
         "wheelStates": {
-          "fl": "detached",
-          "fr": "detached",
+          "fl": "attached",
+          "fr": "attached",
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 4253,
-        "glassShattered": []
+        "dentedVertexCount": 7350,
+        "glassShattered": [
+          "glass-Cube012_1-38"
+        ]
       }
     },
     {
@@ -88,15 +86,13 @@
           "hood": "broken",
           "doorL": "attached",
           "doorR": "attached",
-          "hatch": "attached",
-          "roof": "attached"
+          "trunk": "attached"
         },
         "stressLevels": {
-          "hood": 114.31687935897573,
-          "doorL": 11.327511225923741,
-          "doorR": 19.64846291006791,
-          "hatch": 0,
-          "roof": 0.012838965860537467
+          "hood": 233.0453050525603,
+          "doorL": 3.377595373210492,
+          "doorR": 1.6880070920448371,
+          "trunk": 0
         },
         "wheelStates": {
           "fl": "attached",
@@ -104,14 +100,42 @@
           "rl": "attached",
           "rr": "attached"
         },
-        "dentedVertexCount": 10930,
-        "glassShattered": []
+        "dentedVertexCount": 8890,
+        "glassShattered": [
+          "glass-Cube012_1-38"
+        ]
       }
     }
   ],
   "doorFailures": [],
-  "noDamage": [],
+  "noDamage": [
+    {
+      "speed": 40,
+      "damage": {
+        "panelStates": {
+          "hood": "attached",
+          "doorL": "attached",
+          "doorR": "attached",
+          "trunk": "attached"
+        },
+        "stressLevels": {
+          "hood": 0,
+          "doorL": 0,
+          "doorR": 0,
+          "trunk": 0
+        },
+        "wheelStates": {
+          "fl": "attached",
+          "fr": "attached",
+          "rl": "attached",
+          "rr": "attached"
+        },
+        "dentedVertexCount": 0,
+        "glassShattered": []
+      }
+    }
+  ],
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-09T23:01:47.480Z"
+  "timestamp": "2026-07-10T01:02:11.466Z"
 }

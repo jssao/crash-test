@@ -1,38 +1,5 @@
 {
-  "failures": [
-    "[resetWorld #1] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #1] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #1] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #1] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #2] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #2] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #2] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #2] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #3] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #3] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #3] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #3] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #4] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #4] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #4] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #4] hatch: parent '(unnamed)' != authored 'BodyRearPanelsColor1'",
-    "[resetWorld #4] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #5] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #5] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #5] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetWorld #5] hatch: parent '(unnamed)' != authored 'BodyRearPanelsColor1'",
-    "[resetWorld #5] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #1] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #1] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #1] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #1] hatch: parent '(unnamed)' != authored 'BodyRearPanelsColor1'",
-    "[resetCar #1] roof: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #2] hood: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #2] doorL: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #2] doorR: parent '(unnamed)' != authored 'BodyUnderside'",
-    "[resetCar #2] hatch: parent '(unnamed)' != authored 'BodyRearPanelsColor1'",
-    "[resetCar #2] roof: parent '(unnamed)' != authored 'BodyUnderside'"
-  ],
+  "failures": [],
   "consoleErrors": [],
   "pageErrors": [],
   "tolerances": {
@@ -43,5 +10,5 @@
     "RESET_WORLD_CYCLES": 5,
     "RESET_CAR_CYCLES": 2
   },
-  "timestamp": "2026-07-09T18:30:53.059Z"
+  "timestamp": "2026-07-10T01:03:05.594Z"
 }
