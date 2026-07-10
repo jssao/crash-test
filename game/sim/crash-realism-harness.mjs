@@ -68,17 +68,27 @@ export class CrashRealismSim extends DamageSim {
 		return wall;
 	}
 
-	/** Spawn a rigid wall to the RIGHT of the car (for a pure side impact), `distanceRight` metres out. */
+	/** Spawn a rigid barrier to the +X flank of the car (a T-bone side impact), `distanceRight` metres
+	 * out, CENTRED on the door region (chassis-local z~0) and only ~2.4m long along the car's forward
+	 * axis. A short door-centred barrier (rather than a full-length flank wall) is what makes the side
+	 * impact a clean LATERAL load ON THE DOOR: the direction from the chassis origin to each contact
+	 * point is then X-dominant (so PANEL_VULNERABILITY's |dir.x| door gate reads ~1), instead of the
+	 * front/rear ends of a long flank wall producing Z-dominant contacts that instead load the frontal-
+	 * weak hood (floor=1) and the rear-vulnerable trunk. Re-derived for the narrower Mustang flank
+	 * (car-map half-width ~0.97m vs the concept car's ~1.27m): a full-length flank scrape no longer
+	 * concentrates enough X-direction load on the doors to tear one off. */
 	spawnSideWall(distanceRight) {
 		const right = rotateVector(this.vehicle.spawnRotation, LOCAL_RIGHT);
+		const fwd = rotateVector(this.vehicle.spawnRotation, LOCAL_FORWARD);
 		const position = {
 			x: this.vehicle.spawnPosition.x + right.x * distanceRight,
 			y: 1.5,
 			z: this.vehicle.spawnPosition.z + right.z * distanceRight,
 		};
 		const wall = this.world.createBody({ type: BodyType.Static, position });
-		// Long along the car's forward axis so the whole flank can strike it.
-		wall.createBoxShape({ halfExtents: { x: 0.5, y: 2, z: 8 }, friction: 0.9, density: 1 });
+		// Short along the car's forward axis (door region only), tall + a little into the flank.
+		wall.createBoxShape({ halfExtents: { x: 0.5, y: 2, z: 1.2 }, friction: 0.9, density: 1 });
+		void fwd;
 		return wall;
 	}
 

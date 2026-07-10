@@ -55,14 +55,14 @@ describe('crash-realism: direction-aware welds', () => {
 			const r = await frontal(speed);
 			console.log(`[realism] FRONTAL ${speed}km/h crush=${r.crush.toFixed(3)}m states=${JSON.stringify(r.states)}`);
 			expect(doorsTouched(r.states)).toEqual([]); // doorL/doorR both still fully 'attached'
-			expect(r.states.hatch).toBe('attached');
+			expect(r.states.trunk).toBe('attached');
 		}
 	}, 40000);
 
 	it('a strong SIDE impact DOES detach a door (lateral load, not frontal)', async () => {
 		const sim = await createCrashRealismSim();
 		try {
-			sim.spawnSideWall(0.93); // wall ~3cm outboard of the right flank
+			sim.spawnSideWall(1.1); // short door-centred barrier at the +X flank (Mustang half-width ~0.97m)
 			sim.crashSideways(130); // extreme side closing speed -- door detachment is an extreme-event outcome
 			sim.settle(300);
 			const dt = sim.damageTelemetry();
@@ -98,7 +98,7 @@ describe('crash-realism: offset front-right concentrates crush on the struck sid
 	it('a 40 km/h front-right offset dents the right front, not the left', async () => {
 		const sim = await createCrashRealismSim();
 		try {
-			sim.spawnOffsetWall(10, 1.1, 1.6); // barrier offset to the right, ~40% overlap
+			sim.spawnOffsetWall(10, 1.55, 1.2); // barrier at the +X front corner (inner edge ~+0.35m, Mustang half-width ~0.97m)
 			sim.crashFrontal(40);
 			sim.settle(300);
 			const dt = sim.damageTelemetry();
@@ -117,7 +117,7 @@ describe('crash-realism: offset front-right concentrates crush on the struck sid
 		for (const speed of [64, 80]) {
 			const sim = await createCrashRealismSim();
 			try {
-				sim.spawnOffsetWall(10, 1.1, 1.6);
+				sim.spawnOffsetWall(10, 1.55, 1.2);
 				sim.crashFrontal(speed);
 				sim.settle(300);
 				const dt = sim.damageTelemetry();

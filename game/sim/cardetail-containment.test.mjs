@@ -34,20 +34,13 @@ async function makeFeature(sim) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Envelope + zone geometry, derived from car-map.ts measured data (ground truth) the same way the
-// orchestrator's numeric audit derived it: car-map.ts's 'BodyUnderside' chassis node's centerMm/
-// sizeMm is exactly the whole-body bounding box (equals overallDimsMm exactly -- verified below),
-// recorded in WORLD mm (ground = Y 0). Converted to chassis-local METERS the same way tuning.ts's
-// mm() helper does (X/Z unit-convert only, Y shifted by CHASSIS_ORIGIN_HEIGHT_M since the chassis's
-// own local origin sits at hub height, not ground).
+// Envelope + zone geometry, derived from car-map.ts measured data (ground truth). The whole-body AABB
+// is now car-map.ts's overallCenterMm + overallDimsMm (the Mustang split is flat -- there is no single
+// 'BodyUnderside' node that equals the whole-body box; overallCenterMm/DimsMm ARE that box directly,
+// unioned over every part in analyze-car.mjs). Recorded in WORLD mm (ground = Y 0), converted to
+// chassis-local METERS the same way tuning.ts's mm() helper does (X/Z unit-convert only, Y shifted by
+// CHASSIS_ORIGIN_HEIGHT_M since the chassis's own local origin sits at hub height, not ground).
 // ---------------------------------------------------------------------------------------------
-
-const bu = CAR_MAP.chassis.BodyUnderside;
-// (module-scope sanity check, not a vitest assertion -- keeps the derivation honest without
-// depending on vitest's `expect` being callable at import time)
-if (bu.sizeMm[0] !== CAR_MAP.overallDimsMm.width || bu.sizeMm[1] !== CAR_MAP.overallDimsMm.height || bu.sizeMm[2] !== CAR_MAP.overallDimsMm.length) {
-	throw new Error('cardetail-containment.test.mjs: BodyUnderside no longer matches overallDimsMm -- re-derive ENVELOPE_LOCAL_MM');
-}
 
 function worldMmToLocalM(centerMm, sizeMm) {
 	const halfMm = [sizeMm[0] / 2, sizeMm[1] / 2, sizeMm[2] / 2];
@@ -62,18 +55,18 @@ function worldMmToLocalM(centerMm, sizeMm) {
 }
 
 /** Whole-body envelope (chassis-local meters) -- every attached part's AABB must sit inside this. */
-const ENVELOPE = worldMmToLocalM(bu.centerMm, bu.sizeMm);
+const ENVELOPE = worldMmToLocalM(CAR_MAP.overallCenterMm, [CAR_MAP.overallDimsMm.width, CAR_MAP.overallDimsMm.height, CAR_MAP.overallDimsMm.length]);
 
-/** Cabin footprint (X/Z only) for the interior-parts sub-check, from the real measured InteriorCage
- * chassis node -- padded +60mm on every side (the node itself measures the glazed cage/greenhouse,
- * slightly narrower than the full footwell-to-parcel-shelf cabin volume the interior parts occupy). */
-const IC = CAR_MAP.chassis.InteriorCage;
-const CABIN_PAD_MM = 60;
-const CABIN_X = { min: (IC.centerMm[0] - IC.sizeMm[0] / 2 - CABIN_PAD_MM) / 1000, max: (IC.centerMm[0] + IC.sizeMm[0] / 2 + CABIN_PAD_MM) / 1000 };
-// Z padded further forward (+280mm) than the flat pad to accommodate the steering column's firewall-
-// mount end (tuning.ts's steeringColumn spans to chassis-local Z~1.32m -- documented there as
-// deliberately crossing toward the firewall, matching a real column's mounting point).
-const CABIN_Z = { min: (IC.centerMm[2] - IC.sizeMm[2] / 2 - CABIN_PAD_MM) / 1000, max: (IC.centerMm[2] + IC.sizeMm[2] / 2 + 280) / 1000 };
+// Cabin footprint (X/Z only) for the interior-parts sub-check. The Mustang split has no InteriorCage
+// node, so the cabin is derived from the measured DOOR panels (car-map.ts DoorL/DoorR -- they bound the
+// cabin sides) plus a forward Z reach for the dashboard/steering-column firewall mount and a rearward
+// reach for the rear bench. Chassis-local meters.
+const doorOuterX = Math.max(
+	Math.abs(CAR_MAP.panels.DoorL.centerMm[0]) + CAR_MAP.panels.DoorL.sizeMm[0] / 2,
+	Math.abs(CAR_MAP.panels.DoorR.centerMm[0]) + CAR_MAP.panels.DoorR.sizeMm[0] / 2,
+) / 1000;
+const CABIN_X = { min: -doorOuterX, max: doorOuterX }; // ~+-0.90m -- the door outer line bounds the cabin width
+const CABIN_Z = { min: -1.1, max: 1.4 }; // rear bench (~-0.75m) to steering-column firewall mount (~+1.32m)
 
 /** Per-shape chassis-local AABB half-extents, matching index.ts's createShapeFor()/buildMeshFor()
  * geometry exactly (box: dims are already half-extents; capsule: full reach along its own axis is

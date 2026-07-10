@@ -96,7 +96,16 @@ describe('kicker-jump', () => {
 		// approach now models a player lifting off the throttle just before the jump: hold ~58km/h
 		// (16.1 m/s) until the ramp base (z=41), then coast -- squarely in the measured
 		// lands-clean band, still catching ~0.65s of air (39-41 airborne steps, need >=18).
-		const KICKER_ENTRY_SPEED_MS = 16.1; // ~58km/h, measured upDot=1.000 landing band (see above)
+		// MUSTANG-65 SWAP RE-CALIBRATION (measured justification): the hero-car swap dropped the wheel
+		// radius 0.39m -> 0.31m (car-map.ts), so the car sits ~8cm lower and flies a shorter, flatter arc
+		// off the same 1.2m/30deg kicker. At the old 16.1 m/s entry the lower car no longer CLEARS the
+		// ramp's back edge -- it lands short (z~47.3) with its rear underside hung up on the 1.2m apex,
+		// rear (driven) wheels in the air -> zero traction -> won't drive off (measured: disp 0.00m,
+		// nose-down upDot 0.964). Re-swept entry speed on the actual Mustang: 16.1->stuck, but 18/20/22/24
+		// m/s all clear the ramp and land flat and drivable (upDot 1.000, drive-away 43m) -- the smaller-
+		// wheel / lower-CoM car has a WIDER clean-landing window than the concept car did (no backflip even
+		// at 24 m/s). 18 m/s (~65km/h) sits at the low, safe end of that measured band.
+		const KICKER_ENTRY_SPEED_MS = 18; // ~65km/h, measured Mustang clean-landing band 18-24 m/s (see above)
 		const THROTTLE_CUT_Z = 41; // ramp base is at z=43; lift ~2m before it
 		const DRIVE_STEPS = 420;
 		for (let i = 0; i < DRIVE_STEPS; i++) {

@@ -13,6 +13,14 @@
 // asserting something not actually observed -- this test checks the MECHANISM (a big enough sustained
 // force spike destroys a wheel joint) and that the car keeps simulating/responding afterward, without
 // asserting exactly how many of the 4 wheels end up detached.
+//
+// MUSTANG-65 SWAP (measured): the impulse direction was flipped +X -> -X. On the concept car's wider
+// track a +X (outboard) impulse on the +X-side front-left wheel loaded its joint hard enough to
+// detach it; on the Mustang's narrower track (car-map 1619mm vs 1952mm) that outboard impulse instead
+// lets the fl wheel accelerate AWAY from its mount (shedding its own joint force) while the chassis
+// reaction loads the OPPOSITE (fr) joint -- so +X detached fr but never fl, at any magnitude
+// (20k/30k/40k/60k all swept). An INBOARD (-X) impulse loads the fl joint directly and detaches it
+// (and, per the caveat above, all 4) at step ~4 -- the mechanism the test is actually asserting.
 import { describe, expect, it } from 'vitest';
 import { createDamageSim } from './damage-harness.mjs';
 
@@ -27,7 +35,7 @@ describe('damage: wheel-detach', () => {
 			let detachedAtStep = -1;
 			for (let i = 0; i < 20; i++) {
 				if (detachedAtStep < 0) {
-					sim.vehicle.wheels.fl.body.applyLinearImpulseToCenter({ x: 20000, y: 0, z: 0 }, true);
+					sim.vehicle.wheels.fl.body.applyLinearImpulseToCenter({ x: -20000, y: 0, z: 0 }, true);
 				}
 				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
 				if (detachedAtStep < 0 && !sim.vehicle.wheels.fl.joint) detachedAtStep = i;

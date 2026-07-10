@@ -207,7 +207,7 @@ describe('occupants-active: ejection shatters glass, clears the car AABB, lands 
 			}
 
 			const ejected = rig.occupants.filter((o) => o.ejected);
-			const anyWindshield = rig.runtimes.some((r) => r.shatteredGlass.has('BodyWindshield'));
+			const anyWindshield = rig.runtimes.some((r) => r.shatteredGlass.has('Windshield'));
 			const anyCarCollisionReEnabled = rig.runtimes.some((r) => r.carCollisionEnabled);
 			// Filter state readback: a re-enabled occupant's shapes must be back on the neutral group 0.
 			const reEnabledIdx = rig.runtimes.findIndex((r) => r.carCollisionEnabled);

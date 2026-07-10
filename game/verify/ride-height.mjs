@@ -121,7 +121,7 @@ async function main() {
     await sleep(700);
     await shot('ride-height-rest-side.png');
 
-    // Measure the RENDERED front wheel-arch gap: max world-Y of the WheelFrontL group (tire top) vs the
+    // Measure the RENDERED front wheel-arch gap: max world-Y of the WheelFL group (tire top) vs the
     // min world-Y of the body fender sheet directly above it (BodyHood / body panels in the wheel's
     // fore/aft+lateral column). Traverses the captured scene; forces a matrix update first.
     const gapProbe = await ev(`(() => {
@@ -140,7 +140,7 @@ async function main() {
         });
         return { ymin,ymax,xmin,xmax,zmin,zmax };
       }
-      const wheel = objByName(s,'WheelFrontL'); if(!wheel) return { err:'no WheelFrontL' };
+      const wheel = objByName(s,'WheelFL'); if(!wheel) return { err:'no WheelFL' };
       const wr = worldYRange(wheel);
       const wheelCX = (wr.xmin+wr.xmax)/2, wheelCZ=(wr.zmin+wr.zmax)/2;
       const tireTop = wr.ymax;
