@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { World } from '../../../src/ts/index.js';
+import { castCameraOcclusion, OcclusionDamper } from '../camera/occlusion';
 
 export interface OrbitParams {
   radius: number;
@@ -51,10 +53,17 @@ export interface UserOrbitSpherical {
 export interface UserOrbitController {
   /** True once the player has dragged (or scrolled) at least once since the last reset(). */
   readonly active: boolean;
-  /** Current (damped) spherical pose -- read-only, for HUD/verify introspection. */
+  /** Current (damped) spherical pose -- read-only, for HUD/verify introspection. Note: `radius` is
+   * the player's DRAGGED/ZOOMED distance, unaffected by occlusion (see `occluded`/occlusionDistanceM
+   * below) -- occlusion only clamps the RENDERED camera position, never this stored target, so
+   * zoom/drag continuity survives passing behind an obstacle. */
   readonly azimuth: number;
   readonly polar: number;
   readonly radius: number;
+  /** Occlusion clamp (Tier-2 camera task, see ../camera/occlusion.ts): true if the most recent
+   * update() call pulled the rendered camera in short of `radius` because a real (non-car-owned)
+   * surface -- a wall, tree, terrain -- was in the way. VERIFY HOOK. */
+  readonly occluded: boolean;
   /** Feed raw pointer-drag deltas (radians); switches `active` on. */
   drag(deltaAzimuth: number, deltaPolar: number): void;
   /** Feed a raw wheel delta (meters, positive = zoom out); switches `active` on. Clamped to
@@ -63,8 +72,10 @@ export interface UserOrbitController {
   /** Re-seed from `initial` and go back to inactive (auto-spin resumes) -- called when the player
    * cycles the camera mode away from and back into orbit (C, C). */
   reset(initial: UserOrbitSpherical): void;
-  /** Damp toward the latest target and position/aim the camera at `focus`. */
-  update(camera: THREE.PerspectiveCamera, focus: THREE.Vector3, targetHeight: number, dt: number): void;
+  /** Damp toward the latest target and position/aim the camera at `focus`. `world`, if given, enables
+   * occlusion clamping (see ../camera/occlusion.ts) -- omit it (or pass null/undefined) to get the
+   * exact pre-occlusion behavior, e.g. in a headless/unit context with no physics world. */
+  update(camera: THREE.PerspectiveCamera, focus: THREE.Vector3, targetHeight: number, dt: number, world?: World | null): void;
 }
 
 export function createUserOrbitController(initial: UserOrbitSpherical): UserOrbitController {
@@ -75,6 +86,8 @@ export function createUserOrbitController(initial: UserOrbitSpherical): UserOrbi
   let curPolar = targetPolar;
   let curRadius = targetRadius;
   let active = false;
+  let occluded = false;
+  const occlusionDamper = new OcclusionDamper();
 
   return {
     get active() {
@@ -88,6 +101,9 @@ export function createUserOrbitController(initial: UserOrbitSpherical): UserOrbi
     },
     get radius() {
       return curRadius;
+    },
+    get occluded() {
+      return occluded;
     },
     drag(deltaAzimuth, deltaPolar) {
       active = true;
@@ -103,8 +119,10 @@ export function createUserOrbitController(initial: UserOrbitSpherical): UserOrbi
       targetAzimuth = curAzimuth = next.azimuth;
       targetPolar = curPolar = THREE.MathUtils.clamp(next.polar, MIN_POLAR, MAX_POLAR);
       targetRadius = curRadius = THREE.MathUtils.clamp(next.radius, USER_ORBIT_MIN_RADIUS, USER_ORBIT_MAX_RADIUS);
+      occluded = false;
+      occlusionDamper.reset();
     },
-    update(camera, focus, targetHeight, dt) {
+    update(camera, focus, targetHeight, dt, world) {
       // Same critically-damped-ish exponential smoothing shape as ChaseCamera's springDamp (see
       // camera/chase.ts), simplified to scalar damping since there's no need for spring overshoot here
       // -- just a smooth ease toward the latest drag/zoom target.
@@ -115,11 +133,34 @@ export function createUserOrbitController(initial: UserOrbitSpherical): UserOrbi
 
       const horiz = curRadius * Math.sin(curPolar);
       const y = curRadius * Math.cos(curPolar);
-      camera.position.set(
+      const desired = new THREE.Vector3(
         focus.x + horiz * Math.cos(curAzimuth),
         Math.max(focus.y + y, 0.4),
         focus.z + horiz * Math.sin(curAzimuth),
       );
+
+      // Occlusion clamp (Tier-2 camera task, ../camera/occlusion.ts): cast focus->desired and pull the
+      // RENDERED position in short of `desired` if a real (non-car-owned) surface -- a wall, tree,
+      // terrain -- blocks it, so drag-orbit can't clip through e.g. a shed by dragging/zooming to a
+      // vantage point behind it. Deliberately clamps only the rendered position, never curRadius/
+      // targetRadius themselves, so the player's own zoom level is preserved and the view snaps back
+      // out (not to some other radius) the moment the obstruction clears.
+      let renderPos = desired;
+      if (world) {
+        const originHeight = new THREE.Vector3(focus.x, focus.y + targetHeight, focus.z);
+        const raw = castCameraOcclusion(world, originHeight, desired);
+        const damped = occlusionDamper.update(raw.distanceM, dt);
+        const fullDistance = originHeight.distanceTo(desired);
+        occluded = raw.occluded;
+        if (fullDistance > 1e-6 && damped < fullDistance - 1e-6) {
+          renderPos = originHeight.clone().lerp(desired, damped / fullDistance);
+        }
+      } else {
+        occluded = false;
+        occlusionDamper.reset();
+      }
+
+      camera.position.copy(renderPos);
       camera.lookAt(focus.x, focus.y + targetHeight, focus.z);
     },
   };

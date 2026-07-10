@@ -8,6 +8,8 @@
 // regardless of frame rate).
 
 import * as THREE from 'three';
+import type { World } from '../../../src/ts/index.js';
+import { castCameraOcclusion, OcclusionDamper } from './occlusion';
 
 /** Critically damped spring toward `target`, in place, with persistent velocity state `velocity`. */
 function springDamp(current: THREE.Vector3, velocity: THREE.Vector3, target: THREE.Vector3, smoothTime: number, dt: number): void {
@@ -64,6 +66,13 @@ export class ChaseCamera {
 	private shakeAmplitudeM = 0;
 	private fovDeg: number;
 
+	/** Occlusion pullback (Tier-2 camera task, see ./occlusion.ts): optional world reference set via
+	 * setWorld(); null (the default) preserves the pre-occlusion behavior exactly, so anything that
+	 * never calls setWorld() -- e.g. a headless/unit context -- is unaffected. */
+	private world: World | null = null;
+	private readonly occlusionDamper = new OcclusionDamper();
+	private lastOcclusion = { occluded: false, distanceM: 0 };
+
 	constructor(options: ChaseCameraOptions = {}) {
 		this.opts = {
 			distanceBack: options.distanceBack ?? 6,
@@ -95,6 +104,20 @@ export class ChaseCamera {
 		this.shakeAmplitudeM = Math.min(SHAKE_MAX_M, this.shakeAmplitudeM + severityMs * SHAKE_PER_MS);
 	}
 
+	/** Enables occlusion pullback (see ./occlusion.ts): pass the live physics World so update() can
+	 * sphere-cast car->desiredCameraPos each frame. Pass null to disable it again (e.g. a headless
+	 * verify context with no world). */
+	setWorld(world: World | null): void {
+		this.world = world;
+		this.occlusionDamper.reset();
+	}
+
+	/** Read-only occlusion snapshot from the most recent update() call -- VERIFY HOOK (see
+	 * game/verify/camera-occlusion.mjs and main.ts's cameraDebug()). */
+	getOcclusionDebug(): { occluded: boolean; distanceM: number } {
+		return this.lastOcclusion;
+	}
+
 	/** Call every render frame (not every fixed step) with the car's INTERPOLATED position/rotation/velocity. */
 	update(camera: THREE.PerspectiveCamera, carPosition: THREE.Vector3, carQuaternion: THREE.Quaternion, carVelocity: THREE.Vector3, dt: number): void {
 		const speed = carVelocity.length();
@@ -109,6 +132,42 @@ export class ChaseCamera {
 			.clone()
 			.addScaledVector(direction, this.opts.lookAheadDistance)
 			.add(new THREE.Vector3(0, this.opts.lookAheadHeight, 0));
+
+		// Occlusion pullback (Tier-2 camera task, ./occlusion.ts): cast eye->desiredPos and, if a real
+		// (non-car-owned) surface blocks it, pull desiredPos in along the carPosition->desiredPos ray
+		// (preserving the height-up/distance-back direction, just shortening it) before ever handing it
+		// to the spring -- so the damped spring settles toward the occlusion-safe point instead of
+		// overshooting into the wall on its way there. Damped (fast in / slow out) so briefly clipping a
+		// thin occluder doesn't yo-yo the camera.
+		//
+		// CAST ORIGIN (not literally carPosition): the chassis's own physics origin sits at ~hub height
+		// (tuning.ts's CHASSIS_ORIGIN_HEIGHT_M, well under half a meter) -- close enough to the ground
+		// that the occlusion probe's own sphere (radius ~0.4m) already touches the terrain/heightfield AT
+		// the start of the cast, producing a false "occluded" reading against the ground on perfectly
+		// clear, flat terrain (root-caused directly: verify/camera-occlusion.mjs's unoccluded baseline
+		// came back occluded=true, hitEntityId=0, distanceM clamped to minDistanceM, with no wall spawned
+		// at all -- entityId 0 is untagged terrain, not any car part). Casting from a point raised to
+		// roughly eye/cabin height instead keeps the probe clear of the ground under normal ride height,
+		// while still producing a geometrically close-enough distance for the carPosition->desiredPos
+		// lerp below (the offset is small relative to the ~6m chase distance).
+		const eyeOrigin = carPosition.clone().add(new THREE.Vector3(0, this.opts.heightUp * 0.5, 0));
+		if (this.world) {
+			const raw = castCameraOcclusion(this.world, eyeOrigin, desiredPos);
+			const damped = this.occlusionDamper.update(raw.distanceM, dt);
+			this.lastOcclusion = { occluded: raw.occluded, distanceM: damped };
+			const fullDistance = carPosition.distanceTo(desiredPos);
+			if (fullDistance > 1e-6 && damped < fullDistance - 1e-6) {
+				// NOTE: lerp toward a target derived from desiredPos itself, so this must compute the
+				// interpolated point BEFORE mutating desiredPos (Vector3.lerp(v, t) reads `this` as the
+				// start -- copying carPosition into desiredPos first, then lerping toward "desiredPos",
+				// would lerp between two now-equal points and silently no-op).
+				const t = damped / fullDistance;
+				const pulled = carPosition.clone().lerp(desiredPos, t);
+				desiredPos.copy(pulled);
+			}
+		} else {
+			this.lastOcclusion = { occluded: false, distanceM: carPosition.distanceTo(desiredPos) };
+		}
 
 		if (!this.initialized) {
 			this.currentPos.copy(desiredPos);
@@ -154,5 +213,7 @@ export class ChaseCamera {
 		this.posVelocity.set(0, 0, 0);
 		this.lookVelocity.set(0, 0, 0);
 		this.shakeAmplitudeM = 0;
+		this.occlusionDamper.reset();
+		this.lastOcclusion = { occluded: false, distanceM: 0 };
 	}
 }

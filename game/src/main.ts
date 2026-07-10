@@ -111,6 +111,11 @@ declare global {
         polar: number;
         radius: number;
         position: [number, number, number];
+        /** VERIFY HOOK addition (Tier-2 camera-occlusion task, see game/verify/camera-occlusion.mjs):
+         * true if the CURRENT camera mode's occlusion pullback/clamp shortened the rendered camera
+         * distance this frame (chase: ChaseCamera.getOcclusionDebug(); orbit: UserOrbitController's
+         * own clamp, only meaningful once userOrbitActive -- the auto-spin path never occlusion-clamps). */
+        occluded: boolean;
       };
       /** VERIFY/DIAGNOSTIC HOOK (read-only): per-panel visual-vs-body pose snapshot. Exposes the
        * VISUAL layer the reset-integrity checks assert on (existing hooks only ever measured physics
@@ -369,6 +374,11 @@ async function main() {
   let cameraMode: 'chase' | 'orbit' = 'chase';
   let fixedAngle: number | null = null;
   const chaseCamera = new ChaseCamera();
+  // Occlusion pullback (Tier-2 camera task, camera/occlusion.ts): give the chase camera the live world
+  // so it can sphere-cast car->desiredCameraPos each frame and pull in before clipping a wall/tree/
+  // terrain. The user-orbit controller gets the SAME world passed per-update() call below instead
+  // (its update() takes `world` as a parameter, not a setter -- see scene/cameraOrbit.ts).
+  chaseCamera.setWorld(world);
   let orbitOpts = {
     radius: 9,
     height: 3.2,
@@ -629,6 +639,7 @@ async function main() {
       polar: userOrbit.polar,
       radius: userOrbit.radius,
       position: [camera.position.x, camera.position.y, camera.position.z],
+      occluded: cameraMode === 'chase' ? chaseCamera.getOcclusionDebug().occluded : userOrbit.occluded,
     }),
     dumpPanelVisuals: () => {
       const panelsOut: Record<string, unknown> = {};
@@ -814,7 +825,7 @@ async function main() {
       carFocus.x = currentPos.x;
       carFocus.z = currentPos.z;
       if (userOrbit.active) {
-        userOrbit.update(camera, carFocus, orbitOpts.targetHeight, dt);
+        userOrbit.update(camera, carFocus, orbitOpts.targetHeight, dt, world);
       } else {
         const elapsed = fixedAngle !== null ? fixedAngle / 0.12 : timer.getElapsed();
         updateOrbit(elapsed, carFocus);
