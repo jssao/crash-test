@@ -106,4 +106,21 @@ NEVER cut: reset integrity, camera, suspension feel, terrain.
 | W13 Stage-2 | FILTER-PATH Stage 2 (FABLE, 3rd-round ladder escalation) + optional solver crumple | fable | dispatched | | after 1 harness prompt-corruption retry (3rd occurrence of that glitch) |
 | W13 results | Tier-3 STAGE 2 LANDED (FABLE, recovered predecessor's stash + finished validation/calibration): occupants really collide w/ cabin interior; windshield/rear panes = destroyable solid shapes (strike -> glassShattered + destroy, aperture genuinely opens). KEY FINDINGS past the handoff: (1) force magnitude CANNOT separate driving from crashes in the contact era (limb-arrest solver spikes 3.1-3.4x rear threshold on a smooth 0.5g S-curve vs honest 70km/h crash loads 1.9-2.1x -- INVERTED) -> instant-break factor RETIRED, replaced by a windowed chassis-decel CRASH-GATE (mean accel over 10 polls >= 2.5g; mirrors the impact-gated wheel detach) + ring seeding in matchOccupantVelocity so crash-test speed injection is gate-invisible; (2) per-seat pan category bits (own pan only -- cross-seat pan arrests ejected rears under plain braking); (3) panes + panels are EJECTED-only colliders (seated torso-vs-pane squeeze spiked belts + would false-shatter the windshield mid-slalom); (4) occupant-sourced hits excluded from crumple/weld drain (1.6kg forearm was full-weight obstacle); (5) footwell-shelf NEGATIVE result documented in geometry.ts (occupant-only chassis slab impossible: two-sided filter vs default-category ground beached the car -- feet-on-ground artifact stays, defused at the eject mechanism); (6) thresholds re-measured w/ damage system in loop: rear 4000->3000, front 16000->20000. Escalation suite EXTENDED: eject-through-pane (pane shape destroyed + per-occupant >2m peak separation) + corpse-rests-ON-hood. game 77 files/209 green, root 23/44 green, bench 0.115ms, browser verifies (occupants-escalation ALL GATES PASS, active, feature-occupants, crash, driving) 0 console errors; eyes-on: idle stillness, 30km/h all-seated, ejected body resting ON the wreck. | fable | **done** | | trajectory-plane/filter-flip machinery deleted; OOM gotcha documented (chai deep-inspect of Shape wrappers) |
 
+## RUN PAUSED — 2026-07-10 (user budget cap: 80% total / 80% Fable weekly)
+
+Orchestrator token estimate at pause: ~39M subagent tokens ≈ 85-87% by the RUN-1 linear calibration
+(likely understated — opus/fable-heavy run). Fable crush worker STOPPED mid-M2 wiring; its M1+M2
+WIP preserved in git stash "PAUSED: Fable crush M1-M2 WIP". Tree GREEN at HEAD 88cc7aa:
+root 25 files/47 tests, game 78/213, build clean, dist current.
+
+LANDED THIS RUN-3 ARC (all committed + gated): Stage 2 glass-contact ejection (6d300ab), Crash Lab
+7-protocol page (6037c84), upstream research + issue drafts (8987608), vendor wheel-force patch
+(5f1ae71 + PATCHES.md), setHull/SetMesh shim (a3023a0), segment mass-parity math + drive-suite
+risk retirement (635663b).
+
+REMAINING (fully specified, resumable): crush M1-M3 per docs/build-log/specs/crush-m1m3-brief.md +
+crush-architecture.md (WIP in stash — a fresh session applies the stash or restarts M1 from the
+brief); then final full soak + adversarial gate + run close. File upstream issues when GitHub creds
+exist. Deploy still user-blocked (DEPLOY.md).
+
 ## Pass log
