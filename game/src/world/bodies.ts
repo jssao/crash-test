@@ -14,11 +14,22 @@
 import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
 import { IDENTITY_Q, type Q4, type V3 } from '../vehicle/mathUtil';
 import {
+	BARREL_CHAIN_FUSE_MAX_S,
+	BARREL_CHAIN_FUSE_MIN_S,
+	BARREL_CHAIN_RADIUS_M,
+	BARREL_ENTITY_ID_BASE,
+	BARREL_EXPLOSION_FALLOFF_M,
+	BARREL_EXPLOSION_IMPULSE_PER_AREA,
+	BARREL_EXPLOSION_RADIUS_M,
+	BARREL_EXPLOSION_SEED,
+	BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS,
 	BARREL_FRICTION,
 	BARREL_HEIGHT_M,
 	BARREL_LATERAL_SPACING_M,
 	BARREL_MASS_KG,
 	BARREL_RADIUS_M,
+	BARREL_ROCKET_JITTER_KGMS,
+	BARREL_ROCKET_UPWARD_IMPULSE_KGMS,
 	BARREL_ROW_SPACING_M,
 	BARREL_SIDES,
 	BARREL_TRIANGLE_APEX,
@@ -82,6 +93,11 @@ export interface RampBody {
 export interface DestructibleWorld {
 	readonly bodies: DestructibleBody[];
 	readonly ramps: RampBody[];
+	/** Exploding-barrels bookkeeping (see ExplodingBarrelsState/stepExplodingBarrels() below) -- lives
+	 * here (not a separate object main.ts has to thread through separately) so the SAME
+	 * resetDestructibleWorld(destructibleWorld) call the Shift+R world-reset path already makes also
+	 * resets this feature's exploded/fuse/RNG state, with no extra call site needed. */
+	readonly explodingBarrels: ExplodingBarrelsState;
 }
 
 /** Regular n-gon prism point cloud, centered on its own local origin (y in [-h/2, h/2]) -- box3d
@@ -209,6 +225,12 @@ function buildBarrelTriangle(world: World): DestructibleBody[] {
 			const body = spawnAsleepBody(world, pos, IDENTITY_Q, BARREL_ANGULAR_DAMPING, BARREL_LINEAR_DAMPING);
 			const shape = body.createHullShape(hullPoints, { density, friction: BARREL_FRICTION });
 			body.applyMassFromShapes();
+			// Exploding-barrels feature (tuning.ts's BARREL_ENTITY_ID_BASE doc comment): tag the body so
+			// a later world.hitEvents() drain (stepExplodingBarrels()) can resolve "which barrel got hit"
+			// back to this triangle's own index. The shape falls back to the body's userData when its
+			// OWN userData is left at 0 (shape.ts's ShapeOptions.userData doc comment), so tagging the
+			// body alone is enough -- no need to also pass userData into createHullShape() above.
+			body.setUserData(BARREL_ENTITY_ID_BASE + rowIndex);
 			const material: BarrelMaterial = rowIndex % 2 === 0 ? 'barrelBlue' : 'barrelRust';
 			out.push({
 				kind: 'barrel',
@@ -266,6 +288,7 @@ export function createDestructibleWorld(world: World): DestructibleWorld {
 	const bodies: DestructibleBody[] = [];
 	for (const wall of WALL_CONFIGS) bodies.push(...buildWall(world, wall));
 	bodies.push(...buildCrateTower(world));
+	const barrelStartIndex = bodies.length;
 	bodies.push(...buildBarrelTriangle(world));
 	bodies.push(...buildPoles(world));
 
@@ -276,21 +299,28 @@ export function createDestructibleWorld(world: World): DestructibleWorld {
 	for (const b of bodies) b.body.setAwake(false);
 
 	const ramps = buildRamps(world);
-	return { bodies, ramps };
+	const explodingBarrels = createExplodingBarrelsState(bodies, barrelStartIndex);
+	return { bodies, ramps, explodingBarrels };
 }
 
 /** Teleports every dynamic destructible body back to its spawn pose, zeroes velocity, and re-sleeps
  * it (Shift+R's "world reset" -- see main.ts) -- the spec's "teleport+sleep" alternative to a full
  * destroy+rebuild, chosen here since these bodies never get destroyed/mutated by any other system
  * (unlike the car's panels/wheels), so an in-place teleport is exactly equivalent and far cheaper for
- * ~130+ bodies. */
+ * ~130+ bodies. Also resets the exploding-barrels feature's exploded/fuse/RNG state (see
+ * ExplodingBarrelsState) -- same call site, no extra reset hook needed by main.ts. */
 export function resetDestructibleWorld(world: DestructibleWorld): void {
 	for (const b of world.bodies) {
 		b.body.setTransform(b.spawnPos, b.spawnRot);
 		b.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
 		b.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
 		b.body.setAwake(false);
+		// A barrel that exploded may have picked up setBullet(true) (see triggerBarrelExplosion()) --
+		// harmless on a re-slept body, but cleared here for cleanliness/symmetry with everything else
+		// this loop resets.
+		if (b.kind === 'barrel') b.body.setBullet(false);
 	}
+	resetExplodingBarrelsState(world.explodingBarrels);
 }
 
 /** Full teardown (shapes then bodies, mirroring vehicle.ts's destroyVehicle() ordering so every
@@ -306,4 +336,223 @@ export function destroyDestructibleWorld(world: DestructibleWorld): void {
 		r.shape.destroy(false);
 		r.body.destroy();
 	}
+}
+
+// =================================================================================================
+// EXPLODING BARRELS -- world.explode() chain-reaction feature.
+//
+// A hard enough hit on a barrel (car at speed, flying debris, or a neighboring barrel's own blast --
+// stepExplodingBarrels() doesn't care which) detonates it: a radial b3World_Explode impulse scatters
+// nearby bricks/crates/barrels and shoves the car, a strong direct upward+outward impulse rockets the
+// barrel itself, and every other un-exploded barrel within BARREL_CHAIN_RADIUS_M gets a short,
+// deterministic random fuse -- so one hit can cascade through the whole triangle. See tuning.ts's
+// "Exploding barrels" section for every tuned constant's derivation.
+//
+// WIRING (renderer-free, no main.ts touch from this module -- see the G4-run dispatch brief's STRICT
+// OWNERSHIP): stepExplodingBarrels(world, destructibleWorld, dt) must be called once per fixed step,
+// alongside world.step() (AFTER it, so this step's hit events are already populated -- same ordering
+// as main.ts's existing stepDamageSystem() call). It returns this call's ExplosionEvent[] (empty most
+// steps) -- feed those into world/visuals.ts's spawnExplosionEffects() for the fireball/smoke burst.
+// Reset is already covered: resetDestructibleWorld() (already wired into main.ts's Shift+R path)
+// clears this feature's state too.
+// =================================================================================================
+
+/** One barrel's explosion, this step -- consumed by world/visuals.ts's spawnExplosionEffects() to
+ * spawn the fireball/smoke burst. `radius`/`falloff` are echoed from tuning.ts so the visual burst
+ * can size itself to match the actual physics blast without importing tuning.ts separately. */
+export interface ExplosionEvent {
+	readonly position: V3;
+	readonly barrelIndex: number;
+	readonly radius: number;
+	readonly falloff: number;
+}
+
+interface BarrelFuse {
+	barrelIndex: number;
+	remainingS: number;
+}
+
+/** Exploding-barrels bookkeeping, embedded in DestructibleWorld (see its doc comment) -- one instance
+ * per createDestructibleWorld() call, reset in place (not recreated) by resetExplodingBarrelsState(). */
+export interface ExplodingBarrelsState {
+	/** Indices into DestructibleWorld.bodies of every barrel, in triangle order (0 = apex). */
+	readonly barrelIndices: readonly number[];
+	/** Entity id (BARREL_ENTITY_ID_BASE + triangle index) -> index into DestructibleWorld.bodies. */
+	readonly entityIdToBodyIndex: ReadonlyMap<number, number>;
+	/** Indexed like `bodies` (not `barrelIndices`) -- exploded[bodyIndex] is true once that barrel has
+	 * detonated since the last reset. Sized to the full bodies array (not just barrels) so callers can
+	 * index it directly with a DestructibleBody index without an extra lookup. */
+	exploded: boolean[];
+	/** Barrels with a chain-reaction fuse counting down, not yet detonated. */
+	fuses: BarrelFuse[];
+	/** mulberry32-style RNG state (see nextRandom()) -- mutated on every draw, reset to
+	 * BARREL_EXPLOSION_SEED by resetExplodingBarrelsState() for deterministic replay. */
+	rngState: number;
+	/** This step's explosions, returned fresh by every stepExplodingBarrels() call (see its doc
+	 * comment) -- NOT accumulated across steps. */
+	pendingEvents: ExplosionEvent[];
+	/** Diagnostic counter (this-run total, survives resets only because tests read it before calling
+	 * reset) -- how many hit events stepExplodingBarrels() has ever attributed to a barrel. Not used by
+	 * gameplay logic, only by game/sim/exploding-barrels.test.mjs to confirm hit events actually fired. */
+	hitEventsSeen: number;
+}
+
+/** @internal pure mulberry32 step: given the current state word, returns [value in [0,1), nextState].
+ * Same core mixing as world/materials.ts's mulberry32() (kept as an independent copy -- that module is
+ * three.js-dependent and this one deliberately isn't, same rationale as this file's own doc comment on
+ * why it shares no code with visuals.ts). Restructured as a pure function (rather than materials.ts's
+ * closure-over-a-mutable-variable style) so ExplodingBarrelsState's rngState can be a plain, trivially
+ * resettable number field instead of a closure. */
+function nextRandom(state: number): [number, number] {
+	let a = (state + 0x6d2b79f5) | 0;
+	let t = Math.imul(a ^ (a >>> 15), 1 | a);
+	t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+	const value = ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	return [value, a];
+}
+
+function createExplodingBarrelsState(bodies: DestructibleBody[], barrelStartIndex: number): ExplodingBarrelsState {
+	const barrelIndices: number[] = [];
+	const entityIdToBodyIndex = new Map<number, number>();
+	let triangleIndex = 0;
+	for (let i = barrelStartIndex; i < bodies.length; i++) {
+		if (bodies[i].kind !== 'barrel') continue;
+		barrelIndices.push(i);
+		entityIdToBodyIndex.set(BARREL_ENTITY_ID_BASE + triangleIndex, i);
+		triangleIndex++;
+	}
+	return {
+		barrelIndices,
+		entityIdToBodyIndex,
+		exploded: new Array(bodies.length).fill(false),
+		fuses: [],
+		rngState: BARREL_EXPLOSION_SEED >>> 0,
+		pendingEvents: [],
+		hitEventsSeen: 0,
+	};
+}
+
+function resetExplodingBarrelsState(state: ExplodingBarrelsState): void {
+	state.exploded.fill(false);
+	state.fuses = [];
+	state.pendingEvents = [];
+	state.rngState = BARREL_EXPLOSION_SEED >>> 0;
+	state.hitEventsSeen = 0;
+}
+
+function isFused(state: ExplodingBarrelsState, bodyIndex: number): boolean {
+	return state.fuses.some((f) => f.barrelIndex === bodyIndex);
+}
+
+/** Detonates the barrel at `bodyIndex` (no-op if it already has): world.explode() at its current
+ * position (scatters neighbors + shoves the car via real physics, tuning.ts's BARREL_EXPLOSION_*
+ * constants), a direct rocket impulse on the barrel itself (see tuning.ts's BARREL_ROCKET_* doc
+ * comment on why world.explode() alone can't give a satisfying launch), and a short deterministic
+ * fuse on every other un-exploded/un-fused barrel within BARREL_CHAIN_RADIUS_M. Records an
+ * ExplosionEvent on `state.pendingEvents` for the visuals layer. */
+function triggerBarrelExplosion(world: World, destructible: DestructibleWorld, state: ExplodingBarrelsState, bodyIndex: number): void {
+	if (state.exploded[bodyIndex]) return;
+	state.exploded[bodyIndex] = true;
+	state.fuses = state.fuses.filter((f) => f.barrelIndex !== bodyIndex);
+
+	const body = destructible.bodies[bodyIndex].body;
+	const position = body.getPosition();
+
+	world.explode({
+		position,
+		radius: BARREL_EXPLOSION_RADIUS_M,
+		falloff: BARREL_EXPLOSION_FALLOFF_M,
+		impulsePerArea: BARREL_EXPLOSION_IMPULSE_PER_AREA,
+	});
+
+	// "They famously rocket": a direct impulse on the exploding barrel itself (see tuning.ts's
+	// BARREL_ROCKET_* doc comment on why world.explode()'s own self-effect isn't enough). Also flip on
+	// CCD (setBullet) -- a barrel launching at ~18 m/s straight up is exactly the kind of fast-moving
+	// runtime-spawned-velocity body box3d.h's b3Body_SetBullet doc comment calls out as needing it,
+	// since its creation-time isBullet (always false for destructibles) can't cover a velocity applied
+	// well after spawn.
+	const [angleRand, rngAfterAngle] = nextRandom(state.rngState);
+	state.rngState = rngAfterAngle;
+	const angle = angleRand * Math.PI * 2;
+	body.setBullet(true);
+	body.applyLinearImpulseToCenter({
+		x: Math.cos(angle) * BARREL_ROCKET_JITTER_KGMS,
+		y: BARREL_ROCKET_UPWARD_IMPULSE_KGMS,
+		z: Math.sin(angle) * BARREL_ROCKET_JITTER_KGMS,
+	});
+
+	state.pendingEvents.push({ position, barrelIndex: bodyIndex, radius: BARREL_EXPLOSION_RADIUS_M, falloff: BARREL_EXPLOSION_FALLOFF_M });
+
+	// Chain reaction: every other un-exploded, not-already-fused barrel within BARREL_CHAIN_RADIUS_M of
+	// THIS blast gets a short deterministic fuse (tuning.ts's BARREL_CHAIN_FUSE_MIN_S/MAX_S).
+	for (const otherIndex of state.barrelIndices) {
+		if (otherIndex === bodyIndex || state.exploded[otherIndex] || isFused(state, otherIndex)) continue;
+		const otherPos = destructible.bodies[otherIndex].body.getPosition();
+		const dx = otherPos.x - position.x;
+		const dy = otherPos.y - position.y;
+		const dz = otherPos.z - position.z;
+		const dist = Math.hypot(dx, dy, dz);
+		if (dist > BARREL_CHAIN_RADIUS_M) continue;
+		const [fuseRand, rngAfterFuse] = nextRandom(state.rngState);
+		state.rngState = rngAfterFuse;
+		const fuseS = BARREL_CHAIN_FUSE_MIN_S + fuseRand * (BARREL_CHAIN_FUSE_MAX_S - BARREL_CHAIN_FUSE_MIN_S);
+		state.fuses.push({ barrelIndex: otherIndex, remainingS: fuseS });
+	}
+}
+
+function checkHitEntityForBarrelTrigger(
+	world: World,
+	destructible: DestructibleWorld,
+	state: ExplodingBarrelsState,
+	entityId: number,
+	approachSpeed: number,
+): void {
+	if (entityId === 0) return;
+	const bodyIndex = state.entityIdToBodyIndex.get(entityId);
+	if (bodyIndex === undefined) return;
+	state.hitEventsSeen++;
+	if (state.exploded[bodyIndex]) return;
+
+	// approachSpeed * barrel's own mass -- see tuning.ts's BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS doc
+	// comment for why this (not the OTHER body's mass) is the right, self-contained proxy here.
+	const barrelMassKg = destructible.bodies[bodyIndex].body.getMass();
+	const impulseLike = approachSpeed * barrelMassKg;
+	if (impulseLike >= BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS) {
+		triggerBarrelExplosion(world, destructible, state, bodyIndex);
+	}
+}
+
+/**
+ * Call once per fixed step, AFTER world.step() (so this step's hit events are populated) -- see this
+ * section's WIRING doc comment above. Drains world.hitEvents() for barrel impacts hard enough to
+ * detonate (tuning.ts's BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS), then ticks every pending chain-reaction
+ * fuse by `dt`, detonating any that reach zero (which may itself schedule further fuses -- a real
+ * cascade). Returns this call's fresh ExplosionEvent[] (usually empty) for the visuals layer.
+ */
+export function stepExplodingBarrels(world: World, destructible: DestructibleWorld, dt: number): ExplosionEvent[] {
+	const state = destructible.explodingBarrels;
+	state.pendingEvents = [];
+
+	const hits = world.hitEvents();
+	for (let i = 0; i < hits.count; i++) {
+		const ev = hits.at(i);
+		checkHitEntityForBarrelTrigger(world, destructible, state, ev.userDataA, ev.approachSpeed);
+		checkHitEntityForBarrelTrigger(world, destructible, state, ev.userDataB, ev.approachSpeed);
+	}
+
+	if (state.fuses.length > 0) {
+		const stillPending: BarrelFuse[] = [];
+		for (const fuse of state.fuses) {
+			fuse.remainingS -= dt;
+			if (state.exploded[fuse.barrelIndex]) continue; // exploded via some other path already
+			if (fuse.remainingS <= 0) {
+				triggerBarrelExplosion(world, destructible, state, fuse.barrelIndex);
+			} else {
+				stillPending.push(fuse);
+			}
+		}
+		state.fuses = stillPending;
+	}
+
+	return state.pendingEvents;
 }

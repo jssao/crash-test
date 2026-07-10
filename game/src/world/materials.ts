@@ -277,3 +277,68 @@ export function disposeDestructibleMaterials(sets: DestructibleMaterialSets): vo
 		set.material.dispose();
 	}
 }
+
+// -------------------------------------------------------------------------------------------------
+// Exploding-barrels fireball/smoke sprite textures (world/visuals.ts's spawnExplosionEffects()) -- two
+// small (128px, not the 512px tiled PBR maps above -- these are single soft blobs, not repeated
+// materials) radial-gradient CanvasTextures, same "no runtime asset downloads" constraint as the rest
+// of this module. NOT built through buildFromNoise()/finishTexture() above: those assume a REPEATING
+// tiled material (RepeatWrapping, `repeat` factor), which is wrong for a single soft sprite blob
+// (needs ClampToEdgeWrapping, repeat=1) -- so these get their own small, non-tiling helper.
+// -------------------------------------------------------------------------------------------------
+
+function makeSpriteTexture(size: number, paint: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.CanvasTexture {
+	const canvas = document.createElement('canvas');
+	canvas.width = canvas.height = size;
+	const ctx = canvas.getContext('2d')!;
+	paint(ctx, size);
+	const tex = new THREE.CanvasTexture(canvas);
+	tex.colorSpace = THREE.SRGBColorSpace;
+	tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+	tex.needsUpdate = true;
+	return tex;
+}
+
+/** Soft yellow-white core -> orange -> transparent -- a single billboard blob (world/visuals.ts
+ * layers several, jittered, with THREE.AdditiveBlending for the "many overlapping licks of flame"
+ * look, same cheap technique as most sprite-based fire VFX). */
+export function buildFireballTexture(size = 128): THREE.CanvasTexture {
+	return makeSpriteTexture(size, (ctx) => {
+		const r = size / 2;
+		const gradient = ctx.createRadialGradient(r, r, 0, r, r, r);
+		gradient.addColorStop(0, 'rgba(255,246,214,1.0)');
+		gradient.addColorStop(0.25, 'rgba(255,214,120,0.95)');
+		gradient.addColorStop(0.55, 'rgba(255,120,40,0.65)');
+		gradient.addColorStop(0.8, 'rgba(200,50,20,0.25)');
+		gradient.addColorStop(1, 'rgba(120,20,10,0)');
+		ctx.fillStyle = gradient;
+		ctx.fillRect(0, 0, size, size);
+	});
+}
+
+/** Soft gray puff with mulberry32-perturbed edge (a perfectly round gradient reads as a cheap glow, not
+ * smoke -- the noisy alpha edge breaks the circular silhouette enough to sell "billowing"). */
+export function buildSmokeTexture(size = 128): THREE.CanvasTexture {
+	return makeSpriteTexture(size, (ctx) => {
+		const r = size / 2;
+		const rand = mulberry32(881);
+		const img = ctx.createImageData(size, size);
+		for (let y = 0; y < size; y++) {
+			for (let x = 0; x < size; x++) {
+				const dx = (x - r) / r;
+				const dy = (y - r) / r;
+				const dist = Math.hypot(dx, dy);
+				const wobble = 1 + (rand() - 0.5) * 0.35;
+				const falloff = Math.max(0, 1 - dist * wobble);
+				const alpha = Math.pow(falloff, 1.6) * 0.85;
+				const p = (y * size + x) * 4;
+				const gray = 60 + Math.floor(rand() * 25);
+				img.data[p] = gray;
+				img.data[p + 1] = gray;
+				img.data[p + 2] = gray;
+				img.data[p + 3] = clamp8(alpha * 255);
+			}
+		}
+		ctx.putImageData(img, 0, 0);
+	});
+}

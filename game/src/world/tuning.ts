@@ -98,6 +98,79 @@ export const BARREL_ROW_SPACING_M = BARREL_RADIUS_M * Math.sqrt(3) * 1.05;
 export const BARREL_LATERAL_SPACING_M = BARREL_RADIUS_M * 2 * 1.05;
 
 // ---------------------------------------------------------------------------------------------
+// Exploding barrels (world.explode() chain-reaction feature -- see bodies.ts's stepExplodingBarrels()/
+// triggerBarrelExplosion()).
+//
+// ENTITY IDS: each barrel body gets tagged (Body.setUserData()) with BARREL_ENTITY_ID_BASE + its
+// index in the barrel triangle (0-9), so world.hitEvents() can resolve "which barrel got hit" back to
+// this module's own bookkeeping. Kept in a disjoint numeric range from every other entity-id scheme in
+// the codebase: chassis=1, wheels=2-5 (vehicle/tuning.ts's CAR_ENTITY_ID), panels=6-10
+// (damage/panels.ts's PANEL_ENTITY_ID), occupants=1000-1399 (occupants/physics.ts's entityIdFor()),
+// cardetail=88,100,000+/88,200,000+ (cardetail/tuning.ts) -- 44,000,000 sits nowhere near any of those.
+export const BARREL_ENTITY_ID_BASE = 44_000_000;
+
+/** Trigger threshold, kg*m/s -- deliberately built from ONLY the struck barrel's own (always-known)
+ * mass and the hit event's own approachSpeed (types.h's b3ContactHitEvent field, already the real
+ * relative closing speed at the contact point), rather than the OTHER body's mass: this module has no
+ * reference to the car/other destructibles' Body objects (bodies.ts's ownership boundary -- see the
+ * G4-run dispatch brief's STRICT OWNERSHIP), and approachSpeed*barrelMass is already a physically
+ * sound proxy for "how hard did THIS barrel just get hit" regardless of what hit it (car, flying
+ * debris, or a neighboring barrel's blast) -- in a near-inelastic hit the barrel picks up roughly
+ * `approachSpeed` of velocity, so this is approximately the impulse the barrel itself absorbed.
+ * 200 kg*m/s = a 25kg barrel (BARREL_MASS_KG) hit at 8 m/s (~29 km/h) -- a firm hit, not a graze. */
+export const BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS = 200;
+
+/** b3World_Explode's radius/falloff (see World.explode() in ../../../src/ts/world.ts): full-strength
+ * out to RADIUS_M, linearly ramping to zero over the next FALLOFF_M, nothing beyond their sum.
+ * Calibrated against the real barrel triangle + a full-size vehicle (game/sim/_tune-explosion.mjs, a
+ * throwaway probe run against createDestructibleWorld() before landing these numbers): at
+ * IMPULSE_PER_AREA=1400, a 10m-distant car (just inside RADIUS_M+FALLOFF_M=12m) picks up ~2 m/s of
+ * shove velocity (a real hit, not vaporization) while the barrel's own immediate neighbors (the other
+ * 9 barrels, all within a couple meters of the triangle apex) scatter hard. */
+export const BARREL_EXPLOSION_RADIUS_M = 6;
+export const BARREL_EXPLOSION_FALLOFF_M = 6;
+export const BARREL_EXPLOSION_IMPULSE_PER_AREA = 1400;
+
+/** The exploding barrel's OWN impulse (box3d.h's b3World_Explode gives it almost nothing useful --
+ * vendor/box3d/src/physics_world.c's ExplosionCallback falls back to an arbitrary +X direction for a
+ * shape sitting exactly at the blast center, distance==0 -- so the "they famously rocket" effect is
+ * applied directly via Body.applyLinearImpulseToCenter() instead, see bodies.ts's
+ * triggerBarrelExplosion()). 450 kg*m/s straight up on a 25kg barrel = ~18 m/s launch speed (~1.7s of
+ * airtime) -- a real "rocketing" barrel, not a twitch. JITTER adds a small deterministic sideways
+ * component (direction from this module's seeded RNG -- see bodies.ts's nextRandom()) so the barrel
+ * tumbles/arcs rather than going perfectly vertical every time. */
+export const BARREL_ROCKET_UPWARD_IMPULSE_KGMS = 450;
+export const BARREL_ROCKET_JITTER_KGMS = 120;
+
+/** Chain reaction: every other not-yet-exploded, not-yet-fused barrel within this distance of a fresh
+ * explosion gets a short random fuse (see bodies.ts's triggerBarrelExplosion()). Same distance as the
+ * blast's own total reach (RADIUS_M+FALLOFF_M) -- if a barrel is close enough to feel ANY blast
+ * impulse, it's close enough to plausibly cook off too. */
+export const BARREL_CHAIN_RADIUS_M = BARREL_EXPLOSION_RADIUS_M + BARREL_EXPLOSION_FALLOFF_M;
+/** Fuse delay range, seconds -- "short random-free fuse delay" per the dispatch brief; both bounds
+ * comfortably under the G4-run acceptance test's 1.5s chain-reaction window. */
+export const BARREL_CHAIN_FUSE_MIN_S = 0.15;
+export const BARREL_CHAIN_FUSE_MAX_S = 0.45;
+/** Default seed for the deterministic mulberry32-style RNG driving fuse-delay jitter (bodies.ts's
+ * nextRandom()) -- same seed + same sequence of triggers always reproduces the same fuse timings.
+ * Reset to this exact value by resetDestructibleWorld() so a world reset can never leave two runs of
+ * "drive into the barrels" observing different chain timings. */
+export const BARREL_EXPLOSION_SEED = 1337;
+
+// ---- Fireball/smoke visual burst tuning (world/visuals.ts's spawnExplosionEffects()) ----
+export const FIREBALL_CORE_LIFETIME_S = 0.5;
+export const FIREBALL_CORE_MAX_SCALE_M = 5;
+export const SMOKE_LIFETIME_S = 2.2;
+/** Kept modest relative to BARREL_CHAIN_RADIUS_M (12m): the whole 10-barrel triangle sits inside one
+ * chain radius of the apex, so a full cascade lights ~10 bursts within under a second -- a larger
+ * value here stacks enough overlapping semi-transparent smoke sprites to fog out the ENTIRE screen for
+ * a nearby camera (caught in verify/shoot-exploding-barrels.mjs's own screenshot, tuned down from an
+ * initial 8 after that looked like a whiteout, not "billowing smoke"). */
+export const SMOKE_MAX_SCALE_M = 5;
+export const FIREBALL_SPRITES_PER_BURST = 5;
+export const SMOKE_SPRITES_PER_BURST = 3;
+
+// ---------------------------------------------------------------------------------------------
 // Tippable poles.
 //
 // SPEC NOTE ("base slightly heavier via two-shape compound of boxes if easy, else uniform"): NOT
