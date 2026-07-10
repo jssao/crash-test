@@ -26,7 +26,9 @@ import { PANEL_KEYS } from '../damage/panels';
  * stale (and lose its contact-events flag) across either event. enableContactEvents() itself is
  * idempotent and cheap (a single flag set), so re-arming every step is negligible. */
 export function collectCarShapes(vehicle: Vehicle, damageSystem: DamageSystem): Shape[] {
-	const shapes: Shape[] = [vehicle.chassisShapes.hull];
+	// Tier-3: the chassis is now the concave cabin-tub decomposition (~12 convex shapes), not one hull --
+	// arm contact events on every exterior cabin shape so a scrape/grind/rollover on ANY face still voices.
+	const shapes: Shape[] = [...vehicle.chassisShapes.cabin];
 	for (const key of PANEL_KEYS) {
 		const panel = damageSystem.panels[key];
 		if (!panel.despawned) shapes.push(panel.shape);

@@ -12,7 +12,7 @@
 
 import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
 import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
-import { buildChassisHullPoints, solveChassisDensities } from './geometry';
+import { buildCabinShapes, buildChassisHullPoints, solveChassisDensities } from './geometry';
 import {
 	add,
 	clamp,
@@ -192,11 +192,12 @@ export interface WheelHandle {
 export interface Vehicle {
 	world: World;
 	chassis: Body;
-	/** @internal chassis shapes (hull + COM sensor ballast + any test-only sprung ballast), kept only so
-	 * destroyVehicle() can explicitly destroy them before destroying the chassis body (see that
-	 * function's doc comment) -- createVehicle() itself never reads these back. `testBallast` is empty in
-	 * the real game (the sprungBallast arg below is a sim-only knob). */
-	chassisShapes: { hull: Shape; ballast: Shape; testBallast: Shape[] };
+	/** @internal chassis collision shapes -- the Tier-3 concave cabin-tub decomposition (~12 convex
+	 * shapes: floorpan/nose/tail/roof/sills/pillars, see geometry.ts buildCabinShapes()). Kept only so
+	 * destroyVehicle() can explicitly destroy each before destroying the chassis body (see that
+	 * function's doc comment) -- createVehicle() itself never reads these back. Mass/COM/inertia are
+	 * hard-set via setMassData() to the pre-Tier-3 single-hull values, so no ballast shape is needed. */
+	chassisShapes: { cabin: Shape[] };
 	wheels: Record<WheelKey, WheelHandle>;
 	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
 	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
@@ -338,31 +339,27 @@ export function createVehicle(
 	});
 
 	const solved = solveChassisDensities();
-	const hullPoints = buildChassisHullPoints();
-	// enableHitEvents: the damage system (game/src/damage/system.ts) reacts to hit events on the
-	// chassis (crash impacts) to drive plastic-crumple deformation + accumulated weld stress.
-	// groupIndex: CAR_GROUP_INDEX (shared, negative) on every car shape -- see tuning.ts's doc
-	// comment -- so the chassis hull never self-collides with wheels/panels.
-	const hullShape = chassis.createHullShape(hullPoints, {
+
+	// ---- Tier-3 STAGE 1: concave cabin tub + MASS PARITY (docs/build-log/specs/compound-hull-design.md)
+	// The chassis is now a HOLLOW multi-shape composite (geometry.ts buildCabinShapes()), not one convex
+	// hull. To keep ALL vehicle calibration byte-identical, its mass/COM/inertia are hard-set to what the
+	// pre-Tier-3 single-hull chassis produced: build that exact legacy shape set FIRST, let box3d compute
+	// its mass data, capture it, then destroy those temp shapes and stamp the captured MassData back onto
+	// the real (cabin-shape) body via setMassData(). No world.step() happens in between, so the temp
+	// legacy shapes never collide -- they exist purely to reproduce the engine's own mass integration.
+	const TEST_BALLAST_RADIUS_M = 0.15;
+	const legacyHull = chassis.createHullShape(buildChassisHullPoints(), {
 		density: solved.hullDensity,
-		friction: 0.8,
-		enableHitEvents: true,
 		groupIndex: CAR_GROUP_INDEX,
 	});
-	const ballastShape = chassis.createSphereShape({
+	const legacyBallast = chassis.createSphereShape({
 		radius: BALLAST_RADIUS_M,
 		center: { x: 0, y: BALLAST_LOCAL_Y_M, z: 0 },
 		density: solved.ballastDensity,
 		isSensor: true,
 		groupIndex: CAR_GROUP_INDEX,
 	});
-	// SIM-ONLY laden ballast (empty in the real game): each entry is a small, high-density isSensor
-	// sphere welded into the chassis at its chassis-local center, so the composite chassis mass/COM the
-	// suspension springs support matches the full game's cardetail+occupant sprung load. isSensor keeps
-	// it collision-inert (like the COM ballast above) while still contributing mass -- b3UpdateBodyMassData
-	// accumulates over every shape, sensor or not (see body.c / BALLAST_RADIUS_M's doc comment).
-	const TEST_BALLAST_RADIUS_M = 0.15;
-	const testBallast: Shape[] = sprungBallast.map((b) =>
+	const legacyTestBallast: Shape[] = sprungBallast.map((b) =>
 		chassis.createSphereShape({
 			radius: TEST_BALLAST_RADIUS_M,
 			center: b.localCenterM,
@@ -371,9 +368,28 @@ export function createVehicle(
 			groupIndex: CAR_GROUP_INDEX,
 		}),
 	);
-	// Defensive: the createXShape calls above already trigger b3UpdateBodyMassData each time
-	// (see body.c), but recompute explicitly in case that default ever changes.
 	chassis.applyMassFromShapes();
+	const massParity = chassis.getMassData(); // exact HEAD chassis mass/COM/inertia (incl. sim ballast)
+	legacyHull.destroy(false);
+	legacyBallast.destroy(false);
+	for (const b of legacyTestBallast) b.destroy(false);
+
+	// Build the real collision geometry: the ~12 convex cabin-tub shapes. Densities are NOMINAL (mass is
+	// overridden below); only geometry matters. enableHitEvents on every shape so a crash contacting ANY
+	// exterior face drives the damage system's plastic crumple exactly as the single hull did (they carry
+	// no own userData, so hit events fall back to the chassis body's CAR_ENTITY_ID.chassis tag).
+	// groupIndex CAR_GROUP_INDEX so no cabin shape self-collides with wheels/panels/occupants.
+	const cabinShapes: Shape[] = buildCabinShapes().map((def) =>
+		chassis.createHullShape(def.points, {
+			density: solved.hullDensity,
+			friction: 0.8,
+			enableHitEvents: true,
+			groupIndex: CAR_GROUP_INDEX,
+		}),
+	);
+	// Stamp mass parity. setMassData is retained as long as no shape is added/removed afterward -- wheels
+	// and panels below are SEPARATE bodies, so this holds for the chassis body's whole lifetime.
+	chassis.setMassData(massParity);
 
 	const wheels = {} as Record<WheelKey, WheelHandle>;
 	for (const def of WHEEL_DEFS) {
@@ -439,7 +455,7 @@ export function createVehicle(
 	return {
 		world,
 		chassis,
-		chassisShapes: { hull: hullShape, ballast: ballastShape, testBallast },
+		chassisShapes: { cabin: cabinShapes },
 		wheels,
 		panels,
 		gearbox: createGearboxState(),
@@ -499,9 +515,7 @@ export function destroyVehicle(vehicle: Vehicle): void {
 			p.body.destroy();
 		}
 	}
-	vehicle.chassisShapes.hull.destroy(false);
-	vehicle.chassisShapes.ballast.destroy(false);
-	for (const b of vehicle.chassisShapes.testBallast) b.destroy(false);
+	for (const s of vehicle.chassisShapes.cabin) s.destroy(false);
 	vehicle.chassis.destroy();
 }
 
