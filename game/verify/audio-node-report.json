@@ -14,7 +14,8 @@
         "scrapeActive": false,
         "scrapeContactCount": 0,
         "skidActive": false,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       }
     },
     "drive": {
@@ -27,11 +28,12 @@
         "masterVolume": 0.7,
         "muted": false,
         "liveNodeCount": 9,
-        "engineHz": 99.44650977693743,
+        "engineHz": 93.96318766161444,
         "scrapeActive": false,
         "scrapeContactCount": 0,
         "skidActive": true,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       }
     },
     "scrape": {
@@ -43,16 +45,17 @@
         "contextState": "running",
         "masterVolume": 0.7,
         "muted": false,
-        "liveNodeCount": 12,
+        "liveNodeCount": 22,
         "engineHz": 42,
         "scrapeActive": true,
         "scrapeContactCount": 2,
         "skidActive": true,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       }
     },
     "scrapeReleased": {
-      "maxNodes": 12,
+      "maxNodes": 22,
       "sawImpact": false,
       "sawScrapeActive": true,
       "sawSkidActive": true,
@@ -61,15 +64,16 @@
         "masterVolume": 0.7,
         "muted": false,
         "liveNodeCount": 6,
-        "engineHz": 49.58678887657314,
+        "engineHz": 42,
         "scrapeActive": false,
         "scrapeContactCount": 0,
         "skidActive": false,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       }
     },
     "crash": {
-      "maxNodes": 62,
+      "maxNodes": 47,
       "sawImpact": true,
       "sawScrapeActive": true,
       "sawSkidActive": true,
@@ -77,12 +81,13 @@
         "contextState": "running",
         "masterVolume": 0.7,
         "muted": false,
-        "liveNodeCount": 9,
+        "liveNodeCount": 12,
         "engineHz": 42,
-        "scrapeActive": false,
-        "scrapeContactCount": 0,
+        "scrapeActive": true,
+        "scrapeContactCount": 1,
         "skidActive": true,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       }
     }
   }
