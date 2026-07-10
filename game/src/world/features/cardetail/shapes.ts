@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Procedural SHAPED meshes for the 39 cardetail components -- replaces the original flat box/capsule
+// Procedural SHAPED meshes for the cardetail components -- replaces the original flat box/capsule
 // proxy look ("random cubes") with recognizable component silhouettes (ribbed valve cover + block
 // mass + intake plenum, spiral-volute turbo + downpipe elbow, finned radiator/intercooler + tanks,
 // curved hose + clamps, seat base+backrest+bolsters, torus+spokes steering wheel, etc. -- see the
@@ -111,55 +111,9 @@ function buildEngineBlock(spec: CarDetailSpec, materials: CarDetailMaterials): T
 }
 
 // ---------------------------------------------------------------------------------------------
-// 2. Turbocharger + downpipe — compressor housing (cold) + turbine housing (hot) + downpipe elbow.
+// (Turbocharger+downpipe and intercooler builders CULLED -- period-wrong forced-induction hardware on
+// a naturally-aspirated 1965 Mustang V8; see tuning.ts's top doc comment.)
 // ---------------------------------------------------------------------------------------------
-function buildTurbo(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { length, radius } = cp(spec);
-	const group = new THREE.Group();
-
-	const compR = radius * 0.85;
-	addMesh(group, place(new THREE.SphereGeometry(compR, 12, 8), 0, length * 0.24, 0), materials.castAluminum);
-	// Compressor inlet snail scroll hint (small torus at the housing's face).
-	addMesh(group, place(ring(compR * 0.55, compR * 0.16, 6, 12), 0, length * 0.24, compR * 0.7, Math.PI / 2), materials.castAluminum);
-
-	const hotR = radius * 0.95;
-	addMesh(group, place(new THREE.SphereGeometry(hotR, 12, 8), 0, -length * 0.2, 0), materials.castIronHot);
-	// Center bearing housing joining the two.
-	addMesh(group, place(cyl(radius * 0.55, radius * 0.55, length * 0.3, 10), 0, length * 0.02, 0), materials.castAluminum);
-
-	// Downpipe: a bent tube dropping away from the hot side (down + off to one side).
-	const dpR = radius * 0.45;
-	const curve = new THREE.CatmullRomCurve3([
-		new THREE.Vector3(0, -length * 0.45, 0),
-		new THREE.Vector3(dpR * 0.3, -length * 1.1, dpR * 1.2),
-		new THREE.Vector3(dpR * 0.9, -length * 1.9, dpR * 2.0),
-		new THREE.Vector3(dpR * 1.1, -length * 2.6, dpR * 2.1),
-	]);
-	addMesh(group, new THREE.TubeGeometry(curve, 14, dpR, 8, false), materials.stainlessBrushed);
-	// Exhaust manifold flange (small disc bolted to the block side, at the hot end).
-	addMesh(group, place(cyl(hotR * 0.6, hotR * 0.6, radius * 0.18, 10), 0, -length * 0.55, 0), materials.stainlessBrushed);
-
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 3. Intercooler — finned bar-and-plate core + black plastic end tanks.
-// ---------------------------------------------------------------------------------------------
-function buildIntercooler(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	const tankW = hx * 0.16;
-	addMesh(group, box(hx * 2 - tankW * 2, hy * 1.9, hz * 1.7), materials.radiatorFin);
-	const tankGeos = [place(box(tankW * 1.8, hy * 2.05, hz * 2.1), hx - tankW * 0.9, 0, 0), place(box(tankW * 1.8, hy * 2.05, hz * 2.1), -hx + tankW * 0.9, 0, 0)];
-	addMesh(group, mergeSame(tankGeos), materials.plasticBlackMatte);
-	// Charge-pipe couplers stubbing out of each tank.
-	const couplerGeos = [
-		place(cyl(hy * 0.32, hy * 0.32, hz * 0.9, 8), hx * 0.85, 0, 0, 0, 0, Math.PI / 2),
-		place(cyl(hy * 0.32, hy * 0.32, hz * 0.9, 8), -hx * 0.85, 0, 0, 0, 0, Math.PI / 2),
-	];
-	addMesh(group, mergeSame(couplerGeos), materials.rubberBlack);
-	return group;
-}
 
 // ---------------------------------------------------------------------------------------------
 // 4. Radiator + cooling fan — finned core + top/bottom tanks + fan blades + shroud ring.
@@ -212,28 +166,9 @@ function buildHose(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Gr
 }
 
 // ---------------------------------------------------------------------------------------------
-// 7. Intake assembly — airbox + charge pipe + throttle body, one rigid unit.
+// (Intake assembly builder CULLED -- "cold/hot charge piping + throttle body" is forced-induction
+// plumbing a carbureted 1965 V8 never had; see tuning.ts's top doc comment.)
 // ---------------------------------------------------------------------------------------------
-function buildIntakeAssembly(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	// Airbox occupies the rear (-Z) half.
-	addMesh(group, place(box(hx * 1.7, hy * 1.6, hz * 0.85), 0, -hy * 0.05, -hz * 0.5), materials.plasticBlackMatte);
-	// Charge pipe curving from the airbox toward the throttle body at +Z.
-	const pipeR = Math.min(hx, hy) * 0.28;
-	const curve = new THREE.CatmullRomCurve3([
-		new THREE.Vector3(hx * 0.2, hy * 0.1, -hz * 0.65),
-		new THREE.Vector3(hx * 0.35, hy * 0.35, 0),
-		new THREE.Vector3(hx * 0.1, hy * 0.2, hz * 0.6),
-	]);
-	addMesh(group, new THREE.TubeGeometry(curve, 14, pipeR, 8, false), materials.aluAnodizedBlue);
-	// Rubber couplers at each pipe end.
-	const couplerGeos = [place(ring(pipeR * 1.2, pipeR * 0.35, 6, 10), hx * 0.2, hy * 0.1, -hz * 0.65), place(ring(pipeR * 1.2, pipeR * 0.35, 6, 10), hx * 0.1, hy * 0.2, hz * 0.6)];
-	addMesh(group, mergeSame(couplerGeos), materials.rubberBlack);
-	// Throttle body at the +Z end.
-	addMesh(group, place(cyl(hy * 0.3, hy * 0.3, hz * 0.3, 10), hx * 0.05, hy * 0.15, hz * 0.75, Math.PI / 2), materials.castAluminum);
-	return group;
-}
 
 // ---------------------------------------------------------------------------------------------
 // 8. Battery — case + 2 terminal posts + warning-label decal strip.
@@ -328,150 +263,11 @@ function buildFuseBox(spec: CarDetailSpec, materials: CarDetailMaterials): THREE
 }
 
 // ---------------------------------------------------------------------------------------------
-// 14/15/16. Seats / rear bench — base cushion + backrest + side bolsters + headrest(s).
+// (Seats/rear bench, dashboard, steering wheel+column, center console, pedal cluster, and rearview
+// mirror builders CULLED -- the whole interior set the Mustang model already molds into its single
+// 'body' vertex group (a 'seat_rubber' material confirms the seats are already there); see tuning.ts's
+// top doc comment. Catalytic converter builder CULLED too -- anachronistic on a 1965 car.)
 // ---------------------------------------------------------------------------------------------
-function buildSeatLike(spec: CarDetailSpec, materials: CarDetailMaterials, headrestCount: number): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	const baseH = hy * 0.62;
-	const baseY = -hy + baseH / 2;
-	addMesh(group, place(box(hx * 1.85, baseH, hz * 1.9), 0, baseY, hz * 0.05), materials.clothBlack);
-	const backH = hy * 1.5;
-	const backZ = -hz * 0.75;
-	addMesh(group, place(box(hx * 1.85, backH, hz * 0.55), 0, -hy + baseH * 0.3 + backH / 2, backZ), materials.clothBlack);
-	// Side bolsters -- raised ridges along both edges of cushion + backrest.
-	const bolsterGeos = [
-		place(box(hx * 0.22, baseH * 1.35, hz * 1.9), hx * 0.85, baseY + baseH * 0.15, hz * 0.05),
-		place(box(hx * 0.22, baseH * 1.35, hz * 1.9), -hx * 0.85, baseY + baseH * 0.15, hz * 0.05),
-		place(box(hx * 0.22, backH * 0.95, hz * 0.6), hx * 0.85, -hy + baseH * 0.3 + backH / 2, backZ),
-		place(box(hx * 0.22, backH * 0.95, hz * 0.6), -hx * 0.85, -hy + baseH * 0.3 + backH / 2, backZ),
-	];
-	addMesh(group, mergeSame(bolsterGeos), materials.clothBlack);
-	// Thin contrast-stitch lines along the cushion's front edge and backrest center.
-	const stitchGeos = [
-		place(box(hx * 1.7, hy * 0.02, hz * 0.02), 0, baseY + baseH / 2, hz * 0.05 + hz * 0.95),
-		place(box(hx * 0.03, backH * 0.9, hz * 0.03), 0, -hy + baseH * 0.3 + backH / 2, backZ + hz * 0.28),
-	];
-	addMesh(group, mergeSame(stitchGeos), materials.stitchRed);
-	// Headrest(s) on top of the backrest.
-	const headGeos: THREE.BufferGeometry[] = [];
-	for (let i = 0; i < headrestCount; i++) {
-		const t = headrestCount === 1 ? 0 : (i / (headrestCount - 1)) * 2 - 1;
-		const cx = headrestCount === 1 ? 0 : t * hx * 0.5;
-		headGeos.push(place(box(hx * (headrestCount === 1 ? 1.1 : 0.5), hy * 0.28, hz * 0.4), cx, hy * 0.9, backZ + hz * 0.05));
-	}
-	addMesh(group, mergeSame(headGeos), materials.clothBlack);
-	return group;
-}
-function buildSeat(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	return buildSeatLike(spec, materials, 1);
-}
-function buildRearBench(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	return buildSeatLike(spec, materials, 2);
-}
-
-// ---------------------------------------------------------------------------------------------
-// 17. Dashboard — soft-touch pad + instrument binnacle (driver side) + carbon-look trim ring.
-// ---------------------------------------------------------------------------------------------
-function buildDashboard(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	addMesh(group, box(hx * 1.9, hy * 1.8, hz * 1.7), materials.plasticBlackMatte);
-	// Binnacle bulges toward the driver (this project's LHD convention -> local -X) and forward/up.
-	const binX = -hx * 0.55;
-	const binR = hy * 0.55;
-	addMesh(group, place(cyl(binR, binR * 1.05, hz * 0.9, 12), binX, hy * 0.15, hz * 0.5, Math.PI / 2), materials.plasticBlackMatte);
-	addMesh(group, place(ring(binR * 0.92, binR * 0.1, 6, 16), binX, hy * 0.15, hz * 0.9, Math.PI / 2), materials.plasticBlackGloss);
-	// A couple of vent slots for detail.
-	const ventGeos: THREE.BufferGeometry[] = [];
-	for (let i = 0; i < 2; i++) {
-		const t = i === 0 ? 1 : -1;
-		ventGeos.push(place(box(hx * 0.4, hy * 0.08, hz * 0.05), t * hx * 0.3, hy * 0.75, hz * 0.85));
-	}
-	addMesh(group, mergeSame(ventGeos), materials.plasticBlackGloss);
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 18. Steering wheel + column — canonical Y-axis capsule; wheel rim/spokes at +Y (forward/cabin end).
-// ---------------------------------------------------------------------------------------------
-function buildSteeringColumn(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { length, radius } = cp(spec);
-	const group = new THREE.Group();
-	addMesh(group, cyl(radius, radius * 1.15, length * 0.82, 10), materials.plasticBlackMatte);
-	const wheelR = radius * 8.4;
-	const wheelY = length / 2;
-	addMesh(group, place(ring(wheelR, wheelR * 0.1, 8, 22), 0, wheelY, 0), materials.clothBlack);
-	const spokeGeos: THREE.BufferGeometry[] = [];
-	for (let i = 0; i < 3; i++) {
-		const a = (i / 3) * Math.PI * 2;
-		const g = box(wheelR * 1.65, radius * 1.6, radius * 1.3);
-		g.rotateZ(a + Math.PI / 2);
-		g.translate(Math.cos(a) * wheelR * 0.5, wheelY + Math.sin(a) * wheelR * 0.5, 0);
-		spokeGeos.push(g);
-	}
-	addMesh(group, mergeSame(spokeGeos), materials.steelBrushed);
-	addMesh(group, place(cyl(radius * 1.8, radius * 1.8, radius * 1.2, 10), 0, wheelY, 0), materials.plasticBlackGloss);
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 19. Center console + shifter — box + trim strip + shifter stem/knob.
-// ---------------------------------------------------------------------------------------------
-function buildCenterConsole(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	addMesh(group, box(hx * 1.9, hy * 1.9, hz * 1.9), materials.plasticBlackGloss);
-	addMesh(group, place(box(hx * 1.3, hy * 0.06, hz * 1.5), 0, hy * 1.0, 0), materials.steelBrushed);
-	const stemR = hy * 0.14;
-	addMesh(group, place(cyl(stemR, stemR, hy * 0.8, 8), 0, hy * 1.35, hz * 0.15), materials.steelBrushed);
-	addMesh(group, place(new THREE.SphereGeometry(stemR * 2.1, 10, 8), 0, hy * 1.75, hz * 0.15), materials.plasticBlackGloss);
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 20. Pedal cluster — housing box + brushed pedal faces angled up toward the driver.
-// ---------------------------------------------------------------------------------------------
-function buildPedalCluster(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	addMesh(group, box(hx * 1.7, hy * 1.7, hz * 1.3), materials.steelMattePowder);
-	const pedalGeos: THREE.BufferGeometry[] = [];
-	for (let i = 0; i < 3; i++) {
-		const t = (i / 2) * 2 - 1;
-		const g = box(hx * 0.42, hy * 1.3, hz * 0.1);
-		g.rotateX(-0.35);
-		g.translate(t * hx * 0.55, hy * 0.2, hz * 0.75);
-		pedalGeos.push(g);
-	}
-	addMesh(group, mergeSame(pedalGeos), materials.steelBrushed);
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 21. Rearview mirror — housing + silvered glass lens.
-// ---------------------------------------------------------------------------------------------
-function buildRearviewMirror(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { hx, hy, hz } = bx(spec);
-	const group = new THREE.Group();
-	addMesh(group, box(hx * 1.9, hy * 1.9, hz * 1.6), materials.plasticBlackMatte);
-	addMesh(group, place(box(hx * 1.6, hy * 1.5, hz * 0.15), 0, 0, hz * 0.95), materials.lensClear);
-	addMesh(group, place(cyl(hy * 0.35, hy * 0.35, hz * 0.5, 8), 0, -hy * 1.0, -hz * 0.3), materials.plasticBlackMatte);
-	return group;
-}
-
-// ---------------------------------------------------------------------------------------------
-// 22. Catalytic converter — capsule canister + flange rings at both ends.
-// ---------------------------------------------------------------------------------------------
-function buildCatConverter(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Group {
-	const { length, radius } = cp(spec);
-	const group = new THREE.Group();
-	addMesh(group, cyl(radius, radius, length * 0.88, 12), materials.stainlessBrushed);
-	const half = length / 2;
-	const flangeGeos = [place(ring(radius * 0.95, radius * 0.18, 6, 14), 0, half * 0.9, 0), place(ring(radius * 0.95, radius * 0.18, 6, 14), 0, -half * 0.9, 0)];
-	addMesh(group, mergeSame(flangeGeos), materials.steelBrushed);
-	return group;
-}
 
 // ---------------------------------------------------------------------------------------------
 // 23. Muffler + tailpipe — canister slab (visual cylinder, box collision) + chrome tip.
@@ -634,27 +430,15 @@ function buildSideMirror(spec: CarDetailSpec, materials: CarDetailMaterials): TH
 // ---------------------------------------------------------------------------------------------
 export const SHAPE_BUILDERS: Readonly<Record<string, ShapeBuilder>> = {
 	engineBlock: buildEngineBlock,
-	turboDownpipe: buildTurbo,
-	intercooler: buildIntercooler,
 	radiatorFan: buildRadiatorFan,
 	upperHose: buildHose,
 	lowerHose: buildHose,
-	intakeAssembly: buildIntakeAssembly,
 	battery: buildBattery,
 	brakeBoosterMC: buildBrakeBoosterMC,
 	strutBrace: buildStrutBrace,
 	alternator: buildAlternator,
 	coolantReservoir: buildReservoir,
 	fuseBox: buildFuseBox,
-	driverSeat: buildSeat,
-	passengerSeat: buildSeat,
-	rearBench: buildRearBench,
-	dashboard: buildDashboard,
-	steeringColumn: buildSteeringColumn,
-	centerConsole: buildCenterConsole,
-	pedalCluster: buildPedalCluster,
-	rearviewMirror: buildRearviewMirror,
-	catConverter: buildCatConverter,
 	mufflerTailpipe: buildMufflerTailpipe,
 	fuelTank: buildFuelTank,
 	frontSubframe: buildSubframe,

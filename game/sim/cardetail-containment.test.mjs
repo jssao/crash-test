@@ -19,7 +19,7 @@ import { Sim, loadNative } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
 import { FIXED_DT, CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
 import createCarDetailFeature from '../src/world/features/cardetail/index.ts';
-import { CAR_DETAIL_SPECS, EXTERIOR_PROXY_IDS } from '../src/world/features/cardetail/tuning.ts';
+import { CAR_DETAIL_SPECS, EXTERIOR_PROXY_IDS, MODELED_PROXY_IDS } from '../src/world/features/cardetail/tuning.ts';
 import { CAR_MAP } from '../src/assets/car-map.ts';
 
 async function makeFeature(sim) {
@@ -92,11 +92,9 @@ function within(box, bound) {
 	return box.xMin >= bound.xMin - 1e-9 && box.xMax <= bound.xMax + 1e-9 && box.yMin >= bound.yMin - 1e-9 && box.yMax <= bound.yMax + 1e-9 && box.zMin >= bound.zMin - 1e-9 && box.zMax <= bound.zMax + 1e-9;
 }
 
-// Interior parts: everything neither engine-bay nor an exterior extremity/underbody-mechanical part.
-// (underbody/extremity mechanicals -- subframes, driveshaft, control arms, cat converter, fuel tank,
-// muffler, bumper beams, lights, mirrors -- legitimately sit outside the cabin footprint.)
+// Underbody/extremity mechanicals -- subframes, driveshaft, fuel tank, muffler, bumper beams, lights,
+// mirrors -- legitimately sit outside the (now nonexistent, see below) cabin footprint.
 const UNDERBODY_EXTREMITY_IDS = new Set([
-	'catConverter',
 	'mufflerTailpipe',
 	'fuelTank',
 	'frontSubframe',
@@ -116,9 +114,11 @@ describe('cardetail containment (numeric audit gate)', () => {
 		expect(ENVELOPE.zMax - ENVELOPE.zMin).toBeCloseTo(CAR_MAP.overallDimsMm.length / 1000, 6);
 	});
 
-	it('every one of the 39 components has a distinct id and a mass-bearing shape (table sanity)', () => {
-		expect(CAR_DETAIL_SPECS.length).toBe(39);
-		expect(new Set(CAR_DETAIL_SPECS.map((s) => s.id)).size).toBe(39);
+	// RECALIBRATED (MUSTANG-65 MODEL-FIRST CULL): 39 -> 27 -- see tuning.ts's top doc comment /
+	// features-cardetail.test.mjs's matching recalibration note for the full rationale.
+	it('every one of the 27 post-cull components has a distinct id and a mass-bearing shape (table sanity)', () => {
+		expect(CAR_DETAIL_SPECS.length).toBe(27);
+		expect(new Set(CAR_DETAIL_SPECS.map((s) => s.id)).size).toBe(27);
 	});
 
 	it('every attached part sits fully inside the real car body envelope (no protruding proxy boxes)', () => {
@@ -131,23 +131,20 @@ describe('cardetail containment (numeric audit gate)', () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it('interior parts sit inside the real cabin footprint (X/Z), not spilling into the engine bay or trunk', () => {
+	// MUSTANG-65 MODEL-FIRST CULL: the whole §2 interior category (driverSeat, passengerSeat, rearBench,
+	// dashboard, steeringColumn, centerConsole, pedalCluster, rearviewMirror) was removed outright -- the
+	// Mustang model already molds the cabin into its 'body' vertex group ('seat_rubber' material), so a
+	// procedural interior box was always a visible duplicate through the glass (see tuning.ts's top doc
+	// comment). This is now a guard against regression: no non-engine-bay, non-underbody/extremity part
+	// should exist (if one is added later without deciding its category, this catches it) -- the
+	// CABIN_X/CABIN_Z geometry above is kept for reference/documentation but no longer has anything to
+	// bound.
+	it('the interior category is empty post-cull (no orphaned non-engine-bay, non-underbody part)', () => {
 		const interiorIds = new Set(CAR_DETAIL_SPECS.filter((s) => !s.engineBay && !UNDERBODY_EXTREMITY_IDS.has(s.id)).map((s) => s.id));
-		// Sanity: this is exactly the spec's §2 interior list (8 components).
-		expect(interiorIds.size).toBe(8);
-
-		const offenders = [];
-		for (const spec of CAR_DETAIL_SPECS) {
-			if (!interiorIds.has(spec.id)) continue;
-			const box = aabbOf(spec);
-			const cabinBound = { xMin: CABIN_X.min, xMax: CABIN_X.max, yMin: ENVELOPE.yMin, yMax: ENVELOPE.yMax, zMin: CABIN_Z.min, zMax: CABIN_Z.max };
-			if (!within(box, cabinBound)) offenders.push({ id: spec.id, box, cabinBound });
-		}
-		if (offenders.length) console.log('[cardetail-containment] cabin offenders:', JSON.stringify(offenders, null, 2));
-		expect(offenders).toEqual([]);
+		expect([...interiorIds]).toEqual([]);
 	});
 
-	it('exterior proxy parts (headlights/taillights/mirrors/bumper beams) start INVISIBLE while attached', async () => {
+	it('exterior + modeled-GLB proxy parts start INVISIBLE while attached', async () => {
 		const native = await loadNative();
 		const sim = new Sim(native);
 		try {
@@ -159,9 +156,18 @@ describe('cardetail containment (numeric audit gate)', () => {
 				expect(states[id]).toBe('attached');
 				expect(visible[id]).toBe(false);
 			}
-			// Interior/underbody (non-engine-bay, non-exterior-proxy) parts stay visible throughout.
+			// MODELED_PROXY_IDS (engineBlock, driveshaft, mufflerTailpipe): the model's own GLB mesh
+			// already renders these, so their procedural proxy is likewise invisible while attached (same
+			// policy as EXTERIOR_PROXY_IDS -- see tuning.ts's doc comment on both sets).
+			expect(MODELED_PROXY_IDS.size).toBeGreaterThan(0);
+			for (const id of MODELED_PROXY_IDS) {
+				expect(states[id]).toBe('attached');
+				expect(visible[id]).toBe(false);
+			}
+			// Every other (non-engine-bay, non-exterior-proxy, non-modeled-proxy) part stays visible
+			// throughout -- underbody/extremity mechanicals the model does not render distinctly.
 			for (const spec of CAR_DETAIL_SPECS) {
-				if (spec.engineBay || EXTERIOR_PROXY_IDS.has(spec.id)) continue;
+				if (spec.engineBay || EXTERIOR_PROXY_IDS.has(spec.id) || MODELED_PROXY_IDS.has(spec.id)) continue;
 				expect(visible[spec.id]).toBe(true);
 			}
 			feature.dispose?.();

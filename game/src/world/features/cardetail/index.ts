@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 //
 // 'cardetail' WorldFeature: the dramatic-crash detail pass (docs/build-log/specs/engine-bay-spec.md)
-// -- 39 weld-attached physics bodies (engine bay, interior, underbody/extremities) that scatter on
-// impact. See tuning.ts's top doc comment for the axis remap, mass policy, attachment simplification,
+// -- weld-attached physics bodies (engine bay, underbody/extremities -- the interior set was culled,
+// see tuning.ts's top doc comment) that scatter on impact. See tuning.ts's top doc comment for the
+// axis remap, mass policy, attachment simplification,
 // and break-mechanism rationale; this file is the factory + per-step logic.
 //
 // PHYSICS-EVERYWHERE: every component is a real box3d Dynamic body (box or capsule shape), never a
@@ -107,7 +108,7 @@ function createShapeFor(body: Body, spec: CarDetailSpec, groupIndex: number, bod
 }
 
 /** Fallback proxy mesh (the ORIGINAL flat box/capsule look) -- only used if a spec.id ever falls
- * through shapes.ts's SHAPE_BUILDERS table (should never happen; every one of the 39 ids has a
+ * through shapes.ts's SHAPE_BUILDERS table (should never happen; every remaining id has a
  * dedicated builder, see shapes.ts's dispatch table doc comment), so this stays as a safety net
  * rather than a silently-invisible part. */
 function buildFallbackProxy(spec: CarDetailSpec, materials: CarDetailMaterials): THREE.Object3D {

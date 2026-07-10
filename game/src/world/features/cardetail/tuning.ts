@@ -1,10 +1,41 @@
 // SPDX-License-Identifier: MIT
 //
-// 'cardetail' WorldFeature: 39 weld-attached engine-bay/interior/underbody components (spec:
+// 'cardetail' WorldFeature: weld-attached engine-bay/interior/underbody components (spec:
 // docs/build-log/specs/engine-bay-spec.md), scattered on impact. This file holds the pure-data
 // component table + tuning constants -- no `three`/box3d import, so it's trivially reusable by the
 // headless sim test (game/sim/features-cardetail.test.mjs imports this feature module directly, per
 // feature.ts's contract note).
+//
+// MUSTANG-65 MODEL-FIRST CULL (orchestrator directive, "i want the model's models to be the ones
+// that are used"): the spec below was originally written for a generic modern turbocharged sports
+// coupe (Khronos CarConcept.glb) and ported wholesale onto the Mustang-65 hero asset, which already
+// models most engine-bay/interior internals itself (see split-mustang.py's EngineBlock/Drivetrain
+// sub-split -- verified by rendering those nodes in isolation: a carbureted V8 with a round air-
+// cleaner lid, valve covers, distributor + plug wires, exhaust headers feeding dual pipes, a
+// driveshaft with U-joint yokes, and a rear diff/axle -- and by the "seat_rubber" material name found
+// on the single 'body' vertex group, i.e. the seats/dash/console/wheel are already molded into
+// BodyShell). This produced two kinds of defect an in-game screenshot audit confirmed directly: (1)
+// procedural grey interior boxes (dashboard/steering column/console/pedal cluster/seats) visible
+// THROUGH the glass, duplicating/occluding the model's own molded cabin, and (2) a period-wrong
+// forced-induction subsystem (turbo + intercooler + charge-piping intake) and a catalytic converter
+// on a 1965 car -- catalytic converters were not mandated/fitted on ANY US car until the 1975 model
+// year, 10 years after this car. The full cull:
+//   REMOVED entirely (physics body + weld + mesh -- the whole interior set the model already renders,
+//   plus every period-wrong/duplicated item):
+//     driverSeat, passengerSeat, rearBench, dashboard, steeringColumn, centerConsole, pedalCluster,
+//     rearviewMirror (interior -- model already has all of these, see 'seat_rubber' material above)
+//     turboDownpipe, intercooler, intakeAssembly (forced-induction plumbing a carbureted '65 V8 never
+//       had -- the model's real air-cleaner-on-a-carburetor is what actually sits there)
+//     catConverter (anachronistic -- didn't exist yet in 1965)
+//   KEPT but reclassified as MODELED_PROXY (mesh invisible while attached -- the model already shows
+//   this component, so the grey box only earns its keep as the flying-debris MASS once detached, same
+//   established pattern as 'engineBlock'): driveshaft, mufflerTailpipe (both plainly visible in the
+//   split-out Drivetrain node's own geometry -- no new GLB re-export needed, the node already exists).
+//   Everything else (radiator+fan, hoses, battery, brake booster, strut brace, alternator, coolant
+//   reservoir, fuse box, fuel tank, subframes, control arms, bumper beams, lights, mirrors) is
+//   UNCHANGED: the model does not render these distinctly (or, for battery, deliberately duplicates
+//   nothing so its mass survives for scatter -- see MODELED_PROXY_IDS's doc comment), so a procedural
+//   proxy is still the right call.
 //
 // AXIS REMAP (the spec's own §0 flags this): the spec's authoring convention is +X=forward, +Y=up,
 // +Z=right. This game's actual axis convention (game/src/assets/car-map.ts) is Y-up, X-right,
@@ -101,12 +132,11 @@ function capX(lengthMm: number, radiusMm: number): CapsuleDims {
 export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// ---- Engine bay (§1, priority 1) ----
 	{ id: 'engineBlock', label: 'Engine block + head', strength: 'firm', phys: 'box', dims: box(550, 480, 620), localCenter: mm(1580, 560, 0), massKgSpec: 145, matKey: 'engineMetal', engineBay: true },
-	{ id: 'turboDownpipe', label: 'Turbocharger + downpipe', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(400, 140), localCenter: mm(1520, 430, 280), massKgSpec: 18, matKey: 'castIronHot', engineBay: true },
-	{ id: 'intercooler', label: 'Intercooler', strength: 'breaksEasily', phys: 'box', dims: box(90, 650, 180), localCenter: mm(2080, 420, 0), massKgSpec: 8, matKey: 'castAluminum', engineBay: true },
+	// turboDownpipe/intercooler/intakeAssembly (forced-induction subsystem) CULLED here -- period-wrong
+	// for a 1965 Mustang (naturally-aspirated, carbureted V8); see this file's top doc comment.
 	{ id: 'radiatorFan', label: 'Radiator + cooling fan', strength: 'breaksEasily', phys: 'box', dims: box(180, 700, 480), localCenter: mm(1970, 480, 0), massKgSpec: 9, matKey: 'radiatorFin', engineBay: true },
 	{ id: 'upperHose', label: 'Upper radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(350, 19), localCenter: mm(1820, 620, -120), massKgSpec: 0.6, matKey: 'rubberBlack', engineBay: true },
 	{ id: 'lowerHose', label: 'Lower radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(380, 21), localCenter: mm(1830, 360, -100), massKgSpec: 0.7, matKey: 'rubberBlack', engineBay: true },
-	{ id: 'intakeAssembly', label: 'Intake assembly', strength: 'breaksEasily', phys: 'box', dims: box(500, 300, 350), localCenter: mm(1650, 620, -350), massKgSpec: 7, matKey: 'plasticBlackMatte', engineBay: true },
 	{ id: 'battery', label: 'Battery', strength: 'breaksEasily', phys: 'box', dims: box(260, 175, 200), localCenter: mm(1420, 650, -780), massKgSpec: 15, matKey: 'plasticBlackGloss', engineBay: true },
 	{ id: 'brakeBoosterMC', label: 'Brake master cylinder + booster', strength: 'firm', phys: 'box', dims: box(350, 220, 260), localCenter: mm(1180, 600, -380), massKgSpec: 9, matKey: 'castAluminum', engineBay: true },
 	// Strut brace (10): spec dim order is "(span)xdepthxheight" -- span is the LATERAL lower_control-arm-
@@ -117,48 +147,17 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	{ id: 'fuseBox', label: 'Fuse box', strength: 'breaksEasily', phys: 'box', dims: box(220, 160, 90), localCenter: mm(1200, 680, -620), massKgSpec: 1.5, matKey: 'plasticBlackMatte', engineBay: true },
 
 	// ---- Interior (§2, priority 2) ----
-	// Driver/passenger seat (14-15): spec Y=300mm reads as the seat's H-point/floor-anchor reference,
-	// not the geometric center of a 950mm-tall bounding box (centering a 950mm box AT 300mm would sink
-	// its bottom 175mm below the floor). Bumped to 530mm here so the box's actual geometric center
-	// clears the ground with a small margin -- caught empirically: a ground-penetrating box RIGIDLY
-	// welded to the chassis fights the ground-contact solver every step (a large, contradictory
-	// correction impulse against a 0-hertz "must move exactly with the chassis" constraint), which was
-	// found to stall the whole car's driveline, not just visually clip -- see
-	// game/sim/features-cardetail.test.mjs's drive-up-to-a-wall scenario, which caught this directly
-	// (the car would not accelerate at all with any of these 4 components at their literal spec Y).
-	{ id: 'driverSeat', label: 'Driver seat', strength: 'firm', phys: 'box', dims: box(500, 550, 950), localCenter: mm(700, 530, -380), massKgSpec: 18, matKey: 'clothBlack', engineBay: false },
-	{ id: 'passengerSeat', label: 'Passenger seat', strength: 'firm', phys: 'box', dims: box(500, 550, 950), localCenter: mm(700, 530, 380), massKgSpec: 18, matKey: 'clothBlack', engineBay: false },
-	// Rear bench (16): re-ordered from spec's literal "1200x500x800" -- 1200mm is clearly the LATERAL
-	// width (spans both rear seats), not a front-to-back depth (the whole cabin is only ~1.85m deep).
-	// Y bumped 280->460mm for the same ground-clearance reason as the front seats above.
-	{ id: 'rearBench', label: 'Rear bench', strength: 'firm', phys: 'box', dims: box(500, 1200, 800), localCenter: mm(-500, 460, 0), massKgSpec: 22, matKey: 'clothBlack', engineBay: false },
-	// Dashboard (17): re-ordered -- 1400mm is the lateral span (A-pillar to A-pillar), 250mm the
-	// front-back depth, 350mm the binnacle height. Nudged 20mm back (950->930) -- the audit found the
-	// spec's literal value pokes ~4mm past the real InteriorCage node's forward Z bound (car-map.ts
-	// chassis.InteriorCage), which read as the box clipping into the windshield/hood boundary.
-	{ id: 'dashboard', label: 'Dashboard', strength: 'firm', phys: 'box', dims: box(250, 1400, 350), localCenter: mm(930, 850, 0), massKgSpec: 20, matKey: 'plasticBlackMatte', engineBay: false },
-	// Steering wheel + column (18): positioned at the midpoint of the spec's wheel-center and firewall-
-	// mount points; COLLAPSIBLE (see index.ts's 2-stage weld handling: collapse then break).
-	{
-		id: 'steeringColumn',
-		label: 'Steering wheel + column',
-		strength: 'collapsible',
-		phys: 'capsuleZ',
-		dims: capZ(550, 22.5),
-		localCenter: mm((900 + 1150) / 2, (620 + 600) / 2, -380),
-		massKgSpec: 7,
-		matKey: 'clothBlack',
-		engineBay: false,
-	},
-	// Center console (19): re-ordered -- 700mm is the front-back span (dash to between the seats), 350mm
-	// the lateral width (narrow, fits between the two seats), 250mm the height.
-	{ id: 'centerConsole', label: 'Center console + shifter', strength: 'firm', phys: 'box', dims: box(700, 350, 250), localCenter: mm(550, 400, 0), massKgSpec: 9, matKey: 'plasticBlackGloss', engineBay: false },
-	// Y bumped 150->230mm for the same ground-clearance reason as the seats above.
-	{ id: 'pedalCluster', label: 'Pedal cluster', strength: 'firm', phys: 'box', dims: box(300, 250, 350), localCenter: mm(750, 230, -400), massKgSpec: 4, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'rearviewMirror', label: 'Rearview mirror', strength: 'breaksEasily', phys: 'box', dims: box(60, 250, 80), localCenter: mm(780, 1080, 0), massKgSpec: 0.3, matKey: 'plasticBlackMatte', engineBay: false },
+	// ALL 8 interior components (driverSeat, passengerSeat, rearBench, dashboard, steeringColumn,
+	// centerConsole, pedalCluster, rearviewMirror) CULLED here (orchestrator directive) -- the Mustang
+	// model's single 'body' vertex group already carries a 'seat_rubber' material and molds in the
+	// dash/console/wheel/pedals, so these procedural boxes were pure grey-box duplicates visible
+	// through the glass (screenshot-confirmed: game/verify/audit-cardetail/interior-through-side-
+	// glass.png before this cull showed grey dashboard/steering-column/console shapes floating inside
+	// the model's own molded cabin). See this file's top doc comment.
 
 	// ---- Underbody / extremities (§3, priority 3) ----
-	{ id: 'catConverter', label: 'Catalytic converter', strength: 'firm', phys: 'capsuleZ', dims: capZ(300, 90), localCenter: mm(700, 280, 150), massKgSpec: 7, matKey: 'stainlessBrushed', engineBay: false },
+	// catConverter CULLED here -- catalytic converters did not exist on any 1965 car (first mandated
+	// for the 1975 US model year); see this file's top doc comment.
 	// REAR-OVERHANG CORRECTION (found by the numeric audit, game/sim/cardetail-containment.test.mjs):
 	// the spec's own §0 assumes a 4600mm-overall/~850mm-rear-overhang car and flags this explicitly
 	// ("treat the extra ~240mm as slack... or scale every X position"). The REAL asset (car-map.ts
@@ -235,8 +234,16 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
  * engine in the bay (scene/carDeformables), so the procedural 'engineBlock' box no longer needs to
  * render a grey slab on top of it -- it remains the heavy detachable MASS that flies out on a hard
  * frontal, just with no visible proxy while it is still bolted in.
+ *
+ * MODEL-FIRST CULL ADDITIONS (driveshaft, mufflerTailpipe): isolated + rendered the split-out
+ * Drivetrain node alone (Blender, `EngineBlock`'s sibling) and found it already models a driveshaft
+ * with U-joint yokes running to a rear diff/axle, AND a dual exhaust pipe run ending in a Y-split
+ * tailpipe tip -- i.e. the exact geometry these two procedural boxes were standing in for. No new GLB
+ * re-export was needed (Drivetrain already exists, split-mustang.py's original EngineBlock/Drivetrain
+ * divide already isolates it) -- same "hide the box, let the model be the crash's normal visual, box
+ * only earns its keep as the flying-debris MASS" treatment as engineBlock above.
  */
-export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['engineBlock']);
+export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['engineBlock', 'driveshaft', 'mufflerTailpipe']);
 
 export const EXTERIOR_PROXY_IDS: ReadonlySet<string> = new Set([
 	'frontBumperBeam',

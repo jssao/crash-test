@@ -1,10 +1,11 @@
 // 'cardetail' WorldFeature verification: crashes the car into a wall to (a) reliably break the
 // EXISTING hood panel (revealing the engine bay -- the spec's "hero shot") and (b) scatter this
-// feature's own 39 components. Uses window.__GAME__.crash()+spawnTestWall(8), same convenience path
+// feature's own components (27 post model-first-cull, see tuning.ts's top doc comment). Uses
+// window.__GAME__.crash()+spawnTestWall(8), same convenience path
 // shoot-crash.mjs uses and damage-hard-frontal.test.mjs already proves reliably loosens/breaks the
 // hood at this speed/distance. NOTE the tradeoff this makes for cardetail specifically: crash()
 // teleport-sets velocity on the chassis/wheels/panels only (see game/sim/features-cardetail.test.mjs's
-// top doc comment) -- this feature's 39 welded bodies don't get that same instant velocity, so their
+// top doc comment) -- this feature's welded bodies don't get that same instant velocity, so their
 // welds see a one-step relative-velocity spike and several detach immediately (before the car even
 // reaches the wall) rather than exactly at the moment of impact. That's fine for THIS script's job
 // (a visual screenshot + console-error check, not a physics assertion) -- the correct, non-artifact
@@ -16,8 +17,8 @@
 // spawnTestWall()/stepN() are issued as SEPARATE Runtime.evaluate calls, real wall-clock time passes
 // between them (each `await` yields to the browser's event loop), during which that background rAF
 // loop can itself consume a few uncontrolled extra physics steps via its own fixed-step accumulator,
-// making the exact post-crash state non-reproducible run to run (observed swinging from 0 to 8 of 39
-// parts detached across otherwise-identical runs). Bundling spawnTestWall+crash+stepN into ONE
+// making the exact post-crash state non-reproducible run to run (observed swinging across
+// otherwise-identical runs). Bundling spawnTestWall+crash+stepN into ONE
 // Runtime.evaluate call closes that window entirely -- everything the scenario needs runs
 // synchronously in one JS turn, same as the deterministic sim test.
 //

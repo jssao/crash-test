@@ -6,31 +6,19 @@
     "detachedCount": 0
   },
   "hooksAfter": {
-    "detachedCount": 17,
+    "detachedCount": 9,
     "states": {
       "engineBlock": "broken",
-      "turboDownpipe": "broken",
-      "intercooler": "broken",
       "radiatorFan": "broken",
       "upperHose": "broken",
       "lowerHose": "broken",
-      "intakeAssembly": "broken",
       "battery": "broken",
       "brakeBoosterMC": "attached",
       "strutBrace": "broken",
       "alternator": "attached",
       "coolantReservoir": "broken",
       "fuseBox": "broken",
-      "driverSeat": "broken",
-      "passengerSeat": "broken",
-      "rearBench": "broken",
-      "dashboard": "broken",
-      "steeringColumn": "collapsed",
-      "centerConsole": "attached",
-      "pedalCluster": "attached",
-      "rearviewMirror": "broken",
-      "catConverter": "attached",
-      "mufflerTailpipe": "attached",
+      "mufflerTailpipe": "broken",
       "fuelTank": "attached",
       "frontSubframe": "attached",
       "rearSubframe": "attached",
@@ -52,5 +40,5 @@
   },
   "detachedEnough": true,
   "hoodOpen": true,
-  "timestamp": "2026-07-10T01:03:39.896Z"
+  "timestamp": "2026-07-10T09:51:40.264Z"
 }

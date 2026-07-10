@@ -3,9 +3,12 @@
 // Eyes-on visual QA for the cardetail SHAPED-MESH pass (game/src/world/features/cardetail/shapes.ts):
 // captures the 3 screenshots this task's brief calls for -- hood-off engine-bay close-up (setOrbitView
 // radius ~4), interior through the windshield, and a post-crash scatter with shaped parts visible on
-// the ground -- so the modeling agent (and the user) can actually LOOK at the ribbed valve cover,
-// spiral-volute turbo, finned radiator/intercooler cores, curved hoses, torus+spokes steering wheel,
-// seat base+backrest+bolsters, etc. instead of judging from a file listing.
+// the ground -- so the modeling agent (and the user) can actually LOOK at the ribbed valve cover, finned
+// radiator core, curved hoses, brake booster/master cylinder, etc. instead of judging from a file
+// listing. POST MODEL-FIRST CULL (see tuning.ts's top doc comment): the turbo/intercooler/intake-
+// assembly and the whole procedural interior (seats/dash/wheel/console/pedals/mirror) are gone -- the
+// hood-off shot should show the MODEL's own carbureted engine + driveshaft/exhaust, and the interior
+// shot should show the model's own molded cabin, not a grey box duplicate.
 //
 // DISTINCT FROM verify/feature-cardetail.mjs: that script is the numeric/console-error REGRESSION gate
 // (>=5 detached, hood open, 0 console errors) and intentionally runs at whatever quality the headless
