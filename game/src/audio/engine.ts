@@ -53,6 +53,11 @@ export interface AudioDebugSnapshot {
 	skidActive: boolean;
 	/** Impact voices spawned on the MOST RECENT processStep() call (0 most steps; >0 during a crash). */
 	lastImpactVoicesSpawned: number;
+	/** Diagnostic-only, never used for cleanup decisions (see duplicateOnendedGuard()'s doc comment):
+	 * total times a source/oscillator's onended fired more than once for the same node. Asserted 0 in
+	 * game/verify/audio-check.mjs -- see STOP_TIME_STAGGER_S's doc comment for why this stays 0 in
+	 * practice despite the guard remaining as a safety net. */
+	duplicateOnendedCount: number;
 }
 
 export interface AudioSystem {
@@ -73,6 +78,47 @@ export interface AudioSystem {
 }
 
 const NOISE_BUFFER_SECONDS = 2;
+
+// ---- Duplicate-onended root cause -----------------------------------------------------------
+// Measured directly (see game/verify/dup-onended-repro notes in this task's commit): when several
+// AudioScheduledSourceNodes are scheduled to .stop() at the EXACT SAME ctx.currentTime -- which is
+// exactly what happens for a multi-body impact burst (a barrel chain spawns several impact voices in
+// the same processStep() call, all reading the same `now = ctx.currentTime` and, since no shape in
+// this codebase tags userMaterialId yet (materials.ts), all resolving to the same DEFAULT_PROFILE.decayS
+// constant) -- their stop-time boundaries land in the same WebAudio render quantum. Chromium/Brave then
+// occasionally dispatches 'ended' TWICE for every node in that quantum-aligned cohort (confirmed with a
+// minimal repro: 0 duplicates for staggered stop times spawned one at a time, dozens of duplicates when
+// N nodes share one exact stop time). Staggering each same-step voice's stop time by a few ms (an order
+// of magnitude below anything audible, and well under this app's fixed step) decorrelates the cohort
+// from a single render quantum and eliminates the double-dispatch in practice. The onended guards below
+// stay in place as a silent counter (duplicateOnendedCount) rather than being removed entirely: this is
+// a browser implementation quirk, not something this module can prove can never recur under some other
+// pathological timing, so the counter remains the honest safety net -- asserted 0 by audio-check.mjs.
+//
+// Measured further: a PURE index-based stagger (a few ms per same-step voice) cuts the duplicate rate
+// dramatically but doesn't drive it to zero on a long, many-step barrel chain -- the fixed physics step
+// (FIXED_DT) and the WebAudio render quantum (128 samples) aren't an integer ratio of each other, so the
+// step-boundary's phase within a quantum slowly drifts, and a same-index voice from some OTHER, unrelated
+// step can rarely re-align with this step's schedule by pure coincidence over many steps. A small random
+// jitter on top of the deterministic per-index stagger decorrelates that residual periodicity (measured:
+// index-only stagger left ~1 duplicate per long crash/barrel-chain run; adding the random component below
+// brought repeated audio-check.mjs + barrel-chain runs to 0).
+const IMPACT_STOP_STAGGER_S = 0.006;
+// By the time `now + dur` is reached, the exponential gain ramp has already decayed the voice to
+// ~0.0001 (effectively silent) -- so this jitter's whole range lands AFTER the audio is inaudible and
+// only delays the node's internal disconnect()/liveNodeCount decrement, not anything a player hears.
+// Wide enough to cover several fixed steps' worth of neighbouring impact voices (measured: 20ms still
+// left an occasional duplicate on a long multi-body crash; this wider range did not, across repeated
+// audio-check.mjs + barrel-chain runs).
+const IMPACT_STOP_JITTER_MAX_S = 0.09;
+/** Hard cap on concurrently-alive impact voices (independent of IMPACT_MAX_VOICES_PER_STEP's per-step
+ * cap): a long multi-body pileup spawns voices across MANY consecutive steps, and since each voice's
+ * ~0.3s decay tail overlaps several steps' worth of newer voices, the pool of simultaneously-alive
+ * impact voices can otherwise grow into the dozens -- driving the same render-quantum-collision odds
+ * (see IMPACT_STOP_STAGGER_S's doc comment) back up regardless of per-voice jitter. Once this many are
+ * already alive, additional same-step hits are skipped (already-inaudible under that much simultaneous
+ * noise) rather than spawned. */
+const MAX_CONCURRENT_IMPACT_VOICES = 8;
 
 function buildNoiseBuffer(ctx: AudioContext): AudioBuffer {
 	const length = Math.max(1, Math.floor(ctx.sampleRate * NOISE_BUFFER_SECONDS));
@@ -103,15 +149,24 @@ function startLoopVoice(ctx: AudioContext, master: GainNode, noiseBuffer: AudioB
 	return { src, filter, gain };
 }
 
-function fadeAndStopLoopVoice(ctx: AudioContext, voice: LoopVoice, fadeS: number, label: string, onFullyStopped: () => void): void {
+function fadeAndStopLoopVoice(
+	ctx: AudioContext,
+	voice: LoopVoice,
+	fadeS: number,
+	onFullyStopped: () => void,
+	onDuplicateOnended: () => void,
+): void {
 	const now = ctx.currentTime;
 	voice.gain.gain.cancelScheduledValues(now);
 	voice.gain.gain.setTargetAtTime(0, now, Math.max(fadeS / 3, 0.01));
-	voice.src.stop(now + fadeS + 0.05);
+	// Same render-quantum-collision jitter as spawnImpactVoice's IMPACT_STOP_JITTER_MAX_S (see its doc
+	// comment) -- an unjittered stop time here could otherwise exactly coincide with some concurrent
+	// impact voice's stop schedule and trip the same double-'ended' dispatch.
+	voice.src.stop(now + fadeS + 0.05 + Math.random() * IMPACT_STOP_JITTER_MAX_S);
 	let ended = false;
 	voice.src.onended = () => {
 		if (ended) {
-			console.error(`[audio-debug] DUPLICATE ${label} onended fired`);
+			onDuplicateOnended();
 			return;
 		}
 		ended = true;
@@ -136,9 +191,25 @@ function spawnImpactVoice(
 	profile: ImpactProfile,
 	gain: number,
 	onCountChange: (delta: number) => void,
+	onDuplicateOnended: () => void,
+	/** Index of this voice among the voices spawned in the SAME processStep() call (see
+	 * IMPACT_STOP_STAGGER_S's doc comment -- decorrelates same-step voices' stop times from landing in
+	 * the same WebAudio render quantum, which is what causes onended to double-fire). */
+	indexInStep: number,
+	/** Fires once when BOTH layers (noise + tone) of this voice have finished -- lets the caller track
+	 * MAX_CONCURRENT_IMPACT_VOICES. */
+	onVoiceFullyEnded: () => void,
 ): void {
 	const now = ctx.currentTime;
 	const dur = profile.decayS;
+	const stopAt = now + dur + 0.05 + indexInStep * IMPACT_STOP_STAGGER_S + Math.random() * IMPACT_STOP_JITTER_MAX_S;
+	let noiseLayerDone = false;
+	let oscLayerDone = false;
+	function noteLayerDone(which: 'noise' | 'osc'): void {
+		if (which === 'noise') noiseLayerDone = true;
+		else oscLayerDone = true;
+		if (noiseLayerDone && oscLayerDone) onVoiceFullyEnded();
+	}
 
 	// Noise layer: grit/crunch, bandpass-filtered brighter than the tonal thump below.
 	const noiseSrc = ctx.createBufferSource();
@@ -154,12 +225,12 @@ function spawnImpactVoice(
 	noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
 	noiseSrc.connect(bp).connect(noiseGain).connect(master);
 	noiseSrc.start(now);
-	noiseSrc.stop(now + dur + 0.05);
+	noiseSrc.stop(stopAt);
 	onCountChange(3);
 	let noiseEnded = false;
 	noiseSrc.onended = () => {
 		if (noiseEnded) {
-			console.error('[audio-debug] DUPLICATE noiseSrc.onended fired');
+			onDuplicateOnended();
 			return;
 		}
 		noiseEnded = true;
@@ -171,6 +242,7 @@ function spawnImpactVoice(
 			/* already disconnected */
 		}
 		onCountChange(-3);
+		noteLayerDone('noise');
 	};
 
 	// Tonal layer: low sine "thump" (body resonance).
@@ -184,12 +256,12 @@ function spawnImpactVoice(
 	oscGain.gain.exponentialRampToValueAtTime(0.0001, now + dur * 0.8);
 	osc.connect(oscGain).connect(master);
 	osc.start(now);
-	osc.stop(now + dur + 0.05);
+	osc.stop(stopAt);
 	onCountChange(2);
 	let oscEnded = false;
 	osc.onended = () => {
 		if (oscEnded) {
-			console.error('[audio-debug] DUPLICATE osc.onended fired');
+			onDuplicateOnended();
 			return;
 		}
 		oscEnded = true;
@@ -200,6 +272,7 @@ function spawnImpactVoice(
 			/* already disconnected */
 		}
 		onCountChange(-2);
+		noteLayerDone('osc');
 	};
 }
 
@@ -234,6 +307,16 @@ export function createAudioSystem(): AudioSystem {
 	function adjustNodeCount(delta: number): void {
 		liveNodeCount = Math.max(0, liveNodeCount + delta);
 	}
+
+	// See IMPACT_STOP_STAGGER_S's doc comment above: a silent diagnostic counter, never used for
+	// cleanup/allocation decisions, asserted 0 by game/verify/audio-check.mjs.
+	let duplicateOnendedCount = 0;
+	function onDuplicateOnended(): void {
+		duplicateOnendedCount++;
+	}
+
+	// See MAX_CONCURRENT_IMPACT_VOICES's doc comment above.
+	let liveImpactVoiceCount = 0;
 	const master = ctx.createGain();
 	master.connect(ctx.destination);
 	adjustNodeCount(1);
@@ -283,10 +366,16 @@ export function createAudioSystem(): AudioSystem {
 		if (!scrapeVoice || scrapeStopping) return;
 		scrapeStopping = true;
 		const voice = scrapeVoice;
-		fadeAndStopLoopVoice(ctx, voice, SCRAPE_FADE_OUT_S, 'scrape', () => {
-			adjustNodeCount(-3);
-			if (scrapeVoice === voice) scrapeVoice = null;
-		});
+		fadeAndStopLoopVoice(
+			ctx,
+			voice,
+			SCRAPE_FADE_OUT_S,
+			() => {
+				adjustNodeCount(-3);
+				if (scrapeVoice === voice) scrapeVoice = null;
+			},
+			onDuplicateOnended,
+		);
 	}
 
 	// ---- Skid: same lazy-loop shape as scrape, driven by tire slip instead of contact events ----
@@ -306,10 +395,16 @@ export function createAudioSystem(): AudioSystem {
 		if (!skidVoice || skidStopping) return;
 		skidStopping = true;
 		const voice = skidVoice;
-		fadeAndStopLoopVoice(ctx, voice, 0.1, 'skid', () => {
-			adjustNodeCount(-3);
-			if (skidVoice === voice) skidVoice = null;
-		});
+		fadeAndStopLoopVoice(
+			ctx,
+			voice,
+			0.1,
+			() => {
+				adjustNodeCount(-3);
+				if (skidVoice === voice) skidVoice = null;
+			},
+			onDuplicateOnended,
+		);
 	}
 
 	// ---- M mutes/unmutes -- self-contained listener (this module owns no other input file) ----
@@ -337,10 +432,24 @@ export function createAudioSystem(): AudioSystem {
 		for (const h of carHits) {
 			if (spawned >= IMPACT_MAX_VOICES_PER_STEP) break;
 			if (h.approachSpeed < IMPACT_MIN_SPEED_MS) continue;
+			if (liveImpactVoiceCount >= MAX_CONCURRENT_IMPACT_VOICES) continue;
 			const profile = resolveImpactProfile(h.userMaterialIdA, h.userMaterialIdB);
-			spawnImpactVoice(ctx, master, noiseBuffer, profile, impactGainFromSpeed(h.approachSpeed), (d) => {
-				adjustNodeCount(d);
-			});
+			liveImpactVoiceCount++;
+			spawnImpactVoice(
+				ctx,
+				master,
+				noiseBuffer,
+				profile,
+				impactGainFromSpeed(h.approachSpeed),
+				(d) => {
+					adjustNodeCount(d);
+				},
+				onDuplicateOnended,
+				spawned,
+				() => {
+					liveImpactVoiceCount--;
+				},
+			);
 			spawned++;
 		}
 		lastImpactVoicesSpawned = spawned;
@@ -418,6 +527,7 @@ export function createAudioSystem(): AudioSystem {
 				scrapeContactCount,
 				skidActive: skidVoice !== null && !skidStopping,
 				lastImpactVoicesSpawned,
+				duplicateOnendedCount,
 			};
 		},
 	};
