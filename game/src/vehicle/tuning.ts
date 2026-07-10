@@ -18,16 +18,16 @@ import { CAR_MAP } from '../assets/car-map';
 /**
  * Target total chassis (sprung) mass, kg -- hull shell + ballast combined.
  *
- * TUNING DELTA (G3 damage system): was 1350 pre-damage. The 5 detachable panel bodies
- * (game/src/damage/panels.ts, welded to the chassis in vehicle.ts's createVehicle()) add
- * ~71kg of their own (game/src/damage/damage-tuning.ts's PANEL_MASS_KG: 13+16+16+14+12), carried as
- * SEPARATE bodies rather than baked into this hull+ballast figure. Reduced by exactly that amount
- * (1350 - 71 = 1279) so the car's TOTAL mass (chassis + panels + 4*WHEEL_MASS_KG = 1279+71+88=1438kg)
- * stays ~unchanged from the pre-damage total (1350+88=1438kg) -- keeping it inside the G3 spec's
- * required ~1350-1450kg band with minimal risk of perturbing the 5 pre-existing drive tests, which
- * were tuned against the original 1438kg total.
+ * TUNING DELTA (G3 damage system): was 1350 pre-damage. The detachable panel bodies
+ * (game/src/damage/panels.ts, welded to the chassis in vehicle.ts's createVehicle()) add their own
+ * mass, carried as SEPARATE bodies rather than baked into this hull+ballast figure. The Mustang-65
+ * hero-car swap uses a 4-panel set (hood + 2 doors + trunk lid, NO roof) totalling 59kg
+ * (damage-tuning.ts's PANEL_MASS_KG: 13+16+16+14). Reduced by exactly that amount (1350 - 59 = 1291)
+ * so the car's TOTAL mass (chassis + panels + 4*WHEEL_MASS_KG = 1291+59+88=1438kg) stays byte-identical
+ * to the pre-swap total, keeping it inside the ~1350-1450kg band with minimal risk of perturbing the
+ * drive tests (which were tuned against 1438kg).
  */
-export const CHASSIS_MASS_KG = 1279;
+export const CHASSIS_MASS_KG = 1291;
 
 /** Each wheel's rigid-body mass, kg. */
 export const WHEEL_MASS_KG = 22;
@@ -792,17 +792,20 @@ export const AERO_DRAG_COEFF_AREA_M2 = 0.65;
  * fraction of a second; this does the same for the commanded torque only (steady-state braking
  * distance/deceleration is unaffected once the ramp completes).
  *
- * TUNING DELTA (vehicle deep-pass, residual 2): raised 0.15 -> 0.26. With the friction root-cause fix
- * in place (WHEEL_FRICTION's doc comment), the pre-existing 0.15s ramp settled at a slightly-too-high
- * ~1.7-1.8g transient again (more available grip at the honest, lower friction value meant the same
- * ramp duration still let the initial spike through). Re-swept directly against game/sim/braking-g.
- * test.mjs (0.15/0.2/0.22/0.24/0.25/0.26/0.27/0.28/0.3/0.35 all measured): 0.26 lands the transient at
- * ~1.27g and steady at ~1.02g, both genuinely inside the spec's ideal 0.9-1.1g steady / <1.4g transient
- * band (not just "improved over the old bug," as the pre-deep-pass value could only claim) -- braking
- * distance stays well inside the spec's 36-48m/100km/h band throughout this sweep (measured 25.7-26.8m
- * from 80km/h at every tested ramp value).
+ * TUNING DELTA (vehicle deep-pass, residual 2): raised 0.15 -> 0.26, landing ~1.27g transient / ~1.02g
+ * steady on the concept car.
+ *
+ * MUSTANG-65 SWAP RE-CALIBRATION (measured): the hero-car swap dropped the wheel radius 0.39 -> 0.31m
+ * (car-map.ts). Brake FORCE at the contact patch is torque/radius, so the SAME commanded brake torque
+ * now bites ~26% harder, and the smaller wheels' lower rotational inertia spins down faster into a
+ * brief lockup -- the transient overshot back up to ~1.71g at the old 0.26s ramp (steady stayed
+ * traction-limited at ~1.00g, still in band). Re-swept directly against game/sim/braking-g.test.mjs
+ * (0.26/0.38/0.50/0.60/0.72 measured: transient 1.71/1.71/1.35/1.04/0.94, steady ~1.00-1.02
+ * throughout): 0.60 lands the transient at ~1.04g with a comfortable margin under the 1.4g bound and
+ * steady at ~1.01g, squarely inside the spec's 0.9-1.1g band. Steady braking distance is unaffected
+ * (traction-limited once the ramp completes).
  */
-export const BRAKE_TORQUE_RAMP_TIME_S = 0.38;
+export const BRAKE_TORQUE_RAMP_TIME_S = 0.6;
 
 /**
  * Game-side progressive lateral-grip governor (see vehicle.ts's computeLateralGripAssistTorque()).

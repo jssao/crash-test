@@ -163,6 +163,16 @@ export const ATTACH = {
  * vs 0.22): this fastback-style roofline visibly slopes down toward the rear (cabin-closeup screenshot,
  * game/verify/feature-occupants.mjs) -- rear heads still grazed the roofline at the front-seat height.
  */
+// MUSTANG-65 SWAP RE-FIT: the four seat positions were re-checked against the Mustang cabin bounds
+// (car-map width 1936mm -> half-width ~0.97m; DoorL inner surface ~0.72m; roofline 1309mm) and left at
+// these values -- an occupant at x=+-0.42 with ~0.16m shoulder reaches only ~0.58m laterally, safely
+// inside the door line, and the taller Mustang greenhouse gives MORE head clearance than the concept
+// car did, so no compaction was needed. The lower chassis origin (wheel radius 0.39->0.31m) already
+// seats everyone ~8cm lower. A forward rear-bench re-fit (z -1.05 -> -0.62) was TRIED and reverted: it
+// destabilised the chaotic ejection dynamics (occupants no longer cleared the hull AABB after a 70km/h
+// eject, and gentle-driving head RMS crept over its bound) for no visual gain the exterior/through-glass
+// screenshots could show. Positions verified visually through the glass (game/verify/feature-occupants.
+// mjs) + via the settle/stability/ejection sim tests.
 export const SEAT_LOCAL: Record<SeatKey, V3> = {
 	frontLeft: { x: 0.42, y: 0.22, z: 0.55 },
 	frontRight: { x: -0.42, y: 0.22, z: 0.55 },
@@ -176,8 +186,20 @@ export const SEAT_LOCAL: Record<SeatKey, V3> = {
 export const RESTRAINT_FORCE_THRESHOLD_N: Record<SeatKey, number> = {
 	frontLeft: 16000,
 	frontRight: 16000,
-	rearLeft: 5300,
-	rearRight: 5300,
+	// MUSTANG-65 SWAP RE-CALIBRATION (measured): the hero-car swap lowered the body (wheel radius
+	// 0.39->0.31m) and lengthened it (4357->4591mm), so a frontal wall impact pitches the car nose-down
+	// more and the REAR-seat chassis anchor (z=-1.05) lifts/decelerates less -- the rear-seat restraint
+	// force at a 70km/h wall crash fell from the concept car's ~23kN to ~5.4kN (measured
+	// sim/_tmp probes: rearL 5381 / rearR 5481 N at 70km/h). The old 5300 rear threshold now sits right
+	// AT that peak (single-step, so neither the 3-step sustain nor the 1.3x instant-break fires) and the
+	// unbelted rears no longer eject in a hard frontal. Lowered to 4000: the 1.3x INSTANT-BREAK trips at
+	// 5200N -- below the 70km/h wall peak (~5481N -> both rears eject, features-occupants) but ABOVE the
+	// 30km/h bump peak (~3616N -> nobody ejects, escalation-2), a clean measured 30/70 km/h separation.
+	// Still ~2x above the hard-aggressive-driving rear peak (~2000N measured: full launch + hard brake +
+	// full-lock swerve + handbrake slide) and ~6x above the 10s mild-driving peak (623N), so mild/
+	// aggressive driving still never ejects.
+	rearLeft: 4000,
+	rearRight: 4000,
 };
 
 /**
@@ -495,10 +517,15 @@ export const GLASS_REAR_Z_M = -1.55; // behind the rear seats (z=-1.05); crossin
  * than under the floor / over the roof. */
 export const GLASS_Y_MIN_M = 0.05;
 export const GLASS_Y_MAX_M = 1.25;
-export const GLASS_NODE_WINDSHIELD = 'BodyWindshield';
-export const GLASS_NODE_DOOR_LEFT = 'BodyDoorLWindow';
-export const GLASS_NODE_DOOR_RIGHT = 'BodyDoorRWindow';
-export const GLASS_NODE_REAR = 'BodyRearwindow';
+// Mustang-65 shatter-glass panes (car-map.ts glassMeshNodes). The asset has TWO dedicated glass panes
+// -- 'Windshield' (front, includes the front side/quarter glass islands) and 'RearWindow'. The DOOR
+// windows are baked into the door PANEL meshes (they travel + crumple with the door, not as a separate
+// swappable pane), so there is no dedicated side-glass node: a side (door-window) ejection maps to the
+// 'Windshield' pane as the nearest cabin glass so the crossing still produces a visible shatter event.
+export const GLASS_NODE_WINDSHIELD = 'Windshield';
+export const GLASS_NODE_DOOR_LEFT = 'Windshield';
+export const GLASS_NODE_DOOR_RIGHT = 'Windshield';
+export const GLASS_NODE_REAR = 'RearWindow';
 
 /**
  * CAR-COLLISION RE-ENABLE. An ejected occupant starts collision-filtered against the whole car (it

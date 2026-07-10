@@ -177,10 +177,12 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// Control arms (28-31): re-ordered -- the spec's first dim (450/420mm) is the arm's LENGTH, which
 	// spans mostly LATERALLY (inner bushing near the centerline to the outer ball joint at the hub), not
 	// front-to-back.
-	{ id: 'flControlArm', label: 'Front-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, -850), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'frControlArm', label: 'Front-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, 850), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'rlControlArm', label: 'Rear-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, -850), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'rrControlArm', label: 'Rear-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, 850), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
+	// MUSTANG-65 REFIT: lateral centre pulled 850 -> 720mm so the arm's 450mm span (half 225mm) stays
+	// inside the narrower Mustang body (car-map half-width ~968mm vs the concept car's ~1271mm).
+	{ id: 'flControlArm', label: 'Front-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, -720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'frControlArm', label: 'Front-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, 720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'rlControlArm', label: 'Rear-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, -720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'rrControlArm', label: 'Rear-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, 720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
 	// Bumper beams (32-33): "span" bars, modeled as a lateral (local X) capsule, same rationale as the
 	// strut brace above.
 	{ id: 'frontBumperBeam', label: 'Front bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1300, 55), localCenter: mm(2230, 430, 0), massKgSpec: 8, matKey: 'steelMattePowder', engineBay: false },
@@ -189,11 +191,14 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	{ id: 'rearBumperBeam', label: 'Rear bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1250, 55), localCenter: mm(-1850, 430, 0), massKgSpec: 9, matKey: 'steelMattePowder', engineBay: false },
 	// Headlights (36-37): tiny (~9mm) front-overhang overshoot from the same spec/real-asset mismatch
 	// (see mufflerTailpipe's comment) -- nudged back 30mm to clear the real front envelope.
-	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2170, 620, -850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
-	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2170, 620, 850), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	// MUSTANG-65 REFIT: lateral centre 850 -> 760mm (headlight/taillight 350/300mm width inside the
+	// narrower body) and headlight forward-Z 2170 -> 2120mm so its 450mm-deep box stays inside the
+	// measured front envelope (car-map whole-body zMax ~2.36m).
+	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2120, 620, -760), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2120, 620, 760), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
 	// Rear-overhang correction (see mufflerTailpipe's comment above).
-	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, -850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
-	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, 850), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, -760), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, 760), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
 	// Side mirrors (38-39): "projects outboard" -- the spec's first dim (200mm) is explicitly the
 	// outboard (lateral) projection, so lateral is re-ordered to the first column here. FOUND BY THE
 	// AUDIT: the spec's literal specUp=1150mm (ground-referenced) sits almost exactly at the real
@@ -204,8 +209,12 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// width envelope (car-map.ts overallDimsMm.width=2542mm, half=1271mm) while still projecting a
 	// realistic ~90mm past the door's own outer surface (car-map.ts panels.BodyDoorLColor1, X up to
 	// ~1169mm).
-	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, -1160), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
-	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, 1160), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	// MUSTANG-65 REFIT: lateral centre 1160 -> 840mm -- the narrower Mustang body (car-map
+	// overallDimsMm.width 1936mm, half 968mm) sits the mirror's outboard face at ~940mm, right at the
+	// flank (was tuned to the concept car's 2542mm/half-1271mm body); still projects ~40mm past the
+	// door's outer surface (car-map DoorL X up to ~905mm).
+	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, -840), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, 840), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
 ];
 
 /**

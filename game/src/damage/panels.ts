@@ -18,17 +18,18 @@ function q4FromVec4(v: Vec4): Q4 {
 	return { x: v[0], y: v[1], z: v[2], w: v[3] };
 }
 
-export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'hatch' | 'roof';
+// Mustang-65 is a 2-door fastback: 4 damage panels (hood, 2 doors, trunk lid) -- NO roof panel (the
+// fastback roof folds into the shell). 'trunk' replaces the concept car's rear 'hatch' semantics.
+export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'trunk';
 
-export const PANEL_KEYS: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'hatch', 'roof'];
+export const PANEL_KEYS: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'trunk'];
 
 /** car-map.ts node name for each panel (see car-map.ts's `panels` record). */
 export const PANEL_NODE_NAMES: Record<PanelKey, string> = {
-	hood: 'BodyHood',
-	doorL: 'BodyDoorLColor1',
-	doorR: 'BodyDoorRColor1',
-	hatch: 'InteriorRearHatch',
-	roof: 'BodyRoofPanel',
+	hood: 'Hood',
+	doorL: 'DoorL',
+	doorR: 'DoorR',
+	trunk: 'Trunk',
 };
 
 /**
@@ -42,8 +43,7 @@ export const PANEL_ENTITY_ID: Record<PanelKey, number> = {
 	hood: 6,
 	doorL: 7,
 	doorR: 8,
-	hatch: 9,
-	roof: 10,
+	trunk: 9,
 };
 
 /** Same mm->local-meters conversion as vehicle.ts's (private) mmToLocalMount() -- kept as an
@@ -159,18 +159,14 @@ export interface PanelHandle {
  * vehicle -- including the 5 pre-existing headless drive tests -- gets panels too (see tuning.ts's
  * CHASSIS_MASS_KG doc comment for the mass-conservation arithmetic).
  *
- * ROTATION (root-cause fix): every panel node in CarConcept.glb is parented under 'BodyUnderside',
- * which carries a baked -90deg-about-X rotation (car-map.ts's PanelNode.worldQuat doc comment) --
- * the panel MESH's actual world orientation is therefore chassisRotation * node.worldQuat, NOT bare
- * chassisRotation. Each panel body is spawned at that composed rotation (matching the mesh exactly,
- * not just approximately), and the weld's frameA carries the same node.worldQuat as its rotation
- * (frameB stays identity) so the rigid constraint holds the body at exactly that composed rotation
- * forever while attached -- i.e. the weld reproduces today's rigid attachment (same position/motion),
- * just at the mesh's real orientation instead of the chassis's bare one. This is what makes the panel
- * body's captured pose (panelVisuals.ts's reparentPanelVisual(), read at the instant a weld loosens/
- * breaks) match the mesh's actual rendered pose, so the body-local offset it computes stays correct as
- * the freed body rotates away afterward (previously that capture was ~90deg off, so the mesh diverged
- * from the body -- e.g. the hood rendering 3.1m below its physics body after a hard crash).
+ * ROTATION: each panel body is spawned at chassisRotation * node.worldQuat and the weld's frameA
+ * carries node.worldQuat as its rotation (frameB stays identity), so the rigid constraint holds the
+ * body at exactly the mesh's authored world orientation forever while attached. For the Mustang split
+ * every panel's worldQuat is IDENTITY (poses baked into vertices, no shared rotated ancestor), so this
+ * composition reduces to the bare chassis rotation -- but the general form is kept because it is what
+ * makes the panel body's pose match the mesh's rendered pose exactly for ANY authored orientation
+ * (the legacy CarConcept rig parented panels under a -90deg-about-X 'BodyUnderside', where the naive
+ * bare-chassis spawn left the freed hood rendering ~3.1m below its physics body after a hard crash).
  */
 export function createPanels(world: World, chassis: Body, spawnPosition: V3, spawnRotation: Q4): Record<PanelKey, PanelHandle> {
 	const result = {} as Record<PanelKey, PanelHandle>;

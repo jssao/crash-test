@@ -1,38 +1,24 @@
 // SPDX-License-Identifier: MIT
 //
 // Car-paint/glass material polish (visual layer only — no geometry, no physics, no body counts
-// touched). The Khronos CarConcept GLB's materials were authored/tuned to look right under the OLD
-// derelict-airfield HDRI; this file re-tunes the two material families that read wrong against the
-// new je_gray_02 forest-daylight HDRI (buildScene.ts):
+// touched). Re-tunes the two Mustang-65 material families that read wrong against the je_gray_02
+// forest-daylight HDRI (buildScene.ts):
 //
-//  1. Body paint ("Paint 1 <variant>"/"Paint 2 <variant>"): the chosen "Torched Graphite" variant
-//     ships with NO KHR_materials_clearcoat extension (confirmed by inspecting the GLB's material
-//     JSON directly — unlike "Carmine"/"Pearly Swirly", which do carry clearcoat), so three.js's
-//     GLTFLoader falls back to a plain MeshStandardMaterial for "Paint 1 Graphite" (no clearcoat
-//     lobe possible at all) while "Paint 2 Graphite" happens to load as MeshPhysicalMaterial only
-//     because it carries an (unrelated) iridescence extension. That inconsistency plus the metallic-
-//     roughness defaults (metalness defaults to 1.0 when metallicFactor is omitted, per the glTF
-//     spec — both graphite materials omit it) makes the body read as a flat, bare-metal-looking
-//     panel outdoors instead of lacquered automotive paint. Fix: upgrade every paint material to
+//  1. Body paint ("CarPrimaryColor"/"Car Secondary"): the split asset authors these as a plain flat
+//     color factor (near-black dark green) with no clearcoat, and three.js's GLTFLoader builds them as
+//     bare MeshStandardMaterials with the glTF metalness default -- which reads as a flat, matte panel
+//     outdoors instead of lacquered automotive paint. Fix: upgrade every paint material to
 //     MeshPhysicalMaterial (if it isn't already) and give all of them the SAME clearcoat/metalness/
-//     roughness/envMapIntensity tuning, independent of which variant happens to be active.
+//     roughness/envMapIntensity tuning -> a deep, glossy classic-Mustang finish.
 //
-//  2. Glass ("Glass", shared by all 5 window meshes, KHR_materials_transmission factor 1): the GLB
-//     ships this at roughness 0 / default ior 1.5 / transmission 1, which three.js renders via its
-//     physically-based transmission pipeline (a pre-pass that renders the opaque scene -- INCLUDING
-//     the seated occupants -- into an offscreen render target the glass then samples). In principle
-//     that should already show the occupants through the glass. Empirically it does not read that
-//     way (verify/car-paint.mjs's baseline screenshot: near-opaque dark glass, occupants hidden) --
-//     and worse, across many repeated headless-Brave/SwiftShader runs the transmission pass turned
-//     out to be outright NON-DETERMINISTIC (same material params, same camera, same quality tier:
-//     sometimes clearly see-through, sometimes solid black), which points at a driver/pipeline
-//     reliability problem with that offscreen multisampled half-float render target on this
-//     project's own SwiftShader-based verify pipeline, not something tunable away with ior/
-//     roughness. Rather than ship a "looks right 2 times out of 3" glass, this drops transmission
-//     entirely (transmission=0) and uses plain, universally-reliable alpha blending instead
-//     (transparent=true, a real opacity) -- the "lower tint/opacity" option the brief explicitly
-//     offers as an alternative to transmission. It has no offscreen-render-target dependency, so it
-//     can't be flaky: occupants are guaranteed visible at the tuned opacity on every frame/run/tier.
+//  2. Glass ("TransparentGlass"/"refract glass" — the windshield + rear-window panes; door windows
+//     share the first material). This asset carries NO KHR_materials_transmission, so the panes load as
+//     OPAQUE MeshStandardMaterials (an undefaulted white factor -> a solid white windshield if left
+//     alone). We give them plain, universally-reliable alpha blending (transparent=true, a real
+//     opacity + a cool dark tint) -- occupants are visible through the glass at the tuned opacity on
+//     every frame/run/tier, with no offscreen-render-target dependency to be flaky (the same reason the
+//     legacy CarConcept transmission pipeline was abandoned: it rendered non-deterministically opaque
+//     on this project's SwiftShader verify pipeline).
 //
 // Deliberately does NOT touch: geometry, body counts, mesh identities (materials are mutated in
 // place or swapped 1:1 by reference so carDeformables.ts's per-mesh bindings and the shatter-time
@@ -41,11 +27,14 @@
 // as authored).
 import * as THREE from 'three';
 
-/** Matches "Paint 1 Graphite", "Paint 2 Carmine", "Paint 1 Pearl", etc. — every body-paint material
- * across every KHR_materials_variants option, not just the currently-chosen one, so this stays
- * correct if CAR_MAP.chosenVariantIndex ever changes. */
-const PAINT_NAME_RE = /^Paint [12]\b/;
-const GLASS_NAME = 'Glass';
+/** The Mustang-65 asset's two body-paint materials (dark-green primary + secondary, both authored as a
+ * near-black flat color factor). The regex form is kept so a future asset with variant-suffixed paint
+ * names (e.g. the legacy "Paint 1 Graphite") still matches by widening this one constant. */
+const PAINT_NAME_RE = /^(CarPrimaryColor|Car Secondary|Paint [12]\b)/;
+/** The Mustang-65 asset's glass materials (windshield/rear-window panes; door windows share the first).
+ * This asset carries NO KHR_materials_transmission, so these load as opaque MeshStandardMaterials and
+ * MUST be re-tuned to real transparency here (tuneGlass) or the windshield renders as a solid pane. */
+const GLASS_NAMES = new Set(['TransparentGlass', 'refract glass', 'Glass']);
 
 /**
  * Upgrades a MeshStandardMaterial to MeshPhysicalMaterial, preserving the handful of properties the
@@ -90,9 +79,11 @@ function tunePaint(mat: THREE.MeshPhysicalMaterial): void {
 function tuneGlass(mat: THREE.MeshPhysicalMaterial): void {
   if ('transmission' in mat) (mat as unknown as { transmission: number }).transmission = 0;
   mat.transparent = true;
-  mat.opacity = 0.45;
+  mat.opacity = 0.38; // low enough that the seated occupants read clearly through the windshield
+  mat.color = new THREE.Color(0x1c2630); // cool dark tint (the Mustang glass factor is undefaulted white)
   mat.roughness = 0.1;
-  mat.envMapIntensity = 0.6;
+  mat.metalness = 0;
+  mat.envMapIntensity = 0.7;
   mat.depthWrite = false; // avoid this transparent pane occluding whatever renders behind it next frame
   mat.needsUpdate = true;
 }
@@ -126,7 +117,7 @@ export function polishCarMaterials(root: THREE.Object3D): void {
         return physical;
       }
 
-      if (mat.name === GLASS_NAME) {
+      if (GLASS_NAMES.has(mat.name)) {
         tuneGlass(mat as THREE.MeshPhysicalMaterial);
         return mat;
       }

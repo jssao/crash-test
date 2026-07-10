@@ -15,14 +15,14 @@ import type { PanelKey } from './panels';
 // Panel mass + geometry
 // ---------------------------------------------------------------------------------------------
 
-/** Per-panel mass, kg -- spec: "mass 12-18kg (door heavier than hood)". Sum (71kg) is exactly what
- * game/src/vehicle/tuning.ts's CHASSIS_MASS_KG was reduced by, so total car mass stays ~unchanged. */
+/** Per-panel mass, kg -- spec: "mass 12-18kg (door heavier than hood)". Mustang 2-door set (no roof):
+ * hood + 2 doors + trunk lid. Sum (59kg) is exactly what game/src/vehicle/tuning.ts's CHASSIS_MASS_KG
+ * was reduced by (1350 - 59 = 1291), so total car mass stays ~unchanged (1291 + 59 + 88 = 1438kg). */
 export const PANEL_MASS_KG: Record<PanelKey, number> = {
 	hood: 13,
 	doorL: 16,
 	doorR: 16,
-	hatch: 14,
-	roof: 12,
+	trunk: 14,
 };
 
 /** Panel hull thickness (full, meters) -- spec: "thin box hull (panel bbox, thickness 5cm)". */
@@ -42,8 +42,7 @@ export const PANEL_THICKNESS_AXIS: Record<PanelKey, 'x' | 'y'> = {
 	hood: 'y',
 	doorL: 'x',
 	doorR: 'x',
-	hatch: 'y',
-	roof: 'y',
+	trunk: 'y', // trunk lid is a near-horizontal panel (car-map Trunk sizeMm.y=139mm, thin along Y)
 };
 
 export const PANEL_FRICTION = 0.8;
@@ -209,10 +208,9 @@ export const PANEL_VULNERABILITY: Record<PanelKey, PanelVulnerability> = {
 	// loosened; a genuine side impact (dir.x~+/-1) gives ~full stress, so it still tears off.
 	doorL: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
 	doorR: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
-	// Rear hatch: only vulnerable to a rear impact (dir.z < 0). A frontal (dir.z > 0) gives nothing.
-	hatch: { axis: 'z', signed: -1, sharpness: 3, floor: 0 },
-	// Roof: vertical / rollover loading (|dir.y|). A level frontal gives ~0.
-	roof: { axis: 'y', signed: 0, sharpness: 3, floor: 0 },
+	// Trunk lid: only vulnerable to a rear impact (dir.z < 0), same as the concept car's rear hatch. A
+	// frontal (dir.z > 0) gives nothing.
+	trunk: { axis: 'z', signed: -1, sharpness: 3, floor: 0 },
 };
 
 // ---------------------------------------------------------------------------------------------
