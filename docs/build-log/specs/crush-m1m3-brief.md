@@ -2,8 +2,19 @@
 
 Repo: /Users/jesuscalderon/Documents/crash test — Box3D(wasm) + Three.js crash sandbox in game/.
 HEAD a3023a0, ALL suites green (root 25 files/47 tests; game 77 files/209; bench ~0.115ms).
-Predecessor landed M0a (vendor wheel-force patch, vendor/PATCHES.md, rebuilt wasm) and M0b
-(b3Shape_SetHull/SetMesh wired — see its root tests for usage). M1 starts fresh.
+Predecessors landed M0a (vendor wheel-force patch, vendor/PATCHES.md, rebuilt wasm), M0b
+(b3Shape_SetHull/SetMesh wired — see its root tests), AND commit 635663b: the M1 mass-parity
+mechanism is DONE — geometry.ts deductSegmentsFromParity() (+ helpers) computes the chassis
+MassData to stamp so chassis-remainder + welded segments reproduce mass/COM/full-inertia exactly
+(proven by sim/segment-mass-parity.test.mjs). ALSO MEASURED (risk retired): 4 symmetric welded
+satellites (95kg, mass-deducted) perturb the drive suite ≤0.14% — no yaw runaway, no beaching.
+HEAD is 635663b; suites root 25/47, game 78/213, bench 0.150ms. M1 remaining (predecessor's own
+list): replace nose/tail cabin shapes with real colliding occupant-transparent segment BODIES
+(CAR_GROUP + occupant NOSE_TAIL-equivalent filters), extend CAR_ENTITY_IDS/hitTouchesCar so
+wall→bumper hits still route cosmetic crush to the chassis-front mesh, re-anchor cardetail engine
+parts to the cradle, destroyVehicle cleanup, then recalibrate drifting crash tests (likely
+damage-hard-frontal / structural-collapse / cardetail-containment — the wall now meets a
+bumper+rail chain instead of a solid nose).
 
 State you build on: chassis = 12-shape concave cabin tub + 2 destroyable glass panes
 (game/src/vehicle/geometry.ts buildCabinShapes, vehicle.ts). Occupants collide with the interior
