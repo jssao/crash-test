@@ -1,0 +1,263 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "evalExceptions": [],
+  "bodyCount": 312,
+  "brokenBefore": 0,
+  "collapsingBefore": 0,
+  "drive1": {
+    "steps": 277,
+    "finalPos": {
+      "x": -23.17698860168457,
+      "y": 0.1580308973789215,
+      "z": 24.4362735748291
+    },
+    "speedKmh": 58.34364160653185,
+    "samples": [
+      {
+        "i": 0,
+        "x": 0,
+        "z": 0.1,
+        "steer": 1,
+        "speedKmh": 0.5
+      },
+      {
+        "i": 20,
+        "x": 0,
+        "z": 0.1,
+        "steer": 1,
+        "speedKmh": 0.8
+      },
+      {
+        "i": 40,
+        "x": -0.1,
+        "z": 0.4,
+        "steer": 1,
+        "speedKmh": 4.7
+      },
+      {
+        "i": 60,
+        "x": -0.3,
+        "z": 1,
+        "steer": 0.94,
+        "speedKmh": 8.6
+      },
+      {
+        "i": 80,
+        "x": -0.7,
+        "z": 1.8,
+        "steer": 0.73,
+        "speedKmh": 12.5
+      },
+      {
+        "i": 100,
+        "x": -1.4,
+        "z": 3,
+        "steer": 0.52,
+        "speedKmh": 17.1
+      },
+      {
+        "i": 120,
+        "x": -2.4,
+        "z": 4.5,
+        "steer": 0.33,
+        "speedKmh": 21.6
+      },
+      {
+        "i": 140,
+        "x": -3.8,
+        "z": 6.2,
+        "steer": 0.19,
+        "speedKmh": 26
+      },
+      {
+        "i": 160,
+        "x": -5.6,
+        "z": 8.1,
+        "steer": 0.1,
+        "speedKmh": 30.4
+      },
+      {
+        "i": 180,
+        "x": -7.8,
+        "z": 10.2,
+        "steer": 0.05,
+        "speedKmh": 34.9
+      },
+      {
+        "i": 200,
+        "x": -10.3,
+        "z": 12.6,
+        "steer": 0.02,
+        "speedKmh": 39.7
+      },
+      {
+        "i": 220,
+        "x": -13.1,
+        "z": 15.3,
+        "steer": 0.01,
+        "speedKmh": 44.5
+      },
+      {
+        "i": 240,
+        "x": -16.3,
+        "z": 18.2,
+        "steer": 0,
+        "speedKmh": 49.3
+      },
+      {
+        "i": 260,
+        "x": -19.9,
+        "z": 21.5,
+        "steer": 0,
+        "speedKmh": 54.3
+      }
+    ]
+  },
+  "roofBeforeRam": {
+    "collapsingShed": 0,
+    "collapsingTotal": 0,
+    "brokenShed": 0,
+    "yieldedShed": 0,
+    "maxPieceDisp": 0,
+    "piecesMovedOver05": 0
+  },
+  "drive2": {
+    "steps": 300,
+    "finalPos": {
+      "x": -26.935453414916992,
+      "y": 0.17568551003932953,
+      "z": 36.79828643798828
+    },
+    "speedKmh": 28.453822501812084,
+    "samples": [
+      {
+        "i": 0,
+        "x": -34,
+        "z": 34.1,
+        "steer": -1,
+        "speedKmh": 6.5
+      },
+      {
+        "i": 20,
+        "x": -34.4,
+        "z": 34.8,
+        "steer": -1,
+        "speedKmh": 9.8
+      },
+      {
+        "i": 40,
+        "x": -34.6,
+        "z": 35.9,
+        "steer": -1,
+        "speedKmh": 14.2
+      },
+      {
+        "i": 60,
+        "x": -34.7,
+        "z": 37.4,
+        "steer": -1,
+        "speedKmh": 17.4
+      },
+      {
+        "i": 80,
+        "x": -34.4,
+        "z": 39.1,
+        "steer": -1,
+        "speedKmh": 20.8
+      },
+      {
+        "i": 100,
+        "x": -33.7,
+        "z": 41,
+        "steer": -1,
+        "speedKmh": 23.3
+      },
+      {
+        "i": 120,
+        "x": -32.3,
+        "z": 42.8,
+        "steer": -1,
+        "speedKmh": 25.4
+      },
+      {
+        "i": 140,
+        "x": -30.4,
+        "z": 44.2,
+        "steer": -1,
+        "speedKmh": 25.8
+      },
+      {
+        "i": 160,
+        "x": -28.2,
+        "z": 44.9,
+        "steer": -1,
+        "speedKmh": 24.8
+      },
+      {
+        "i": 180,
+        "x": -26.1,
+        "z": 44.8,
+        "steer": -1,
+        "speedKmh": 21.9
+      },
+      {
+        "i": 200,
+        "x": -24.5,
+        "z": 44.1,
+        "steer": -1,
+        "speedKmh": 18
+      },
+      {
+        "i": 220,
+        "x": -23.6,
+        "z": 42.9,
+        "steer": -0.84,
+        "speedKmh": 15.4
+      },
+      {
+        "i": 240,
+        "x": -23.5,
+        "z": 41.5,
+        "steer": -0.25,
+        "speedKmh": 15.2
+      },
+      {
+        "i": 260,
+        "x": -24.1,
+        "z": 40.1,
+        "steer": 0.09,
+        "speedKmh": 18.5
+      },
+      {
+        "i": 280,
+        "x": -25.3,
+        "z": 38.6,
+        "steer": 0.15,
+        "speedKmh": 23.5
+      }
+    ]
+  },
+  "roofAtImpact": {
+    "collapsingShed": 8,
+    "collapsingTotal": 47,
+    "brokenShed": 6,
+    "yieldedShed": 20,
+    "maxPieceDisp": 18.056,
+    "piecesMovedOver05": 14
+  },
+  "roofSettled": {
+    "collapsingShed": 9,
+    "collapsingTotal": 48,
+    "brokenShed": 7,
+    "yieldedShed": 20,
+    "maxPieceDisp": 18.056,
+    "piecesMovedOver05": 20
+  },
+  "afterReset": {
+    "broken": 0,
+    "collapsing": 0,
+    "bodyCount": 312
+  },
+  "timestamp": "2026-07-10T02:29:21.834Z"
+}
