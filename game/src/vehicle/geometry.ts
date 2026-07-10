@@ -3,7 +3,7 @@
 // Chassis hull-point generation + a from-scratch mass/centroid estimator for the tuning workaround
 // described in tuning.ts's COM_LOWER_OFFSET_M doc comment. No three/DOM import (physics core).
 
-import type { V3 } from './mathUtil';
+import { add, dot, sub, type V3 } from './mathUtil';
 import {
 	BALLAST_LOCAL_Y_M,
 	BALLAST_RADIUS_M,
@@ -312,6 +312,131 @@ function mirrorX(points: Float32Array): Float32Array {
 export interface MassProps {
 	mass: number;
 	centroid: V3;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Crush-segment mass parity (crush-architecture.md §A step 1). The chassis's monolithic NOSE/TAIL
+// crush volumes are being replaced by a chain of REAL welded segment bodies (bumperBeam / crush rails
+// / engineCradle / rear rails). To keep total car mass/COM/inertia byte-stable, each segment's mass is
+// DEDUCTED from the chassis via the existing setMassData parity capture: capture the single-hull
+// parity (mass M0, COM C0, inertia I0 about C0, all chassis-local), then stamp the chassis with the
+// REMAINDER so that the rigid composite (chassis + every welded segment) reproduces M0/C0/I0 exactly.
+// This is a plain mass-deduction + parallel-axis inertia subtraction (rigid welds hold each segment at
+// its chassis-local rest pose, so all math stays in the chassis-local frame). box3d's constrained
+// multibody isn't bit-identical to one rigid body (weld compliance), but matching the aggregate
+// mass/COM/inertia keeps first-order dynamics stable -- see the M1 gate ("crash/drive within noise").
+// ---------------------------------------------------------------------------------------------
+
+/** Symmetric 3x3 inertia tensor as three rows, mirroring src/ts/body.ts's MassData.inertia Matrix3
+ * ({cx,cy,cz} row vectors) so a ParityMassData drops straight into Body.setMassData(). */
+export interface Inertia3 {
+	cx: V3;
+	cy: V3;
+	cz: V3;
+}
+
+/** A rigid mass distribution in chassis-local space: total mass, center of mass, inertia about that
+ * center. Shaped identically to src/ts/body.ts's MassData (renderer-free duplicate so this physics-core
+ * module needn't import the binding's Body type). */
+export interface ParityMassData {
+	mass: number;
+	center: V3;
+	inertia: Inertia3;
+}
+
+/** One welded segment body treated as a uniform solid box for the parity math: chassis-local center,
+ * chassis-axis-aligned half-extents, and target mass. */
+export interface SegmentMassSpec {
+	center: V3;
+	half: V3;
+	massKg: number;
+}
+
+function addInertia(a: Inertia3, b: Inertia3): Inertia3 {
+	return { cx: add(a.cx, b.cx), cy: add(a.cy, b.cy), cz: add(a.cz, b.cz) };
+}
+
+function subInertia(a: Inertia3, b: Inertia3): Inertia3 {
+	return { cx: sub(a.cx, b.cx), cy: sub(a.cy, b.cy), cz: sub(a.cz, b.cz) };
+}
+
+/** Solid-box rotational inertia about the box's own center (chassis-aligned axes). For full dims
+ * 2*half: Ixx = m/12*((2hy)^2+(2hz)^2) = m/3*(hy^2+hz^2), cyclically. */
+export function boxInertiaAboutCenter(massKg: number, half: V3): Inertia3 {
+	const ixx = (massKg / 3) * (half.y * half.y + half.z * half.z);
+	const iyy = (massKg / 3) * (half.x * half.x + half.z * half.z);
+	const izz = (massKg / 3) * (half.x * half.x + half.y * half.y);
+	return { cx: { x: ixx, y: 0, z: 0 }, cy: { x: 0, y: iyy, z: 0 }, cz: { x: 0, y: 0, z: izz } };
+}
+
+/** Parallel-axis tensor m*((d.d)I - d(x)d) for a mass m displaced by d from the reference point. */
+export function parallelAxisTensor(massKg: number, d: V3): Inertia3 {
+	const dd = dot(d, d);
+	return {
+		cx: { x: massKg * (dd - d.x * d.x), y: -massKg * d.x * d.y, z: -massKg * d.x * d.z },
+		cy: { x: -massKg * d.y * d.x, y: massKg * (dd - d.y * d.y), z: -massKg * d.y * d.z },
+		cz: { x: -massKg * d.z * d.x, y: -massKg * d.z * d.y, z: massKg * (dd - d.z * d.z) },
+	};
+}
+
+/** Combined mass/COM of a set of segment boxes (chassis-local). */
+export function segmentCompositeMass(segments: readonly SegmentMassSpec[]): MassProps {
+	let mass = 0;
+	let mx = 0;
+	let my = 0;
+	let mz = 0;
+	for (const s of segments) {
+		mass += s.massKg;
+		mx += s.massKg * s.center.x;
+		my += s.massKg * s.center.y;
+		mz += s.massKg * s.center.z;
+	}
+	return { mass, centroid: mass > 0 ? { x: mx / mass, y: my / mass, z: mz / mass } : { x: 0, y: 0, z: 0 } };
+}
+
+/**
+ * Chassis MassData to stamp so the rigid composite (chassis + welded segments) reproduces `parity`
+ * (the captured single-hull mass M0/COM C0/inertia I0). Deducts each segment's mass, recomputes the
+ * chassis COM to hold the aggregate COM at C0, and subtracts every segment's box inertia + its
+ * parallel-axis contribution (plus the chassis's own shift to C0) from I0. Throws if the segments
+ * outweigh the parity mass (a sign the per-segment masses are mis-set).
+ */
+export function deductSegmentsFromParity(parity: ParityMassData, segments: readonly SegmentMassSpec[]): ParityMassData {
+	const M0 = parity.mass;
+	const C0 = parity.center;
+	const sat = segmentCompositeMass(segments);
+	const mCh = M0 - sat.mass;
+	if (mCh <= 0) {
+		throw new Error(`geometry.ts: deductSegmentsFromParity() would leave chassis mass ${mCh.toFixed(1)}kg <= 0 (segments total ${sat.mass}kg vs parity ${M0}kg)`);
+	}
+	// Chassis COM so that mCh*cCh + satMass*satCOM == M0*C0.
+	const cCh: V3 = {
+		x: (M0 * C0.x - sat.mass * sat.centroid.x) / mCh,
+		y: (M0 * C0.y - sat.mass * sat.centroid.y) / mCh,
+		z: (M0 * C0.z - sat.mass * sat.centroid.z) / mCh,
+	};
+	// I0(about C0) = I_ch(cCh) + PA(mCh, C0-cCh) + sum[ boxI(m_i) + PA(m_i, C0-c_i) ]
+	//   => I_ch(cCh) = I0 - PA(mCh, C0-cCh) - sum[ boxI(m_i) + PA(m_i, C0-c_i) ].
+	let inertia = subInertia(parity.inertia, parallelAxisTensor(mCh, sub(C0, cCh)));
+	for (const s of segments) {
+		inertia = subInertia(inertia, boxInertiaAboutCenter(s.massKg, s.half));
+		inertia = subInertia(inertia, parallelAxisTensor(s.massKg, sub(C0, s.center)));
+	}
+	return { mass: mCh, center: cCh, inertia };
+}
+
+/** Recompose the full composite mass/COM/inertia (about `aboutPoint`) from a chassis remainder + its
+ * welded segments -- the inverse check for deductSegmentsFromParity(), used by its unit test to prove
+ * round-trip identity. */
+export function composeSegmentsWithChassis(chassis: ParityMassData, segments: readonly SegmentMassSpec[], aboutPoint: V3): ParityMassData {
+	const specs: SegmentMassSpec[] = [{ center: chassis.center, half: { x: 0, y: 0, z: 0 }, massKg: chassis.mass }, ...segments];
+	const total = segmentCompositeMass(specs);
+	let inertia = addInertia(chassis.inertia, parallelAxisTensor(chassis.mass, sub(aboutPoint, chassis.center)));
+	for (const s of segments) {
+		inertia = addInertia(inertia, boxInertiaAboutCenter(s.massKg, s.half));
+		inertia = addInertia(inertia, parallelAxisTensor(s.massKg, sub(aboutPoint, s.center)));
+	}
+	return { mass: total.mass, center: total.centroid, inertia };
 }
 
 /**
