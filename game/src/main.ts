@@ -141,6 +141,22 @@ declare global {
           }
         >;
       };
+      /** DIAGNOSTIC HOOK (read-only): whether the chassis body is currently awake (box3d sleeps a car
+       * held at rest). */
+      chassisAwake: () => boolean;
+      /** DIAGNOSTIC HOOK (read-only): the reverse-engage decision variables stepVehicle() computes
+       * internally -- signed forward-axis road speed (+ forward / - backward), awake state, and the two
+       * driven-wheel spin speeds -- so a headless reverse check can see WHY reverse did or didn't
+       * engage without re-deriving them from pose deltas. */
+      debugReverse: () => {
+        awake: boolean;
+        forwardSpeed: number;
+        rearOmegaRL: number | null;
+        rearOmegaRR: number | null;
+        driveDebug: Vehicle['driveDebug'];
+        grounded: Record<WheelKey, boolean>;
+        deflection: Record<WheelKey, number>;
+      };
     };
   }
 }
@@ -589,6 +605,27 @@ async function main() {
         chassis: { pos: [ct.position.x, ct.position.y, ct.position.z], quat: [ct.rotation.x, ct.rotation.y, ct.rotation.z, ct.rotation.w] },
         panels: panelsOut,
       } as ReturnType<NonNullable<Window['__GAME__']>['dumpPanelVisuals']>;
+    },
+    chassisAwake: () => vehicle.chassis.isAwake(),
+    debugReverse: () => {
+      const vel = vehicle.chassis.getLinearVelocity();
+      const q = vehicle.chassis.getRotation();
+      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w));
+      const grounded = {} as Record<WheelKey, boolean>;
+      const deflection = {} as Record<WheelKey, number>;
+      for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
+        grounded[key] = vehicle.wheelGrounded[key];
+        deflection[key] = getSuspensionDeflection(vehicle, key);
+      }
+      return {
+        awake: vehicle.chassis.isAwake(),
+        forwardSpeed: vel.x * fwd.x + vel.y * fwd.y + vel.z * fwd.z,
+        rearOmegaRL: vehicle.wheels.rl.joint ? vehicle.wheels.rl.joint.getSpinSpeed() : null,
+        rearOmegaRR: vehicle.wheels.rr.joint ? vehicle.wheels.rr.joint.getSpinSpeed() : null,
+        driveDebug: vehicle.driveDebug,
+        grounded,
+        deflection,
+      };
     },
   };
 

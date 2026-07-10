@@ -67,6 +67,7 @@ import {
 	LATERAL_GRIP_RAMP_EXPONENT,
 	REVERSE_ENGAGE_SPEED_MS,
 	REVERSE_MAX_SPEED_MS,
+	REVERSE_MAX_DRIVE_TORQUE_NM,
 	STEER_CLAMP_MAX_RAD,
 	STEER_CLAMP_MIN_RAD,
 	STEER_CLAMP_SPEED_KMH,
@@ -245,6 +246,19 @@ export interface Vehicle {
 	 * load-bearing for straight-line acceleration, see TRACTION_SLIP_ALLOWANCE_RAD_S's doc comment).
 	 */
 	wheelSlipOverCutoffStreak: Record<WheelKey, number>;
+	/**
+	 * DIAGNOSTIC (read-only, no gameplay effect): a snapshot of the drivetrain decision + per-driven-
+	 * wheel spin-motor command from the MOST RECENT stepVehicle() call. Written every step so a headless
+	 * reverse/traction probe (game/verify/reverse-check.mjs) can read the actual branch taken and the
+	 * commanded spin target/max torque per rear wheel, rather than inferring them from pose deltas.
+	 */
+	driveDebug: {
+		branch: 'footBrake' | 'reverse' | 'throttle' | 'coast' | 'none';
+		wantReverse: boolean;
+		forwardSpeed: number;
+		rl: { spinTarget: number; maxTorque: number; grounded: boolean };
+		rr: { spinTarget: number; maxTorque: number; grounded: boolean };
+	};
 }
 
 export interface VehicleInput {
@@ -440,6 +454,13 @@ export function createVehicle(
 		brakeRamp: 0,
 		settleStepsRemaining: SUSPENSION_SETTLE_GRACE_STEPS,
 		wheelSlipOverCutoffStreak: { fl: 0, fr: 0, rl: 0, rr: 0 },
+		driveDebug: {
+			branch: 'none',
+			wantReverse: false,
+			forwardSpeed: 0,
+			rl: { spinTarget: 0, maxTorque: 0, grounded: true },
+			rr: { spinTarget: 0, maxTorque: 0, grounded: true },
+		},
 	};
 }
 
@@ -935,17 +956,40 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 	const forwardSpeed = dot(vehicle.chassis.getLinearVelocity(), forwardAxis);
 	const wantReverse = brake > 1e-3 && forwardSpeed <= REVERSE_ENGAGE_SPEED_MS;
 	const footBraking = brake > 1e-3 && !wantReverse;
+	// DIAGNOSTIC snapshot (read-only, no gameplay effect) -- see Vehicle.driveDebug.
+	vehicle.driveDebug.wantReverse = wantReverse;
+	vehicle.driveDebug.forwardSpeed = forwardSpeed;
+	vehicle.driveDebug.branch = footBraking ? 'footBrake' : wantReverse ? 'reverse' : throttle > 1e-3 ? 'throttle' : 'coast';
 	// FIX (diagnostic D3, braking transient spike): commanded brake torque ramps in over
 	// BRAKE_TORQUE_RAMP_TIME_S rather than snapping to full magnitude the instant the pedal is pressed.
 	const brakeRamp = updateBrakeRamp(vehicle, footBraking, dt);
 
-	/** Caps a driven wheel's commanded torque to a small value while it's off the ground (diagnostic A,
-	 * "free-spin look without chassis reaction windup" -- see tuning.ts's AIRBORNE_DRIVE_TORQUE_CAP_NM
-	 * doc comment: the wheel joint's spin motor reacts on the chassis too, so an airborne wheel
-	 * chasing an unreachable servo target at full torque would otherwise pitch/yaw-kick the chassis
-	 * with nothing countering it (the ground-only assists are themselves gated off while airborne). */
-	function airborneCappedTorque(key: WheelKey, torqueNm: number): number {
-		return vehicle.wheelGrounded[key] ? torqueNm : Math.min(torqueNm, AIRBORNE_DRIVE_TORQUE_CAP_NM);
+	/** Caps a driven wheel's commanded torque to a small value while it's off the ground AND genuinely
+	 * free-spinning (diagnostic A, "free-spin look without chassis reaction windup" -- see tuning.ts's
+	 * AIRBORNE_DRIVE_TORQUE_CAP_NM doc comment: the wheel joint's spin motor reacts on the chassis too,
+	 * so an airborne wheel chasing an unreachable servo target at full torque would otherwise pitch/
+	 * yaw-kick the chassis with nothing countering it).
+	 *
+	 * REVERSE-FIX (measured, game/verify/reverse-check.mjs): the cap's real failure mode -- a wheel
+	 * spinning against nothing -- ALWAYS shows up as gross free-spin (real spin speed far above the
+	 * chassis-implied rolling speed). It is now gated on that evidence rather than the deflection-proxy
+	 * grounded flag ALONE. getSuspensionDeflection() is a lagging, pitch-sensitive proxy (its own doc
+	 * comment flags this): the reverse spin-motor reaction transiently pitches the rear and drops that
+	 * proxy below its ground threshold even though the rear tyre is demonstrably still on the ground
+	 * (rear wheel world-Y measured dead steady), and because this car's laden REAR static deflection
+	 * (~0.048m) sits just UNDER GROUND_CONTACT_DEFLECTION_ENTER_M (0.05m), the rear then latches
+	 * "airborne" permanently -- capping reverse drive torque to AIRBORNE_DRIVE_TORQUE_CAP_NM and freezing
+	 * the car (forward is immune: forward drive squats the rear, raising its deflection above the
+	 * threshold). A wheel the proxy reads as ungrounded but that is NOT free-spinning (its real spin
+	 * speed still tracks the chassis-implied rolling speed, slip < TRACTION_SLIP_ALLOWANCE_RAD_S) is not
+	 * in the windup failure mode, so it keeps full torque. A genuinely airborne driven wheel free-spins
+	 * to slip >> allowance within a step or two and is still capped exactly as before -- so this is a
+	 * no-op for the airborne/kicker/crash suite (verified), fixing ONLY the false-airborne reverse case. */
+	function airborneCappedTorque(key: WheelKey, torqueNm: number, realOmega: number, wheelImpliedOmega: number): number {
+		if (vehicle.wheelGrounded[key]) return torqueNm;
+		const slip = Math.abs(realOmega) - wheelImpliedOmega;
+		if (slip < TRACTION_SLIP_ALLOWANCE_RAD_S) return torqueNm; // not free-spinning -> not the reaction-windup case
+		return Math.min(torqueNm, AIRBORNE_DRIVE_TORQUE_CAP_NM);
 	}
 
 	// ---- Drivetrain (rear/driven wheels) ----
@@ -972,18 +1016,25 @@ export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): 
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
 			const wheelImplied = chassisImpliedWheelOmega(vehicle, w.def);
+			const realOmega = w.joint.getSpinSpeed();
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
-			const torque = atReverseCap ? 0 : tractionLimitedTorque(w.joint.getSpinSpeed(), wheelImplied, target.maxSpinTorqueNm);
-			w.joint.setMaxSpinTorque(airborneCappedTorque(w.def.key, torque));
+			// REVERSE-FIX: cap the reverse drive torque well below the forward-launch torque -- keeps the
+			// spin-motor pitch reaction from lifting this nose-heavy car's lightly-loaded rear into a
+			// pitch-runaway rock (see tuning.ts's REVERSE_MAX_DRIVE_TORQUE_NM for the measured rationale).
+			const torque = atReverseCap ? 0 : Math.min(tractionLimitedTorque(realOmega, wheelImplied, target.maxSpinTorqueNm), REVERSE_MAX_DRIVE_TORQUE_NM);
+			const capped = airborneCappedTorque(w.def.key, torque, realOmega, wheelImplied);
+			w.joint.setMaxSpinTorque(capped);
+			vehicle.driveDebug[w.def.key === 'rl' ? 'rl' : 'rr'] = { spinTarget: target.spinTargetOmega, maxTorque: capped, grounded: vehicle.wheelGrounded[w.def.key] };
 		}
 	} else if (throttle > 1e-3) {
 		const target = driveServoTarget(gearStep, throttle, 1);
 		for (const w of [rl, rr]) {
 			if (!w.joint) continue;
 			const wheelImplied = chassisImpliedWheelOmega(vehicle, w.def);
+			const realOmega = w.joint.getSpinSpeed();
 			w.joint.setSpinMotorSpeed(target.spinTargetOmega);
-			const torque = tractionLimitedTorque(w.joint.getSpinSpeed(), wheelImplied, target.maxSpinTorqueNm);
-			w.joint.setMaxSpinTorque(airborneCappedTorque(w.def.key, torque));
+			const torque = tractionLimitedTorque(realOmega, wheelImplied, target.maxSpinTorqueNm);
+			w.joint.setMaxSpinTorque(airborneCappedTorque(w.def.key, torque, realOmega, wheelImplied));
 		}
 	} else {
 		const target = coastServoTarget(ENGINE_BRAKE_TORQUE_NM);

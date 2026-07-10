@@ -459,6 +459,26 @@ export const BRAKE_TORQUE_REAR_NM = 1600;
 export const REVERSE_ENGAGE_SPEED_MS = 0.6;
 /** Reverse is torque-cut once backward speed reaches this (m/s ≈ 25 km/h) so it stays gentle/bounded. */
 export const REVERSE_MAX_SPEED_MS = 7;
+/**
+ * Max per-driven-wheel spin-motor torque (N*m) while REVERSING -- much lower than a forward launch's
+ * torque cap (~1660 N*m at gear 0). REVERSE-FIX (measured, game/verify/reverse-check.mjs): the reverse
+ * branch previously reused the FULL forward-launch torque, and in the real laden game that ~0.7g reverse
+ * demand was actively harmful. This car settles genuinely NOSE-HEAVY (measured rest pitch -1.7deg, front
+ * suspension deflection ~0.13m vs REAR only ~0.05m -- the rear axle is very lightly loaded; the bare sim
+ * doesn't reproduce this because baked-mass ballast bottoms the soft springs symmetrically). The wheel-
+ * joint spin motor's reaction torque about the chassis pitch axis, driving the rear wheels backward at
+ * full launch torque, pitched the nose DOWN and lifted that light rear into suspension droop; the lifted
+ * rear then read "airborne" (dropping ground-assist authority, so the anti-pitch assist that would damp
+ * it switched OFF), and the pitch ran away into a fore-aft rocking oscillation that converted the drive
+ * energy into rotation instead of translation -- the car netted ~0m backward (forward is immune: forward
+ * drive SQUATS the rear, loading it). Capping the reverse torque keeps that pitch reaction bounded so the
+ * rear stays planted and the car reverses smoothly and straight. Swept empirically in the real browser
+ * game (fresh-spawn, 4s hold-S; measured backward displacement): 300->0.1m (too weak, still stalls),
+ * 400->2.6m, 500->8.6m, 600->14.6m, 700->18.0m, 900->20.7m, uncapped(1660)->0.1m (pitch runaway). 600
+ * clears the >=8m/4s target with comfortable margin, reaches the REVERSE_MAX_SPEED_MS cap smoothly with
+ * a steady bounded ~4deg nose-down attitude (no oscillation), and sits far below the ~1000+ N*m where the
+ * runaway re-appears. A gentle reverse is also simply realistic -- real cars don't reverse at 0.7g. */
+export const REVERSE_MAX_DRIVE_TORQUE_NM = 600;
 export const HANDBRAKE_TORQUE_NM = 5000;
 /** Small passive drag on the (undriven) front wheels when neither braking nor coasting-drive
  * logic applies to them -- emulates bearing/rolling drag so they don't free-spin unrealistically. */
