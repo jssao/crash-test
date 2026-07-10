@@ -227,6 +227,17 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
  * this set (engine-bay keeps its own separate hood-gated visibility; interior/underbody stay visible
  * throughout, per the spec's "seen through glass" / "seen from below" intent).
  */
+/**
+ * Parts whose VISUAL is now provided by a modeled GLB mesh, so their procedural collision proxy stays
+ * INVISIBLE while attached and only appears as flying debris once it detaches -- same visibility policy
+ * as EXTERIOR_PROXY_IDS. MUSTANG-65 SWAP (orchestrator directive: "modeled EngineBlock replaces the
+ * procedural block as the heavy detachable"): the split-out EngineBlock node renders the REAL modeled
+ * engine in the bay (scene/carDeformables), so the procedural 'engineBlock' box no longer needs to
+ * render a grey slab on top of it -- it remains the heavy detachable MASS that flies out on a hard
+ * frontal, just with no visible proxy while it is still bolted in.
+ */
+export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['engineBlock']);
+
 export const EXTERIOR_PROXY_IDS: ReadonlySet<string> = new Set([
 	'frontBumperBeam',
 	'rearBumperBeam',

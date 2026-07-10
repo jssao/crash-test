@@ -30,6 +30,7 @@ import {
 	COLUMN_BREAK_FORCE_N,
 	COLUMN_BREAK_TORQUE_NM,
 	EXTERIOR_PROXY_IDS,
+	MODELED_PROXY_IDS,
 	FIRM_FORCE_N,
 	FIRM_TORQUE_NM,
 	OTHER_MISC,
@@ -203,7 +204,8 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			// Set the correct attached-state visibility immediately at spawn/respawn -- don't wait for
 			// the first applyVisuals() call (THREE.Object3D.visible defaults to true, which would leak an
 			// exterior proxy for one frame, and the headless sim test never calls applyVisuals() at all).
-			if (spec.engineBay) mesh.visible = vehicle.panels.hood.state !== 'attached';
+			if (MODELED_PROXY_IDS.has(spec.id)) mesh.visible = false; // modeled GLB mesh renders it instead
+			else if (spec.engineBay) mesh.visible = vehicle.panels.hood.state !== 'attached';
 			else if (EXTERIOR_PROXY_IDS.has(spec.id)) mesh.visible = false;
 			else mesh.visible = true;
 			transform.sample(worldPos, spawnRotation);
@@ -333,7 +335,11 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			const hoodAttached = ctx.getVehicle().panels.hood.state === 'attached';
 			for (const h of handles) {
 				h.transform.applyTo(h.mesh, alpha);
-				if (h.spec.engineBay) {
+				if (MODELED_PROXY_IDS.has(h.spec.id)) {
+					// The modeled EngineBlock GLB mesh renders the engine; this procedural proxy is invisible
+					// while attached and only shows as flying debris once it detaches (like the exterior proxies).
+					h.mesh.visible = h.state !== 'attached';
+				} else if (h.spec.engineBay) {
 					h.mesh.visible = !hoodAttached;
 				} else if (EXTERIOR_PROXY_IDS.has(h.spec.id)) {
 					// VISIBILITY POLICY (orchestrator directive, see tuning.ts's EXTERIOR_PROXY_IDS doc

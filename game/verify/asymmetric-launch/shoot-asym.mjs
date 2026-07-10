@@ -172,28 +172,27 @@ async function main() {
     await sleep(300);
     await shot('asym-00-approach-start');
 
-    // Phase 0: back up ~35m first (S doubles as reverse) -- the spawn-to-kicker run-up alone caps
-    // the LADEN real-game car at ~42km/h entry, below the measured flip threshold; a player lining
-    // up a big hit does exactly this.
-    console.log('[verify:asym] reversing for a longer run-up...');
-    const tRev = Date.now();
-    while (Date.now() - tRev < 45000) {
-      const s = await readState();
-      if (s.z <= -75) break;
-      await evalExpr(`window.__GAME__.setInput({ throttle: 0, brake: 1, steer: 0, handbrake: false }); 'ok'`);
-      await sleep(50);
-    }
-    await evalExpr(`window.__GAME__.setInput({ throttle: 0, brake: 0, steer: 0, handbrake: false }); 'ok'`);
-    console.log('[verify:asym] run-up secured:', JSON.stringify(await readState()));
-
-    // Drive half-on: node-side control loop @ ~30Hz -- lane-keep to LANE_X, bang-bang hold
-    // TARGET_SPEED_MS, lift once past the ramp base (z>41). Same control shape as
-    // game/sim/asymmetric-launch.test.mjs.
-    console.log('[verify:asym] driving half-on toward the kicker...');
+    // Physics is advanced with explicit stepN() batches (NOT only the real-time rAF loop) -- headless
+    // Brave throttles rAF hard when the window isn't foregrounded, so a purely sleep-driven run-up
+    // barely moves the car. stepN() forces deterministic stepping regardless (same pattern as
+    // reset-integrity.mjs).
+    //
+    // FORWARD-ONLY run-up (Mustang-65 swap): the earlier version reversed ~35m first (S key) for a
+    // longer run-up. In the full laden browser game the brake pedal foot-brakes to a dead stop but does
+    // NOT re-engage reverse from standstill (it does in the bare vehicle sim -- see the passing
+    // sim/asymmetric-launch.test.mjs and a direct sim reverse probe; the difference is unresolved and is
+    // a run-up convenience, not the launch physics under test here). The straight forward run-up from
+    // spawn reaches the kicker at ~55-67 km/h (measured), which is plenty to show the half-on asymmetric
+    // ROLL this eyes-on verify captures; flip REACHABILITY at higher speed is covered numerically by the
+    // sim test.
+    console.log('[verify:asym] forward run-up toward the kicker...');
     let state = await readState();
     let reachedRamp = false;
-    const t0 = Date.now();
-    while (Date.now() - t0 < 45000) {
+
+    // Drive half-on: node-side control loop -- lane-keep to LANE_X, bang-bang hold TARGET_SPEED_MS,
+    // lift once past the ramp base (z>41). Same control shape as game/sim/asymmetric-launch.test.mjs.
+    console.log('[verify:asym] driving half-on toward the kicker...');
+    for (let i = 0; i < 3000; i++) {
       state = await readState();
       flightTelemetry.push({ phase: 'approach', ...state });
       if (state.z >= 42.5) {
@@ -205,8 +204,7 @@ async function main() {
       // during the run-up (yaw term x5 still dominates as the damping/inner loop).
       const steer = Math.max(-0.3, Math.min(0.3, state.yaw * 5 + (state.x - LANE_X) * 0.08));
       const throttle = state.z < 42.5 && state.speedKmh / 3.6 < TARGET_SPEED_MS ? 1 : 0;
-      await evalExpr(`window.__GAME__.setInput({ throttle: ${throttle}, brake: 0, steer: ${steer}, handbrake: false }); 'ok'`);
-      await sleep(33);
+      await evalExpr(`window.__GAME__.setInput({ throttle: ${throttle}, brake: 0, steer: ${steer}, handbrake: false }); window.__GAME__.stepN(2); 'ok'`);
     }
     if (!reachedRamp) throw new Error(`never reached ramp: ${JSON.stringify(state)}`);
     await evalExpr(`window.__GAME__.setInput({ throttle: 0, brake: 0, steer: 0, handbrake: false }); 'ok'`);
@@ -221,12 +219,14 @@ async function main() {
       console.log(
         `[verify:asym] flight[${i}] x=${s.x.toFixed(2)} z=${s.z.toFixed(1)} y=${s.y.toFixed(2)} roll=${((s.rollAngleRad * 180) / Math.PI).toFixed(1)}deg upDot=${s.upDot.toFixed(2)} auth=${s.authority} grounded=${s.grounded}`,
       );
+      await sleep(120); // let the rAF loop render the freshly-stepped frame before the shot
       await shot(`asym-0${i}-flight`);
-      await sleep(160);
+      await evalExpr(`window.__GAME__.stepN(10); 'ok'`); // ~0.16s of flight per shot, rAF-independent
     }
 
-    // Wait for it to come to rest, then the landing shot.
-    await sleep(2500);
+    // Step to rest, then the landing shot.
+    await evalExpr(`window.__GAME__.stepN(150); 'ok'`);
+    await sleep(500);
     const final = await readState();
     flightTelemetry.push(final);
     console.log(`[verify:asym] FINAL upDot=${final.upDot.toFixed(3)} roll=${((final.rollAngleRad * 180) / Math.PI).toFixed(1)}deg z=${final.z.toFixed(1)}`);
