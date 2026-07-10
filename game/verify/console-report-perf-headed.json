@@ -2,71 +2,71 @@
   "headed": true,
   "spawnFps": {
     "frames": 361,
-    "elapsedMs": 3000.9000000953674,
-    "fps": 120.29724415626231
+    "elapsedMs": 3009.2000000476837,
+    "fps": 119.96543931751948
   },
   "telemetryAtCrash": {
-    "speedKmh": 4.767120884283147,
+    "speedKmh": 1.947911379603556,
     "gear": 1,
     "rpm": 900,
     "wheelOmegas": {
-      "fl": -0.6959503293037415,
-      "fr": 0,
-      "rl": -2.104374647140503,
-      "rr": 0.2188810110092163
+      "fl": 0.08679515868425369,
+      "fr": -0.08873007446527481,
+      "rl": -1.1983511447906494,
+      "rr": -1.651383638381958
     },
     "slipHints": {
-      "fl": 0.6995178210303277,
-      "fr": 0.9709384494587868,
-      "rl": 0.1628585849568337,
-      "rr": 1.054988757686326
+      "fl": -0.018170331042075046,
+      "fr": -0.07258315331842888,
+      "rl": -0.416565685119295,
+      "rr": -0.5570057581326007
     },
-    "steeringAngle": 0.0016726357862353325,
+    "steeringAngle": 0.000005885026439500507,
     "chassisPos": {
-      "x": -0.022123489528894424,
-      "y": 0.39729979634284973,
-      "z": 22.161426544189453
+      "x": -0.012604935094714165,
+      "y": 0.3035750687122345,
+      "z": 22.2069091796875
     },
     "chassisQuat": {
-      "x": -0.04667433351278305,
-      "y": 0.0008301644120365381,
-      "z": -0.0039386567659676075,
-      "w": 0.9989020824432373
+      "x": 0.026422234252095222,
+      "y": 0.0022113793529570103,
+      "z": -0.0032961340621113777,
+      "w": 0.999643087387085
     },
-    "rollAngleRad": -0.007946243256770848,
-    "yawRateRadS": -0.019630003889494034,
-    "upDot": 0.9956119871480348,
-    "groundedWheelCount": 2,
-    "assistAuthority": 0,
+    "rollAngleRad": -0.006473101298865176,
+    "yawRateRadS": -0.03237627962577922,
+    "upDot": 0.998582002074744,
+    "groundedWheelCount": 4,
+    "assistAuthority": 0.5555555555555556,
     "damage": {
       "panelStates": {
         "hood": "broken",
         "doorL": "attached",
         "doorR": "attached",
-        "hatch": "attached",
-        "roof": "attached"
+        "trunk": "attached"
       },
       "stressLevels": {
-        "hood": 95.78497809021147,
-        "doorL": 8.361179680255882,
-        "doorR": 14.576907608131524,
-        "hatch": 0,
-        "roof": 0.014461655112929574
+        "hood": 190.16661435660336,
+        "doorL": 1.2484579635623605,
+        "doorR": 2.5863970565790195,
+        "trunk": 0
       },
       "wheelStates": {
         "fl": "attached",
-        "fr": "detached",
+        "fr": "attached",
         "rl": "attached",
         "rr": "attached"
       },
-      "dentedVertexCount": 8320,
-      "glassShattered": []
+      "dentedVertexCount": 8346,
+      "glassShattered": [
+        "glass-Cube012_1-38"
+      ]
     }
   },
   "midCrashFps": {
     "frames": 361,
-    "elapsedMs": 3004.5,
-    "fps": 120.1531036778166
+    "elapsedMs": 3005.5,
+    "fps": 120.1131259357844
   },
   "screenshots": {
     "spawn": "/Users/jesuscalderon/Documents/crash test/game/verify/perf-headed-spawn.png",
@@ -74,10 +74,10 @@
   },
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-09T23:19:07.991Z",
+  "timestamp": "2026-07-10T02:51:50.412Z",
   "gate": {
     "requiredMidCrashFpsGte": 55,
-    "actual": 120.1531036778166,
+    "actual": 120.1131259357844,
     "pass": true
   }
 }

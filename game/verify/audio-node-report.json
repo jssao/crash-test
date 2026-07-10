@@ -1,0 +1,89 @@
+{
+  "states": {
+    "idle": {
+      "maxNodes": 6,
+      "sawImpact": false,
+      "sawScrapeActive": false,
+      "sawSkidActive": false,
+      "last": {
+        "contextState": "running",
+        "masterVolume": 0.7,
+        "muted": false,
+        "liveNodeCount": 6,
+        "engineHz": 42,
+        "scrapeActive": false,
+        "scrapeContactCount": 0,
+        "skidActive": false,
+        "lastImpactVoicesSpawned": 0
+      }
+    },
+    "drive": {
+      "maxNodes": 9,
+      "sawImpact": false,
+      "sawScrapeActive": false,
+      "sawSkidActive": true,
+      "last": {
+        "contextState": "running",
+        "masterVolume": 0.7,
+        "muted": false,
+        "liveNodeCount": 9,
+        "engineHz": 99.44650977693743,
+        "scrapeActive": false,
+        "scrapeContactCount": 0,
+        "skidActive": true,
+        "lastImpactVoicesSpawned": 0
+      }
+    },
+    "scrape": {
+      "maxNodes": 22,
+      "sawImpact": false,
+      "sawScrapeActive": true,
+      "sawSkidActive": true,
+      "last": {
+        "contextState": "running",
+        "masterVolume": 0.7,
+        "muted": false,
+        "liveNodeCount": 12,
+        "engineHz": 42,
+        "scrapeActive": true,
+        "scrapeContactCount": 2,
+        "skidActive": true,
+        "lastImpactVoicesSpawned": 0
+      }
+    },
+    "scrapeReleased": {
+      "maxNodes": 12,
+      "sawImpact": false,
+      "sawScrapeActive": true,
+      "sawSkidActive": true,
+      "last": {
+        "contextState": "running",
+        "masterVolume": 0.7,
+        "muted": false,
+        "liveNodeCount": 6,
+        "engineHz": 49.58678887657314,
+        "scrapeActive": false,
+        "scrapeContactCount": 0,
+        "skidActive": false,
+        "lastImpactVoicesSpawned": 0
+      }
+    },
+    "crash": {
+      "maxNodes": 62,
+      "sawImpact": true,
+      "sawScrapeActive": true,
+      "sawSkidActive": true,
+      "last": {
+        "contextState": "running",
+        "masterVolume": 0.7,
+        "muted": false,
+        "liveNodeCount": 9,
+        "engineHz": 42,
+        "scrapeActive": false,
+        "scrapeContactCount": 0,
+        "skidActive": true,
+        "lastImpactVoicesSpawned": 0
+      }
+    }
+  }
+}

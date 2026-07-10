@@ -60,6 +60,7 @@ import {
 } from './world/visuals';
 import { createHud, type HudController } from './hud/hud';
 import { createWorldFeatures, type WorldFeatureSet } from './world/features/registry';
+import { createAudioSystem, collectCarShapes, type AudioSystem, type AudioDebugSnapshot } from './audio';
 
 declare global {
   interface Window {
@@ -157,6 +158,12 @@ declare global {
         grounded: Record<WheelKey, boolean>;
         deflection: Record<WheelKey, number>;
       };
+      /** VERIFY HOOK (read-only): crash-audio node-graph snapshot -- see game/verify/audio-check.mjs
+       * and game/src/audio/engine.ts's debugSnapshot(). */
+      audioDebug: () => AudioDebugSnapshot;
+      /** VERIFY HOOK: mirrors the M key (mute toggle) without needing a synthetic keydown -- returns
+       * the new muted state. */
+      toggleMute: () => boolean;
     };
   }
 }
@@ -242,6 +249,12 @@ async function main() {
   // plain node, but both paths drive the exact same renderer-free crumple.ts/welds.ts/panels.ts code. ----
   let damageSystem: DamageSystem = createDamageSystem(vehicle);
   const carDeformables: CarDeformableBindings = registerCarDeformables(damageSystem, car.root, vehicle.panels);
+
+  // ---- Crash audio (procedurally synthesized, no asset files -- see game/src/audio/engine.ts's
+  // module doc): drains the newly-wired hit/contactBegin/contactEnd events + telemetry every fixed
+  // step. armShapes() is idempotent/cheap, so re-arming every step (below) survives doCarRepair()'s
+  // vehicle/damageSystem recreation and breakPanelWeld()'s shape recreation with zero extra wiring. ----
+  const audioSystem: AudioSystem = createAudioSystem();
   const panelVisuals: Record<PanelKey, PanelVisual> = createPanelVisuals(car.root);
 
   // Original (pristine) glass materials, captured once before any shatter swap -- restored by a full
@@ -469,6 +482,8 @@ async function main() {
     physicsMsAccum += performance.now() - physT0;
     physicsStepsAccum++;
     stepDamageSystem(damageSystem, world, FIXED_DT);
+    audioSystem.armShapes(collectCarShapes(vehicle, damageSystem));
+    audioSystem.processStep(world, vehicle, FIXED_DT);
     syncCarDeformablesToThree(carDeformables, vehicle.panels);
     sampleDestructibleVisuals(destructibleWorld, destructibleVisuals);
     features.afterFixedStep(FIXED_DT);
@@ -627,6 +642,8 @@ async function main() {
         deflection,
       };
     },
+    audioDebug: () => audioSystem.debugSnapshot(),
+    toggleMute: () => audioSystem.toggleMute(),
   };
 
   resize();
