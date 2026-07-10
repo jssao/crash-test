@@ -29,6 +29,10 @@ export function collectCarShapes(vehicle: Vehicle, damageSystem: DamageSystem): 
 	// Tier-3: the chassis is now the concave cabin-tub decomposition (~12 convex shapes), not one hull --
 	// arm contact events on every exterior cabin shape so a scrape/grind/rollover on ANY face still voices.
 	const shapes: Shape[] = [...vehicle.chassisShapes.cabin];
+	// Crush M1: the front/rear exterior is now the welded segment chain (vehicle/segments.ts), replacing
+	// the solid nose/tail cabin shapes -- arm those too, so a nose scrape/tail drag keeps voicing exactly
+	// as it did against the old solid volumes.
+	for (const seg of Object.values(vehicle.segments.bodies)) shapes.push(seg.shape);
 	for (const key of PANEL_KEYS) {
 		const panel = damageSystem.panels[key];
 		if (!panel.despawned) shapes.push(panel.shape);

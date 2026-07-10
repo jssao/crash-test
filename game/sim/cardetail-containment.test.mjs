@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim, loadNative } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
 import { FIXED_DT, CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
-import { buildCabinShapes } from '../src/vehicle/geometry.ts';
+import { SEGMENT_SPECS } from '../src/vehicle/segments.ts';
 import createCarDetailFeature from '../src/world/features/cardetail/index.ts';
 import { ATTACHED_SENSOR_OVERRIDE_IDS, CAR_DETAIL_SPECS, EXTERIOR_PROXY_IDS, MODELED_PROXY_IDS } from '../src/world/features/cardetail/tuning.ts';
 import { CAR_MAP } from '../src/assets/car-map.ts';
@@ -107,30 +107,25 @@ function within(box, bound) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// TIER-3 STAGE 3: the actual Stage-1 'nose' crush-volume AABB (vehicle/geometry.ts's
-// buildCabinShapes(), the REAL chassis collision geometry every engine-bay part is welded inside),
-// derived the same way (min/max over the shape's own point cloud) rather than duplicating any
-// constant out of that file -- stays correct automatically if Stage-1 tuning ever shifts.
+// TIER-3 STAGE 3 bound, RECALIBRATED for CRUSH M1: the solid Stage-1 'nose' shape this AABB used to
+// be derived from was replaced by the welded front SEGMENT chain (vehicle/segments.ts: bumperBeam/
+// crushRails/engineCradle). The engine-bay containment bound is therefore now derived from those
+// segment specs' union (same derive-don't-duplicate principle: stays correct if the segment layout
+// shifts): X/Z from the front-chain union, Y-bottom from the chain, Y-TOP from the whole-car ENVELOPE
+// -- the segments deliberately model only the LOWER structural band of the old nose volume; the bay's
+// LID is the hood PANEL body (damage/panels.ts), so "inside the bay" vertically means "above the
+// chain's floor line, below the car's roofline", not "below the cradle's own top face" (engineBlock's
+// head + strut brace legitimately stand above the cradle, under the hood, exactly like a real bay).
 // ---------------------------------------------------------------------------------------------
-function aabbOfPoints(points) {
-	let xMin = Infinity,
-		xMax = -Infinity,
-		yMin = Infinity,
-		yMax = -Infinity,
-		zMin = Infinity,
-		zMax = -Infinity;
-	for (let i = 0; i < points.length; i += 3) {
-		xMin = Math.min(xMin, points[i]);
-		xMax = Math.max(xMax, points[i]);
-		yMin = Math.min(yMin, points[i + 1]);
-		yMax = Math.max(yMax, points[i + 1]);
-		zMin = Math.min(zMin, points[i + 2]);
-		zMax = Math.max(zMax, points[i + 2]);
-	}
-	return { xMin, xMax, yMin, yMax, zMin, zMax };
-}
-const CABIN_SHAPES = buildCabinShapes();
-const NOSE_AABB = aabbOfPoints(CABIN_SHAPES.find((s) => s.name === 'nose').points);
+const FRONT_SEGMENT_SPECS = SEGMENT_SPECS.filter((s) => s.center.z > 0);
+const NOSE_AABB = {
+	xMin: Math.min(...FRONT_SEGMENT_SPECS.map((s) => s.center.x - s.half.x)),
+	xMax: Math.max(...FRONT_SEGMENT_SPECS.map((s) => s.center.x + s.half.x)),
+	yMin: Math.min(...FRONT_SEGMENT_SPECS.map((s) => s.center.y - s.half.y)),
+	yMax: ENVELOPE.yMax,
+	zMin: Math.min(...FRONT_SEGMENT_SPECS.map((s) => s.center.z - s.half.z)),
+	zMax: Math.max(...FRONT_SEGMENT_SPECS.map((s) => s.center.z + s.half.z)),
+};
 
 function boxCorners(hx, hy, hz) {
 	const out = [];
@@ -319,6 +314,17 @@ describe('cardetail containment (numeric audit gate)', () => {
 		const sim = new Sim(native);
 		try {
 			const { feature } = await makeFeature(sim);
+			// CRUSH M1 RECALIBRATION: settle past THRESHOLD_ARM_GRACE_STEPS (30) BEFORE crashing. The old
+			// sequence hit the wall at ~step 9 -- inside the arming grace window, so the impact itself
+			// could never fire a break event, and the parts that "broke" did so only from post-impact
+			// grind spikes while the wreck creeped against the wall. The solid-nose chassis transmitted
+			// those grind spikes; the crush-segment front (vehicle/segments.ts, compliant welds) filters
+			// them out, exposing the latent mis-sequencing. Arming first makes the test exercise its
+			// actual claim: the CRASH breaks parts, and broken parts are solid.
+			for (let i = 0; i < 35; i++) {
+				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+				feature.afterFixedStep(FIXED_DT);
+			}
 			spawnTestWall(sim.world, sim.vehicle, 8);
 			crashSetup(sim.vehicle, 140);
 			for (let i = 0; i < 300; i++) {

@@ -12,7 +12,8 @@
 
 import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
 import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
-import { buildCabinShapes, buildChassisHullPoints, buildGlassPaneShapes, solveChassisDensities, type GlassPaneKey } from './geometry';
+import { buildCabinShapes, buildChassisHullPoints, buildGlassPaneShapes, deductSegmentsFromParity, solveChassisDensities, type GlassPaneKey } from './geometry';
+import { createSegments, destroySegments, resetSegments, segmentMassSpecs, type SegmentAssembly } from './segments';
 import {
 	add,
 	clamp,
@@ -233,6 +234,11 @@ export interface Vehicle {
 	/** Tier-3 Stage 2: the 2 destroyable solid glass panes (windshield/rear window) on the chassis --
 	 * see GLASS_ENTITY_ID's doc comment. The damage system nulls a pane's shape when it shatters. */
 	glass: Record<GlassPaneKey, GlassPaneHandle>;
+	/** Crush M1 (crush-architecture.md §A): the 9 welded crush-segment bodies (bumperBeam/crushRails/
+	 * engineCradle front, trunkFloor/rearRails rear) + their 9 chassis-anchored rigid welds, replacing
+	 * the chassis's old solid NOSE/TAIL shapes. Their masses are deducted from the chassis via the
+	 * setMassData parity capture below, so total car mass/COM/inertia are unchanged. See segments.ts. */
+	segments: SegmentAssembly;
 	wheels: Record<WheelKey, WheelHandle>;
 	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
 	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
@@ -426,7 +432,9 @@ export function createVehicle(
 	// pillars, which keep the default category); a body that slips below the cabin falls out under
 	// the wreck, which reads naturally. Masks stay default, so world contacts / rays / hit events
 	// against nose/tail/floorpan are byte-identical.
-	const OCCUPANT_TRANSPARENT_CABIN_SHAPES = new Set(['nose', 'tail', 'floorpan']);
+	// (crush M1: 'nose'/'tail' became welded segment bodies + the chassis-owned crush cores --
+	// segments.ts carries the occupant transparency for all of those itself.)
+	const OCCUPANT_TRANSPARENT_CABIN_SHAPES = new Set(['floorpan']);
 	const cabinShapes: Shape[] = buildCabinShapes().map((def) =>
 		chassis.createHullShape(def.points, {
 			density: solved.hullDensity,
@@ -464,11 +472,23 @@ export function createVehicle(
 			}),
 		};
 	}
-	// Stamp mass parity. setMassData is retained as long as no shape is added/removed afterward -- wheels
-	// and panels below are SEPARATE bodies, so this holds for the chassis body's whole lifetime... with
-	// ONE deliberate exception: shattering a glass pane destroys that shape with updateBodyMass=false
-	// (system.ts), which box3d treats as "no mass recompute", so the parity mass data survives.
-	chassis.setMassData(massParity);
+	// Crush structure BEFORE the parity stamp below: createSegments() adds the two crush-core shapes
+	// to the CHASSIS body (their nominal shape mass must be overridden by setMassData like every other
+	// chassis shape's).
+	const segments = createSegments(world, chassis, spawnPosition, spawnRotation);
+
+	// Stamp mass parity -- crush M1: the chassis is stamped with the parity REMAINDER (captured
+	// single-hull mass/COM/inertia minus every welded crush segment's box contribution, geometry.ts's
+	// deductSegmentsFromParity()), so the rigid composite chassis+segments reproduces the legacy
+	// mass/COM/full-inertia exactly (proven by sim/segment-mass-parity.test.mjs +
+	// sim/segment-structure.test.mjs's engine-integrated recomposition check).
+	// setMassData is retained as long as no shape is added/removed afterward -- wheels,
+	// panels and segments below are SEPARATE bodies, so this holds for the chassis body's whole
+	// lifetime... with TWO deliberate exceptions: shattering a glass pane destroys that shape with
+	// updateBodyMass=false (system.ts), which box3d treats as "no mass recompute", and the M2 yield
+	// mechanic mutates the crush-core shapes IN PLACE via Shape.setHull (no shape add/remove at all,
+	// and setHull does not recompute body mass) -- the parity mass data survives both.
+	chassis.setMassData(deductSegmentsFromParity(massParity, segmentMassSpecs()));
 
 	const wheels = {} as Record<WheelKey, WheelHandle>;
 	for (const def of WHEEL_DEFS) {
@@ -541,6 +561,7 @@ export function createVehicle(
 		chassis,
 		chassisShapes: { cabin: cabinShapes },
 		glass,
+		segments,
 		wheels,
 		panels,
 		gearbox: createGearboxState(),
@@ -600,6 +621,9 @@ export function destroyVehicle(vehicle: Vehicle): void {
 			p.body.destroy();
 		}
 	}
+	// Crush segments: welds first (the cradle/trunk welds attach to the chassis, which dies below),
+	// then shapes before bodies -- see destroySegments()'s doc comment.
+	destroySegments(vehicle.segments);
 	for (const s of vehicle.chassisShapes.cabin) s.destroy(false);
 	// A shattered pane's shape was already destroyed (and nulled) by the damage system.
 	for (const pane of Object.values(vehicle.glass)) {
@@ -627,6 +651,7 @@ export function resetVehicle(vehicle: Vehicle): void {
 		w.body.setAwake(true);
 	}
 	resetAttachedPanels(vehicle.panels, vehicle.spawnPosition, vehicle.spawnRotation);
+	resetSegments(vehicle.segments, vehicle.world, vehicle.spawnPosition, vehicle.spawnRotation);
 	vehicle.gearbox.gear = 0;
 	vehicle.gearbox.shiftCutMs = 0;
 	vehicle.commandedSteerRad = 0;

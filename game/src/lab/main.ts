@@ -342,6 +342,9 @@ async function main() {
 		const states = occHooks()?.occupantStates?.() ?? [];
 		return {
 			crush,
+			mechCrushFrontM: dmg.segments.frontCrushM,
+			mechCrushRearM: dmg.segments.rearCrushM,
+			intrusionM: dmg.segments.intrusionM,
 			panelStates: dmg.panelStates,
 			wheelStates: dmg.wheelStates,
 			dentedVertexCount: dmg.dentedVertexCount,
@@ -359,6 +362,10 @@ async function main() {
 			runElapsedS,
 			runTotalS,
 			readout: buildReadoutData(),
+			// Crush M2: the full mechanical segment telemetry (per-weld plastic crush, per-side core
+			// retreat, intrusion) -- verify/crash-lab.mjs asserts the offset struck-vs-intact asymmetry
+			// from this.
+			segments: getDamageTelemetry(damageSystem).segments,
 			timestamp: new Date().toISOString(),
 		};
 	}

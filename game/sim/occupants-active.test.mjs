@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
+import { seedSegmentVelocities } from '../src/vehicle/segments.ts';
 import { createDamageSystem, stepDamageSystem } from '../src/damage/system.ts';
 import {
 	createOccupant,
@@ -166,8 +167,12 @@ describe('occupants-active: muscles are overwhelmed by a violent crash', () => {
 			console.log(`[overwhelm] devLimp=${limp.deviation.toFixed(4)} devBraced=${braced.deviation.toFixed(4)} ratio=${(braced.deviation / limp.deviation).toFixed(3)} peakG(braced)=${braced.runtime.peakAccelG.toFixed(0)}`);
 			expect(limp.deviation).toBeGreaterThan(0.3); // a 140km/h hit genuinely throws the torso far
 			// Overwhelmed: the muscle can no longer meaningfully hold -- braced deviation approaches limp
-			// (contrast the braking test, where braced is < 50% of limp).
-			expect(braced.deviation).toBeGreaterThan(0.6 * limp.deviation);
+			// (contrast the braking test, where braced is ~23% of limp). CRUSH M2 RE-BASE (0.6 -> 0.5,
+			// measured): the yield mechanic stages the 140km/h stop over a real crumple stroke instead of
+			// a near-instant kill, so the braced torso retains slightly more control -- measured ratio
+			// 0.56 (was >0.6 against the solid nose) vs braking's 0.23: still overwhelmed, still >2x the
+			// braking discriminator.
+			expect(braced.deviation).toBeGreaterThan(0.5 * limp.deviation);
 
 			teardownOccupant(limp.occupant);
 			teardownSeatPan(limp.pan);
@@ -281,6 +286,10 @@ describe('occupants-active: a survivor gets up and flees the wreck', () => {
 			sim.vehicle.chassis.setLinearVelocity(zero);
 			for (const w of Object.values(sim.vehicle.wheels)) w.body.setLinearVelocity(zero);
 			for (const pnl of Object.values(sim.vehicle.panels)) pnl.body.setLinearVelocity(zero);
+			// Crush M1: the welded crush segments are car bodies too (crashSetup seeded them to speed) --
+			// leaving them flying while the chassis is stopped would wrench the front chain (and, under
+			// the M2 yield mechanic, read as a real overload and falsely crush it at "impact").
+			seedSegmentVelocities(sim.vehicle.segments, zero, sim.vehicle.chassis);
 			for (const p of rig.pans) p.body.setLinearVelocity(zero);
 
 			// Tier-3 Stage 2: the panes are solid collision gates now -- run the damage system so the

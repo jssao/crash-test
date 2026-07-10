@@ -9,6 +9,7 @@
 import { length, sub, type Q4, type V3 } from '../vehicle/mathUtil';
 import { GRAVITY_MAG } from '../vehicle/tuning';
 import { CAR_ENTITY_ID, type Vehicle, type WheelKey } from '../vehicle/vehicle';
+import { SEGMENT_ENTITY_ID_SET } from '../vehicle/segments';
 import {
 	PANEL_BREAK_FORCE_MULT,
 	PANEL_LOOSEN_FORCE_MULT,
@@ -122,12 +123,16 @@ function isCarPanelId(id: number): PanelKey | null {
 	return null;
 }
 
-/** True if either side of a hit event is the chassis or a not-yet-broken panel (see crumple.ts's
- * applyCrumpleEvent doc comment for why "attached panel" includes `loosened`, not just `attached`). */
+/** True if either side of a hit event is the chassis, a crush-segment body (crush M1: a frontal wall
+ * now strikes the bumperBeam/rail chain instead of the chassis's old solid nose, and that hit must
+ * keep routing cosmetic crumple to the chassis-front mesh + stress to the panel welds exactly as the
+ * nose hit did -- segments.ts), or a not-yet-broken panel (see crumple.ts's applyCrumpleEvent doc
+ * comment for why "attached panel" includes `loosened`, not just `attached`). */
 export function hitTouchesCar(hit: HitEventLike, panels: Record<PanelKey, PanelHandle>): boolean {
 	const idsToCheck = [hit.userDataA, hit.userDataB];
 	for (const id of idsToCheck) {
 		if (id === CAR_ENTITY_ID.chassis) return true;
+		if (SEGMENT_ENTITY_ID_SET.has(id)) return true;
 		const panelKey = isCarPanelId(id);
 		if (panelKey && panels[panelKey].state !== 'broken') return true;
 	}

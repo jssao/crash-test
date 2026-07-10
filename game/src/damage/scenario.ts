@@ -8,6 +8,7 @@
 import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
 import { rotateVector, scale, type V3 } from '../vehicle/mathUtil';
 import { resetVehicle, type Vehicle } from '../vehicle/vehicle';
+import { seedSegmentVelocities } from '../vehicle/segments';
 
 const LOCAL_FORWARD: V3 = { x: 0, y: 0, z: 1 };
 
@@ -167,4 +168,8 @@ export function crashSetup(vehicle: Vehicle, speedKmh: number): void {
 	for (const panel of Object.values(vehicle.panels)) {
 		panel.body.setLinearVelocity(velocity);
 	}
+	// Crush M1: the welded segment chain needs the launch velocity for exactly the same reason the
+	// panels do (this function's doc comment) -- and under the M2 yield mechanic a first-step velocity
+	// yank would additionally read as a real overload and falsely crush the chain at launch.
+	seedSegmentVelocities(vehicle.segments, velocity, vehicle.chassis);
 }

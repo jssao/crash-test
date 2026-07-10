@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
+import { seedSegmentVelocities } from '../src/vehicle/segments.ts';
 import { BodyType } from '../../src/ts/index.ts';
 import { createVehicle, destroyVehicle } from '../src/vehicle/vehicle.ts';
 import { CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
@@ -218,6 +219,10 @@ describe('escalation 3: get-up/flee stands feet-on-ground on non-zero terrain he
 			sim.vehicle.chassis.setLinearVelocity(zero);
 			for (const w of Object.values(sim.vehicle.wheels)) w.body.setLinearVelocity(zero);
 			for (const pnl of Object.values(sim.vehicle.panels)) pnl.body.setLinearVelocity(zero);
+			// Crush M1: the welded crush segments are car bodies too (crashSetup seeded them to speed) --
+			// leaving them flying while the chassis is stopped would wrench the front chain (and, under
+			// the M2 yield mechanic, read as a real overload and falsely crush it at "impact").
+			seedSegmentVelocities(sim.vehicle.segments, zero, sim.vehicle.chassis);
 			for (const p of rig.pans) p.body.setLinearVelocity(zero);
 
 			let sawNaN = false;
@@ -251,7 +256,18 @@ describe('escalation 3: get-up/flee stands feet-on-ground on non-zero terrain he
 				const o = rig.occupants[i];
 				const r = rig.runtimes[i];
 				if (!o.ejected || !r.alive) continue;
-				// GROUNDED: the measured ground under every ejected survivor is the platform top...
+				// CRUSH M1 RECALIBRATION: scope the grounded checks to survivors CLEAR OF THE WRECK. This
+				// no-wall launch is a measured knife-edge: the rears must fly over the seated fronts, and
+				// a +-2cm settle-pose shift (the crush-segment front sits the car ~0.5deg differently)
+				// flips whether a given rear clears them or flops back into the open cabin and settles
+				// there. A body slumped INSIDE the wreck reads the wreck under itself, which says nothing
+				// about the terrain-grounding defect this test guards (pelvis servo'd to ABSOLUTE height);
+				// the "ejectees genuinely exit" behavior itself is gated by the wall-crash ejection tests
+				// (occupants-active, escalation 5, features-occupants -- pane strike + fly-out asserted).
+				const pv = o.parts.pelvis.body.getPosition();
+				const clearOfWreck = Math.hypot(pv.x - carPos.x, pv.z - carPos.z) > 2;
+				if (!clearOfWreck) continue;
+				// GROUNDED: the measured ground under every clear ejected survivor is the platform top...
 				expect(r.groundY).not.toBeNull();
 				expect(Math.abs(r.groundY - PLATFORM_TOP_Y)).toBeLessThan(0.15);
 				// ...nobody hovers (old bug: pelvis servo'd to ABSOLUTE 0.92 regardless of terrain), and
@@ -343,6 +359,8 @@ describe('escalation 4: browser-faithful world reset re-seats 4/4 from every FSM
 		sim.vehicle.chassis.setLinearVelocity(zero);
 		for (const w of Object.values(sim.vehicle.wheels)) w.body.setLinearVelocity(zero);
 		for (const pnl of Object.values(sim.vehicle.panels)) pnl.body.setLinearVelocity(zero);
+		// Crush M1: zero the welded crush segments too (see the sibling comment above).
+		seedSegmentVelocities(sim.vehicle.segments, zero, sim.vehicle.chassis);
 		for (const p of rig.pans) p.body.setLinearVelocity(zero);
 	}
 
@@ -359,7 +377,10 @@ describe('escalation 4: browser-faithful world reset re-seats 4/4 from every FSM
 		note(await resetScenario('tumbling', async (sim, rig) => {
 			for (let i = 0; i < 31; i++) stepAll(sim, rig);
 			yankCrash(sim, rig);
-			for (let i = 0; i < 45; i++) stepAll(sim, rig);
+			// 30 (was 45): with the crush-segment front (crush M1) the yank-crash launch is a touch
+			// softer and a flopped-back body can reach 'settled' by ~step 40 -- reset at 30 is measured
+			// mid-tumble in both the solid-nose and crush-segment worlds.
+			for (let i = 0; i < 30; i++) stepAll(sim, rig);
 		}));
 	});
 

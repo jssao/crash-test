@@ -18,6 +18,8 @@ import {
 	parallelAxisTensor,
 	segmentCompositeMass,
 } from '../src/vehicle/geometry.ts';
+import { segmentMassSpecs } from '../src/vehicle/segments.ts';
+import { CHASSIS_MASS_KG } from '../src/vehicle/tuning.ts';
 
 /** A representative single-hull parity: a plausible chassis mass/COM plus a NON-trivial (off-diagonal,
  * asymmetric) inertia tensor, so the round-trip exercises every tensor term rather than a diagonal
@@ -90,5 +92,24 @@ describe('crush M1: segment mass-parity deduction (geometry.ts)', () => {
 
 	it('throws if segments outweigh the parity mass (mis-set per-segment masses)', () => {
 		expect(() => deductSegmentsFromParity({ ...PARITY, mass: 50 }, SEGMENTS)).toThrow(/chassis mass/);
+	});
+
+	// CRUSH M1 (landed): the REAL production segment table (vehicle/segments.ts, 9 bodies) round-trips
+	// through the same deduction math -- 135kg of crush structure against the tuned chassis mass, exact
+	// mass/COM/inertia recomposition. The engine-integrated equivalent (box3d's own mass integration of
+	// the live bodies) is asserted by sim/segment-structure.test.mjs + hull-cabin-tub.test.mjs.
+	it('the REAL segment table (segments.ts) deducts + recomposes exactly against the tuned chassis mass', () => {
+		const real = segmentMassSpecs();
+		const parity = { ...PARITY, mass: CHASSIS_MASS_KG };
+		const total = segmentCompositeMass(real);
+		expect(total.mass).toBeCloseTo(135, 9);
+		const chassis = deductSegmentsFromParity(parity, real);
+		expect(chassis.mass).toBeCloseTo(CHASSIS_MASS_KG - 135, 9);
+		const composite = composeSegmentsWithChassis(chassis, real, parity.center);
+		expect(composite.mass).toBeCloseTo(parity.mass, 9);
+		expect(composite.center.x).toBeCloseTo(parity.center.x, 9);
+		expect(composite.center.y).toBeCloseTo(parity.center.y, 9);
+		expect(composite.center.z).toBeCloseTo(parity.center.z, 9);
+		tensorClose(composite.inertia, parity.inertia);
 	});
 });

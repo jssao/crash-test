@@ -31,17 +31,21 @@ import { createDamageEventEmitter, DamageEventEmitter, type DamageEvent } from '
 import { PANEL_ENTITY_ID, PANEL_KEYS, totalPanelMassKg, type PanelHandle, type PanelKey } from './panels';
 import { hitTouchesCar, massAwareDamageFactor, stepWeldsAndWheels, type HitEventLike } from './welds';
 import { CAR_ENTITY_ID, GLASS_ENTITY_ID, GLASS_MESH_NODE } from '../vehicle/vehicle';
+import { CORE_ENTITY_ID, FRONT_CHAIN_HIT_IDS, getSegmentTelemetry, REAR_CHAIN_HIT_IDS, SEGMENT_ENTITY_ID, stepSegmentYield, type SegmentTelemetry } from '../vehicle/segments';
 import { OCCUPANT_ENTITY_ID_BASE, OCCUPANT_ENTITY_ID_END } from '../vehicle/tuning';
 import type { GlassPaneKey } from '../vehicle/geometry';
 
 /** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-10, glass
- * panes 11-12) -- the complement is "a foreign obstacle", whose mass (if a registered dynamic body)
- * attenuates car damage. Built once from the authoritative id tables so it can never drift from them. */
+ * panes 11-12, crush segments 13-21) -- the complement is "a foreign obstacle", whose mass (if a
+ * registered dynamic body) attenuates car damage. Built once from the authoritative id tables so it
+ * can never drift from them. */
 const CAR_ENTITY_IDS: ReadonlySet<number> = new Set<number>([
 	CAR_ENTITY_ID.chassis,
 	...Object.values(CAR_ENTITY_ID.wheel),
 	...Object.values(PANEL_ENTITY_ID),
 	...Object.values(GLASS_ENTITY_ID),
+	...Object.values(SEGMENT_ENTITY_ID),
+	...Object.values(CORE_ENTITY_ID),
 ]);
 
 /** Reverse lookup: glass entity id -> pane key ('windshield' | 'rearWindow'). */
@@ -73,6 +77,9 @@ export interface DamageTelemetry {
 	wheelStates: Record<WheelKey, 'attached' | 'detached'>;
 	dentedVertexCount: number;
 	glassShattered: string[];
+	/** Crush M2: the mechanical crush / intrusion readout (segment displacement + core face retreat --
+	 * see vehicle/segments.ts's SegmentTelemetry). */
+	segments: SegmentTelemetry;
 }
 
 export interface DamageSystem {
@@ -245,6 +252,12 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	// itself touch the world, must be copied out first). ----
 	const hitsView = world.hitEvents();
 	const hits: HitEventLike[] = [];
+	// Crush M2: which crush-core/segment shapes were struck this step (vehicle/segments.ts
+	// CORE_ENTITY_ID / SEGMENT_ENTITY_ID) -- the engagement + contact evidence stepSegmentYield()
+	// needs (its CoreHitFlags doc).
+	const coreHits = { pos: false, neg: false, rear: false, frontChain: false, rearChain: false };
+	const FRONT_CHAIN_IDS = FRONT_CHAIN_HIT_IDS;
+	const REAR_CHAIN_IDS = REAR_CHAIN_HIT_IDS;
 	for (let i = 0; i < hitsView.count; i++) {
 		const c = hitsView.at(i);
 		// ---- GLASS PANE hits (Tier-3 Stage 2) are consumed HERE, by the glass model alone: an
@@ -265,6 +278,20 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		// obstacle weight. Occupants interact with the damage model exclusively through the GLASS
 		// pane path above. (Band registered in vehicle/tuning.ts next to the filter-bit registry.)
 		if (isOccupantEntityId(c.userDataA) || isOccupantEntityId(c.userDataB)) continue;
+		// Crush evidence must be a STRUCTURAL press (mostly-horizontal contact normal): a nose-dive /
+		// tail-drag grinding the crush zone against the GROUND is a vertical-normal contact and says
+		// nothing about a barrier at the faces -- MEASURED: the lab's NHTSA run nose-dives hard enough
+		// to kiss both half-core bottoms on the tarmac, which latched BOTH cores every step and
+		// symmetrized (and destabilized) the collapse.
+		if (Math.abs(c.normal.y) < 0.5) {
+			for (const id of [c.userDataA, c.userDataB]) {
+				if (id === CORE_ENTITY_ID.frontPos) coreHits.pos = true;
+				else if (id === CORE_ENTITY_ID.frontNeg) coreHits.neg = true;
+				else if (id === CORE_ENTITY_ID.rear) coreHits.rear = true;
+				if (FRONT_CHAIN_IDS.has(id)) coreHits.frontChain = true;
+				else if (REAR_CHAIN_IDS.has(id)) coreHits.rearChain = true;
+			}
+		}
 		hits.push({
 			userDataA: c.userDataA,
 			userDataB: c.userDataB,
@@ -327,6 +354,13 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		emit: (e) => system.emitter.emit(e),
 	});
 
+	// ---- Crush M2: the segment yield mechanic (plastic core flow + weld rest-frame ratchet + tears,
+	// vehicle/segments.ts's stepSegmentYield doc) -- after world.step() like everything above, so the
+	// constraint forces/poses it reads reflect this step's solve. ----
+	for (const ev of stepSegmentYield(world, system.vehicle.chassis, system.vehicle.segments, coreHits)) {
+		system.emitter.emit({ type: 'segmentTorn', weld: ev.weld });
+	}
+
 	// ---- Broken-panel lifecycle: disable hit events after N seconds, despawn after M seconds or
 	// beyond D meters from the chassis. ----
 	for (const key of PANEL_KEYS) {
@@ -373,6 +407,7 @@ export function getDamageTelemetry(system: DamageSystem): DamageTelemetry {
 		wheelStates,
 		dentedVertexCount: getDentedVertexCount(system.registry),
 		glassShattered,
+		segments: getSegmentTelemetry(system.vehicle.chassis, system.vehicle.segments),
 	};
 }
 

@@ -106,6 +106,9 @@ export class CrashRealismSim extends DamageSim {
 		this.vehicle.chassis.setLinearVelocity(vel);
 		for (const w of Object.values(this.vehicle.wheels)) w.body.setLinearVelocity(vel);
 		for (const p of Object.values(this.vehicle.panels)) p.body.setLinearVelocity(vel);
+		// Crush M1: welded segments need the launch velocity too (same weld-yank gotcha as the panels,
+		// see damage/scenario.ts crashSetup()'s doc comment).
+		for (const s of Object.values(this.vehicle.segments.bodies)) s.body.setLinearVelocity(vel);
 	}
 
 	settle(steps) {

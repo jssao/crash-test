@@ -78,10 +78,12 @@ export function buildChassisHullPoints(): Float32Array {
 // engine bay is opened into a cavity only in stage 3. Their inward faces (FIREWALL_Z / BULKHEAD_Z)
 // are the cabin's front/rear walls.
 
-/** Front cabin wall Z (chassis-local): rear face of the solid nose / engine-bay volume. */
-const FIREWALL_Z_M = 0.7;
-/** Rear cabin wall Z: front face of the solid tail / trunk volume. */
-const BULKHEAD_Z_M = -0.64;
+/** Front cabin wall Z (chassis-local): rear face of the front crush zone. Exported since crush M1
+ * (crush-architecture.md §A): the front SEGMENT chain (segments.ts) abuts this plane -- the
+ * engineCradle's rear face sits here, exactly where the solid nose's rear face used to. */
+export const FIREWALL_Z_M = 0.7;
+/** Rear cabin wall Z: front face of the rear crush zone (segments.ts trunkFloor abuts it). */
+export const BULKHEAD_Z_M = -0.64;
 /** Top of the sills / bottom of the window aperture (chassis-local Y). */
 const BELTLINE_Y_M = 0.52;
 /** Top face Y of the floorpan slab (thin: HULL_BOTTOM_Y_M .. this). */
@@ -94,6 +96,51 @@ const SILL_INNER_X_M = 0.7;
 /** Top-face front/rear Z edges of the bevelled envelope (roofline), from the hull tuning. */
 const TOP_FRONT_Z_M = HULL_TOP_CENTER_Z_M + HULL_TOP_HALF_LENGTH_M;
 const TOP_REAR_Z_M = HULL_TOP_CENTER_Z_M - HULL_TOP_HALF_LENGTH_M;
+
+// ---------------------------------------------------------------------------------------------
+// CRUSH CORES (crush M1 structure + M2 yield mechanic). A recessed chassis-owned backstop solid at
+// each end: the barrier bottoms out against it once the (compliant) segment layer is exhausted --
+// the physical "engine mass / rear bulkhead meets the barrier" stop, with the full chassis mass
+// directly in the contact row (MEASURED necessity: any light welded body between barrier and chassis
+// stores the stroke elastically and trampolines the car -- see segments.ts's weld-compliance doc).
+// The M2 yield mechanic then makes the core face itself RETREAT plastically under staged
+// deceleration thresholds (Shape.setHull, the M0b runtime-geometry machinery): that retreat is what
+// makes total mechanical crush ENERGY-scaled (a 40km/h stop ends at the initial recess + a little;
+// an 80km/h stop drives the face 0.3m+ deeper), reproducing the reference crush-vs-speed curve
+// mechanically. See segments.ts's stepSegmentYield().
+// ---------------------------------------------------------------------------------------------
+
+/** Where the pristine core faces sit behind the bumper/tail contact faces: the structure's ELASTIC
+ * give (bumper system + weld compliance) before plastic collapse begins -- a below-yield tap springs
+ * back from inside this zone leaving only cosmetic marks. */
+export const CRUSH_CORE_INITIAL_RECESS_M = 0.1;
+/** Max plastic face retreat (front/rear): initial recess + retreat = the reference table's absolute
+ * crush clamp (~0.58m front; rear kept a little shorter -- no tabulated rear band). */
+export const CRUSH_CORE_MAX_RETREAT_FRONT_M = 0.48;
+export const CRUSH_CORE_MAX_RETREAT_REAR_M = 0.42;
+
+/** Which lateral half of the car a (front) crush core covers: 'pos' = +x half, 'neg' = -x half,
+ * 'full' = full width (the rear core). The FRONT core is SPLIT into two independent half-width
+ * cores since crush M2 so a moderate-overlap (offset) barrier collapses ONLY the struck side's
+ * hard structure -- the intact side's face stays put and the struck side's rail cells carry the
+ * crush, exactly the IIHS-style asymmetry the crash lab's offset protocol measures. */
+export type CrushCoreHalf = 'pos' | 'neg' | 'full';
+
+/** Point cloud for one crush core at the given plastic retreat (m). Front cores: firewall plane back
+ * face, yielding front face, one per lateral half; rear mirrored (bulkhead / yielding rear face),
+ * full width. Same 0.62 half-width / beltline-ish height band as the old solid volumes' structural
+ * lower band. */
+export function buildCrushCorePoints(end: 'front' | 'rear', retreatM: number, half: CrushCoreHalf = 'full'): Float32Array {
+	const by = HULL_BOTTOM_Y_M;
+	const x0 = half === 'pos' ? 0 : -0.62;
+	const x1 = half === 'neg' ? 0 : 0.62;
+	if (end === 'front') {
+		const face = HULL_BOTTOM_HALF_LENGTH_M - CRUSH_CORE_INITIAL_RECESS_M - retreatM;
+		return boxPoints(x0, x1, by, 0.5, FIREWALL_Z_M, face);
+	}
+	const face = -(HULL_BOTTOM_HALF_LENGTH_M - CRUSH_CORE_INITIAL_RECESS_M - retreatM);
+	return boxPoints(x0, x1, by, 0.42, face, BULKHEAD_Z_M);
+}
 
 /** Half-width (x) of the bevelled-box envelope at chassis-local height y (linear loft between the
  * full-footprint bottom and the narrower roofline top -- the SAME loft buildChassisHullPoints()
@@ -126,40 +173,36 @@ export function buildCabinShapes(): CabinShapeDef[] {
 	const by = HULL_BOTTOM_Y_M;
 	const ty = HULL_TOP_Y_M;
 	const bhw = HULL_BOTTOM_HALF_WIDTH_M;
-	const bhl = HULL_BOTTOM_HALF_LENGTH_M;
 	const thw = HULL_TOP_HALF_WIDTH_M;
 	const belt = BELTLINE_Y_M;
 	const sw = envHalfWidth(belt); // envelope half-width at the beltline (top of the sills)
 
 	const shapes: CabinShapeDef[] = [];
 
-	// 1. Floorpan: thin bottom slab spanning the CABIN only. The nose and tail are solid down to the
-	//    footprint bottom over their own z-ranges, so together the three abutting slabs reconstruct the
-	//    full flat BOTTOM face (ground clearance) with NO overlap into the crush zones -- an overlapping
-	//    floorpan would double-fire hit events with the nose on a frontal wall hit and inflate the dent.
+	// 1. Floorpan: thin bottom slab spanning the CABIN only. The front/rear crush-zone bottoms are
+	//    reconstructed by the SEGMENT bodies (segments.ts -- crush M1) abutting this slab at the
+	//    firewall/bulkhead planes, so the three abutting pieces still tile the BOTTOM face with NO
+	//    overlap into the crush zones -- an overlapping floorpan would double-fire hit events with the
+	//    front segments on a frontal wall hit and inflate the dent.
 	shapes.push({ name: 'floorpan', points: boxPoints(-bhw, bhw, by, FLOORPAN_TOP_Y_M, BULKHEAD_Z_M, FIREWALL_Z_M) });
 
-	// 2. Nose crush volume (solid): front face = the old hull's EXACT 4 front vertices (bevel preserved),
-	//    swept back to the firewall. This is the face every frontal crash test contacts.
-	// prettier-ignore
-	shapes.push({ name: 'nose', points: new Float32Array([
-		-bhw, by, bhl,   bhw, by, bhl,                         // front-bottom (full width, footprint front)
-		-thw, ty, TOP_FRONT_Z_M,  thw, ty, TOP_FRONT_Z_M,      // front-top (roofline front, set back = bevel)
-		-bhw, by, FIREWALL_Z_M,   bhw, by, FIREWALL_Z_M,       // back-bottom at the firewall
-		-thw, ty, FIREWALL_Z_M,   thw, ty, FIREWALL_Z_M,       // back-top at the firewall
-	]) });
-
-	// 3. Tail crush volume (solid): rear face = the old hull's EXACT 4 rear vertices, swept to the bulkhead.
-	// prettier-ignore
-	shapes.push({ name: 'tail', points: new Float32Array([
-		-bhw, by, -bhl,  bhw, by, -bhl,                        // rear-bottom (footprint rear)
-		-thw, ty, TOP_REAR_Z_M,   thw, ty, TOP_REAR_Z_M,       // rear-top (roofline rear)
-		-bhw, by, BULKHEAD_Z_M,   bhw, by, BULKHEAD_Z_M,       // front-bottom at the bulkhead
-		-thw, ty, BULKHEAD_Z_M,   thw, ty, BULKHEAD_Z_M,       // front-top at the bulkhead
-	]) });
+	// 2./3. The solid NOSE and TAIL crush volumes that used to occupy [FIREWALL_Z..front] and
+	// [rear..BULKHEAD_Z] were REPLACED in crush M1 (crush-architecture.md §A step 1) by REAL welded
+	// segment BODIES -- bumperBeam/crushRails/engineCradle front, trunkFloor/rearRails rear, see
+	// segments.ts -- so a frontal wall now meets a bumper+rail chain instead of one monolithic convex
+	// piece. The segments carry the same occupant-transparent filter the nose/tail did. NOTE the old
+	// raked front/rear hull faces above the beltline (fender tops / cowl) are no longer collision-solid:
+	// the hood/trunk PANEL bodies (damage/panels.ts) own those top surfaces, and the crush chain owns
+	// the structure below them.
+	//
+	// 2b./3b. The CRUSH CORES (recessed chassis-owned backstop solids the barrier bottoms out against,
+	// and the M2 yield mechanic's plastically-retreating faces) are chassis shapes too, but they are
+	// created/owned by segments.ts's createSegments() (they are crush structure, and the yield stepper
+	// mutates them via Shape.setHull) -- see buildCrushCorePoints() below and segments.ts's
+	// stepSegmentYield().
 
 	// 4. Roof panel: thin top slab over the cabin greenhouse -- reproduces the TOP face for the cabin gap
-	//    (nose/tail already cover the top outside [BULKHEAD_Z, FIREWALL_Z]; small overlap avoids a seam).
+	//    (small rearward overlap avoids a seam at the C-pillars).
 	shapes.push({ name: 'roof', points: boxPoints(-thw, thw, CANTRAIL_Y_M, ty, TOP_REAR_Z_M + 0.35, TOP_FRONT_Z_M) });
 
 	// 5/6. Sills: lower cabin side walls (below the beltline), outer face bevelled onto the envelope side,
@@ -221,14 +264,26 @@ const GLASS_THICKNESS_M = 0.04;
  * the contact-vs-belt fight pumped a measured 26.7/58.7kN through the front restraints (vs
  * 4.8/5.4kN pane-less), snapping all four belts on a bump that must eject nobody. The pane is a
  * collision GATE inside the occupant-transparent nose, not the visual glass, so it sits ~0.25m
- * forward of the glass line instead: bottom rail (0.42, 0.92), top rail (0.84, 1.00), thickness -z
- * (toward the cabin). Measured clearances: front head 0.41m, torso more, knees/thighs 0.10m below
- * the bottom rail -- ordinary bumps/braces never reach it, while a genuinely ejecting body crosses
- * the gap and strikes it at full fly-out speed. Outer rails stay >=0.02m inside the nose's front
- * bevel (bevel z at y 0.84 is 1.023). The escape slivers around the rails (roof front edge above,
- * a descending sub-rail path below) are all under a head's diameter for plausible trajectories.
+ * forward of the glass line instead: bottom rail (0.34, 0.90), top rail (0.84, 1.00), thickness -z
+ * (toward the cabin). Measured clearances: front head 0.41m, torso more, and seated knees/thighs at
+ * y~0.32 stay (just) below the bottom rail -- ordinary bumps/braces never reach it, while a genuinely
+ * ejecting body crosses the gap and strikes it at full fly-out speed. Outer rails stay >=0.02m inside
+ * the nose's front bevel (bevel z at y 0.84 is 1.023). The escape slivers around the rails (roof
+ * front edge above, a sub-rail path below) are all under a head's diameter for plausible trajectories.
+ *
+ * CRUSH M1 RAIL EXTENSION (0.42 -> 0.34, measured): the pane doubles as the COWL/DASH gate -- in a
+ * real car the band under the glass is solid cowl+dash structure, and this slab is the only catcher
+ * for a forward ejectee (everything else ahead of the cabin is occupant-transparent crush zone).
+ * Under the old solid-nose instant stop (one ~44g step) ejectee heads crossed the pane plane at
+ * y~0.32 (head TOP ~0.44) and clipped the 0.42 rail by ~2cm -- already marginal. The crush-segment
+ * front (compliant welds + recessed core, segments.ts) stops the car over ~0.1m more stroke, the
+ * launch starts ~2 steps later, and the same trajectory arrives ~4cm lower (head top ~0.40):
+ * a 70km/h ejectee slipped UNDER the pane into the (transparent) crush zone and the windshield never
+ * shattered (measured, sim/diag/crush-eject-probe). 0.34 restores a solid head-top bite for the
+ * honest post-crush trajectory while staying above the seated knee line (0.32) so a front EJECTEE
+ * never spawns its knees inside the slab (depenetration pop on eject).
  */
-const WINDSHIELD_BOTTOM = { y: 0.42, z: 0.92 };
+const WINDSHIELD_BOTTOM = { y: 0.34, z: 0.9 };
 const WINDSHIELD_TOP = { y: 0.84, z: 1.0 };
 /**
  * Rear-window rails. MEASURED CORRECTION to the handoff's first-guess span (top z -0.64 -> bottom

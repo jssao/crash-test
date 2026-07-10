@@ -40,13 +40,21 @@ export interface GlassShatteredEvent {
 	mesh: string;
 }
 
+/** Crush M2: a crush-segment weld tore clean off (constraint force above its tier's break threshold
+ * -- extreme events only; see vehicle/segments.ts's stepSegmentYield()). */
+export interface SegmentTornEvent {
+	type: 'segmentTorn';
+	weld: string;
+}
+
 export type DamageEvent =
 	| ImpactEvent
 	| PanelLoosenedEvent
 	| PanelBrokenEvent
 	| PanelDespawnedEvent
 	| WheelDetachedEvent
-	| GlassShatteredEvent;
+	| GlassShatteredEvent
+	| SegmentTornEvent;
 
 export type DamageEventListener = (event: DamageEvent) => void;
 

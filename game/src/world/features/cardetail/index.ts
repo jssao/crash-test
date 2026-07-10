@@ -15,6 +15,32 @@ import { Body, BodyType, forgetHandle, Shape, WeldJoint } from '../../../../../s
 import type { FeatureContext, WorldFeature } from '../feature';
 import { add, IDENTITY_Q, length, rotateVector, sub, type V3 } from '../../../vehicle/mathUtil';
 import { CAR_GROUP_INDEX, OCCUPANT_TRANSPARENT_CATEGORY_BITS } from '../../../vehicle/tuning';
+import { segmentSpec, type SegmentKey } from '../../../vehicle/segments';
+
+/**
+ * CRUSH M1: cardetail parts that physically LIVE IN THE CRUSH ZONES anchor a SEGMENT body instead of
+ * the chassis (crush-architecture.md §A "INTERACTIONS": engine parts ride the cradle; extended to the
+ * other crush-zone residents on the same measured grounds). WHY the extension: these parts' collision
+ * shapes poke past the chassis's recessed crush-core backstop (frontSubframe front face z=1.95 vs
+ * core face 1.795; front bumper capsule 2.285; headlights 2.345; mirrored at the rear), so in a wall
+ * crash the barrier presses them up to the crushable depth (~0.58m, geometry.ts CRUSH_CORE_*) -- against a hertz-0
+ * RIGID chassis weld that is exactly the single-step elastic catapult the segment welds were
+ * measured to be (see vehicle/segments.ts's SEGMENT_WELD_HERTZ doc). Anchored to the segment that
+ * occupies their space, they ride its compliant weld (and, under M2, its plastic crush) instead:
+ * lights/bumpers crumple back with the structure and still break away via their own thresholds.
+ * Ids not in this table (and not engineBay) keep the chassis anchor. NOTE the headlight/taillight
+ * L/R ids are anchored by their measured x SIGN (car-map: +X = car's left side), not by their name.
+ */
+const CRUSH_ZONE_ANCHOR: Readonly<Record<string, SegmentKey>> = {
+	frontSubframe: 'engineCradle',
+	frontBumperBeam: 'bumperBeam',
+	headlightL: 'crushRailRF', // x=-0.76 -> the -x front rail cell
+	headlightR: 'crushRailLF', // x=+0.76 -> the +x front rail cell
+	rearSubframe: 'trunkFloor',
+	rearBumperBeam: 'trunkFloor',
+	taillightL: 'rearRailR', // x=-0.76 -> the -x rear rail
+	taillightR: 'rearRailL', // x=+0.76 -> the +x rear rail
+};
 import { InterpolatedTransform } from '../../../core/loop';
 import { buildCarDetailMaterials, disposeCarDetailMaterials, type CarDetailMaterials } from './materials';
 import { SHAPE_BUILDERS } from './shapes';
@@ -200,8 +226,22 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 			});
 			const shape = createShapeFor(body, spec, CAR_GROUP_INDEX, bodyUserData, ATTACHED_SENSOR_OVERRIDE_IDS.has(spec.id));
 
-			const weld = ctx.world.createWeldJoint(chassis, body, {
-				frameA: { position: spec.localCenter, rotation: IDENTITY_Q },
+			// CRUSH M1 (crush-architecture.md §A "INTERACTIONS"): engine-bay parts weld to the ENGINE
+			// CRADLE segment body (vehicle/segments.ts) instead of the chassis, so they ride the crush --
+			// when the M2 yield mechanic shortens the front chain, the whole bay's contents arrive at the
+			// firewall with it (drama for free). The other crush-zone residents anchor their own zone's
+			// segment per CRUSH_ZONE_ANCHOR (see its doc comment for the measured catapult this avoids).
+			// While the structure is pristine each segment sits exactly at its chassis-local rest offset,
+			// so anchoring there with the offset-adjusted frameA is equivalent to the old chassis weld.
+			// Everything else keeps the chassis anchor. The destroyAll() forgetHandle() hazard note below
+			// covers the segment-anchored case identically: segment bodies die inside destroyVehicle()
+			// (before features reset), which natively frees any joint attached to them, exactly like the
+			// chassis-attached welds.
+			const anchorSegment: SegmentKey | undefined = CRUSH_ZONE_ANCHOR[spec.id] ?? (spec.engineBay ? 'engineCradle' : undefined);
+			const anchorBody = anchorSegment ? vehicle.segments.bodies[anchorSegment].body : chassis;
+			const anchorFrameA = anchorSegment ? sub(spec.localCenter, segmentSpec(anchorSegment).center) : spec.localCenter;
+			const weld = ctx.world.createWeldJoint(anchorBody, body, {
+				frameA: { position: anchorFrameA, rotation: IDENTITY_Q },
 				frameB: { position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY_Q },
 				collideConnected: false,
 				linearHertz: 0,
@@ -319,8 +359,9 @@ export default function createCarDetailFeature(ctx: FeatureContext): WorldFeatur
 		for (const h of handles) {
 			if (h.weld) {
 				// CHASSIS-ATTACHED-JOINT LIFECYCLE HAZARD (same as occupants/physics.ts's doc comment):
-				// every cardetail weld attaches to the CHASSIS, and by the time reset() fires,
-				// doCarRepair()'s destroyVehicle() has already natively freed every chassis-attached
+				// every cardetail weld attaches to the CHASSIS (or, for engine-bay parts since crush M1,
+				// to the engineCradle SEGMENT body, which destroyVehicle() also destroys), and by the time
+				// reset() fires, doCarRepair()'s destroyVehicle() has already natively freed every such
 				// joint as a side effect -- calling .destroy() here double-frees native memory (wasm
 				// "memory access out of bounds", 100% repro on resetWorld(), permanently poisons the
 				// module). forgetHandle() drops JS registry bookkeeping ONLY; the native joint is freed

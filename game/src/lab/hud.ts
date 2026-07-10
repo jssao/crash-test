@@ -23,6 +23,13 @@ const STATE_COLOR: Record<string, string> = { attached: '#3ddc72', loosened: '#f
 
 export interface ReadoutData {
 	crush: Record<CrushRegion, CrushMeasurement>;
+	/** Crush M2 (vehicle/segments.ts telemetry): MECHANICAL front/rear structural shortening (m) --
+	 * the collision-carrying rest-pose truth, vs the cosmetic mesh depths above. */
+	mechCrushFrontM: number;
+	mechCrushRearM: number;
+	/** Crush M2: NHTSA-style intrusion (m) -- the engine cradle's permanent shift toward the
+	 * firewall (occupant leg-injury line ~0.15m). */
+	intrusionM: number;
 	panelStates: Record<PanelKey, string>;
 	wheelStates: Record<WheelKey, string>;
 	dentedVertexCount: number;
@@ -149,6 +156,9 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 			<div class="lab-chip-row" id="lab-panel-chips"></div>
 			<div class="lab-section-label">Wheels</div>
 			<div class="lab-chip-row" id="lab-wheel-chips"></div>
+			<div class="lab-section-label">Structural (mechanical)</div>
+			<div class="lab-metric-row"><span>Mech crush F / R</span><span id="lab-mech-crush">0.000 / 0.000</span></div>
+			<div class="lab-metric-row"><span>Intrusion (firewall)</span><span id="lab-intrusion">0.000</span></div>
 			<div class="lab-metric-row"><span>Dented vertices</span><span id="lab-dented">0</span></div>
 			<div class="lab-metric-row"><span>Chassis peak decel</span><span id="lab-decel">0.0 g</span></div>
 			<div class="lab-section-label">Occupants</div>
@@ -170,6 +180,8 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 	const crushRowsEl = mount.querySelector('#lab-crush-rows')!;
 	const panelChipsEl = mount.querySelector('#lab-panel-chips')!;
 	const wheelChipsEl = mount.querySelector('#lab-wheel-chips')!;
+	const mechCrushEl = mount.querySelector('#lab-mech-crush')!;
+	const intrusionEl = mount.querySelector('#lab-intrusion')!;
 	const dentedEl = mount.querySelector('#lab-dented')!;
 	const decelEl = mount.querySelector('#lab-decel')!;
 	const occupantsEl = mount.querySelector('#lab-occupants')!;
@@ -259,6 +271,10 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 				const color = STATE_COLOR[state] ?? '#888';
 				return `<div class="lab-chip" style="background:${color}" title="${WHEEL_LABELS[k]}: ${state}">${WHEEL_LABELS[k]}</div>`;
 			}).join('');
+			mechCrushEl.textContent = `${data.mechCrushFrontM.toFixed(3)} / ${data.mechCrushRearM.toFixed(3)}`;
+			// Red past the FMVSS-208-inspired 0.15m leg-injury line (occupant model's intrusion term).
+			(intrusionEl as HTMLElement).style.color = data.intrusionM > 0.15 ? '#ff5c5c' : '';
+			intrusionEl.textContent = data.intrusionM.toFixed(3);
 			dentedEl.textContent = String(data.dentedVertexCount);
 			decelEl.textContent = `${data.chassisPeakDecelG.toFixed(1)} g`;
 			occupantsEl.innerHTML = data.occupants

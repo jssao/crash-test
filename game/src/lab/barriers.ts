@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
 import { rotateVector, scale, type V3 } from '../vehicle/mathUtil';
 import type { Vehicle } from '../vehicle/vehicle';
+import { seedSegmentVelocities } from '../vehicle/segments';
 import type { BarrierKind, CrashProtocol, FreeConfigState } from './protocols';
 
 const LOCAL_FORWARD: V3 = { x: 0, y: 0, z: 1 };
@@ -243,6 +244,9 @@ export function applyVehicleVelocity(vehicle: Vehicle, velocity: V3): void {
 	vehicle.chassis.setLinearVelocity(velocity);
 	for (const wheel of Object.values(vehicle.wheels)) wheel.body.setLinearVelocity(velocity);
 	for (const panel of Object.values(vehicle.panels)) panel.body.setLinearVelocity(velocity);
+	// Crush M1: the welded segment chain is seeded too, mirroring crashSetup() (see
+	// vehicle/segments.ts's seedSegmentVelocities() doc comment).
+	seedSegmentVelocities(vehicle.segments, velocity, vehicle.chassis);
 }
 
 /** Computes (and applies) the vehicle's launch velocity for this run: straight along spawn-forward
@@ -288,7 +292,19 @@ export function launchVehicle(vehicle: Vehicle, protocol: CrashProtocol, freeCon
 export function vehicleGuideUntilS(protocol: CrashProtocol, freeConfig: FreeConfigState): number {
 	const { speedKmh } = effectiveRunParams(protocol, freeConfig);
 	const speedMs = Math.max(speedKmh / 3.6, 0.1);
-	return protocol.approachDistanceM / speedMs + 0.15;
+	// CRUSH M2 RECALIBRATION (was `+ 0.15s` PAST the nominal center-to-center arrival time): the
+	// guide must release the car BEFORE first contact. approachDistanceM is spawn-to-barrier-center,
+	// so the NOSE (front overhang ~2.35m + barrier half-depth) arrives ~3m early -- the old
+	// overshoot kept re-asserting launch velocity 10-20 fixed steps INTO the crash. The solid nose
+	// shrugged that off (each re-fed step just re-stopped inelastically); the M2 energy-accounting
+	// yield honestly converts every re-fed step into fresh structural collapse, so the guide
+	// force-fed the crush through its whole budget and then slammed the exhausted (rigid) face at
+	// full speed -- MEASURED at NHTSA-56: 97.7g chassis peak, both doors + trunk broken, 3 occupants
+	// dead (vs the sim harness's clean staged ~35-45g stop for the same crash). Releasing 3m ahead
+	// leaves the final ~0.2s ballistic -- the assists bleed <2% of the speed over that window (the
+	// pole protocol's lateral-assist problem the guide exists for needs the guide only during the
+	// long approach, not the last car-length).
+	return Math.max(0.2, (protocol.approachDistanceM - 3.0) / speedMs);
 }
 
 /** Wall-clock (sim-time) budget for one run: guided run-up (distance/closing-speed) + a fixed settle

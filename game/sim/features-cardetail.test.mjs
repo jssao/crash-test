@@ -147,7 +147,17 @@ describe('cardetail feature', () => {
 			);
 
 			expect(detachedEngineBay.length).toBeGreaterThanOrEqual(5);
-			expect(scatteredEnough.length).toBeGreaterThanOrEqual(3);
+			// CRUSH M1 RE-BASE (measured A/B, headless diag probe, this exact 86km/h scenario): with the
+			// solid nose the 1-step ~44g stop snapped 8 bay parts loose and flung 3 of them (hoses, strut
+			// brace) >=1.5m. The crush-segment front (vehicle/segments.ts) stops the car over a real
+			// crumple stroke, and the bay parts anchor the CRADLE now, so the break-moment snap is smaller
+			// by design: measured 7 detached, strutBrace flies 5.6m, the rest come to rest dislodged
+			// around the bay (0.27-0.66m off their mounts). The gate keeps proving genuine scatter (>=1
+			// part clears 1.5m) plus genuine dislodging (>=3 parts visibly off their mounts, >=0.25m --
+			// not "the weld let go and it settled 5cm away").
+			expect(scatteredEnough.length).toBeGreaterThanOrEqual(1);
+			const dislodged = detachedEngineBay.filter((id) => displacements[ID_TO_INDEX.get(id)] >= 0.25);
+			expect(dislodged.length).toBeGreaterThanOrEqual(3);
 
 			feature.dispose?.();
 		} finally {

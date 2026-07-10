@@ -146,9 +146,18 @@ async function main() {
     assert('dented vertex count > 0', readout.dentedVertexCount > 0, readout.dentedVertexCount);
     assert('4 occupant seats reported', readout.occupants.length === 4, readout.occupants.length);
 
+    // Crush M2: MECHANICAL structural readout (vehicle/segments.ts telemetry via the lab HUD).
+    // Band: the sim-harness 56 km/h frontal measures mech crush 0.382m (sim/segment-yield.test.mjs's
+    // logged baseline); the lab's protocol adds approach/guide dynamics, so straddle generously while
+    // staying falsifiable (a dead mechanism reads ~0.1, a runaway one 0.58).
+    assert('mechanical front crush within [0.25, 0.52]', readout.mechCrushFrontM > 0.25 && readout.mechCrushFrontM < 0.52, readout.mechCrushFrontM);
+    assert('mechanical rear crush ~0 in a frontal', readout.mechCrushRearM < 0.05, readout.mechCrushRearM);
+    assert('intrusion readout present and under the 0.15m leg-injury line at 56', readout.intrusionM >= 0 && readout.intrusionM < 0.15, readout.intrusionM);
+
     // Export report hook returns a well-formed, JSON-serializable object.
     const report = await evalExpr('JSON.stringify(window.__LAB__.exportReport())').then((s) => JSON.parse(s));
     assert('export report carries the run protocol id', report.protocol.id === 'nhtsa-frontal-56', report.protocol.id);
+    assert('export report carries the mechanical segment telemetry', report.segments && typeof report.segments.intrusionM === 'number', Object.keys(report.segments ?? {}));
 
     // Screenshots: TOP / SIDE / THREE-QUARTER, same convention as crash-realism/shoot-matrix.mjs.
     const shot = async (name) => {
@@ -165,6 +174,27 @@ async function main() {
     await evalExpr("window.__LAB__.setCameraPreset('top'); 'ok'");
     await sleep(500);
     await shot('crash-lab-top.png');
+
+    // ---- Crush M2 gate: IIHS moderate-overlap 64 -- the struck side's hard structure must
+    // MECHANICALLY shorten while the intact side stays pristine (segments telemetry), with a TOP
+    // screenshot for the eyes-on review. ----
+    await evalExpr("window.__LAB__.run('iihs-moderate-64'); 'ok'");
+    await evalExpr('window.__LAB__.stepN(600); "ok"');
+    const offsetReport = await evalExpr('JSON.stringify(window.__LAB__.exportReport())').then((s) => JSON.parse(s));
+    const core = offsetReport.segments?.coreRetreatFrontM ?? { pos: 0, neg: 0 };
+    const struckRetreat = Math.max(core.pos, core.neg);
+    const intactRetreat = Math.min(core.pos, core.neg);
+    console.log('[crash-lab] offset segments:', JSON.stringify(offsetReport.segments));
+    assert('offset64: struck-side core collapses (>0.15m)', struckRetreat > 0.15, core);
+    assert('offset64: intact-side core stays (<0.05m)', intactRetreat < 0.05, core);
+    const w = offsetReport.segments?.weldCrushM ?? {};
+    const struckCells = core.pos >= core.neg ? [w.cellFL, w.cellRL] : [w.cellFR, w.cellRR];
+    const intactCells = core.pos >= core.neg ? [w.cellFR, w.cellRR] : [w.cellFL, w.cellRL];
+    assert('offset64: struck-side rail mechanically shortened (front cell >0.08m)', struckCells[0] > 0.08, struckCells);
+    assert('offset64: intact-side rail cells pristine (<0.02m)', intactCells.every((v) => v < 0.02), intactCells);
+    await evalExpr("window.__LAB__.setCameraPreset('top'); 'ok'");
+    await sleep(500);
+    await shot('crash-lab-offset-top.png');
 
     c.ws.close();
   } catch (err) {

@@ -13,7 +13,8 @@
 import { describe, expect, it } from 'vitest';
 import { init, World, BodyType } from '../../src/ts/index.ts';
 import { createGroundBody, createVehicle, destroyVehicle } from '../src/vehicle/vehicle.ts';
-import { buildChassisHullPoints, solveChassisDensities } from '../src/vehicle/geometry.ts';
+import { buildChassisHullPoints, composeSegmentsWithChassis, solveChassisDensities } from '../src/vehicle/geometry.ts';
+import { segmentMassSpecs } from '../src/vehicle/segments.ts';
 import {
 	BALLAST_LOCAL_Y_M,
 	BALLAST_RADIUS_M,
@@ -35,13 +36,18 @@ function toLocal(chassis, p) {
 }
 
 describe('hull cabin-tub (Tier-3 stage 1)', () => {
-	it('the chassis is a 12-shape concave composite, not a single hull', async () => {
+	// CRUSH M1 RECALIBRATION (12 -> 10): the solid NOSE and TAIL crush volumes left buildCabinShapes()
+	// for real welded segment BODIES + the two chassis-owned crush cores (vehicle/segments.ts; asserted
+	// by sim/segment-structure.test.mjs), so the cabin-tub array itself now carries the 10 shells
+	// (floorpan/roof/sills/6 pillars). The chassis BODY still carries 12+2 shapes in total (10 shells +
+	// 2 crush cores + 2 glass panes), but the cores are owned/tracked by vehicle.segments.
+	it('the chassis cabin tub is a 10-shape concave composite, not a single hull', async () => {
 		const native = await init();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
 		try {
 			createGroundBody(world);
 			const vehicle = createVehicle(world, { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M, z: 0 });
-			expect(vehicle.chassisShapes.cabin.length).toBe(12);
+			expect(vehicle.chassisShapes.cabin.length).toBe(10);
 			for (const s of vehicle.chassisShapes.cabin) expect(s.isValid()).toBe(true);
 			console.log(`[hull-cabin] chassis collision shapes: ${vehicle.chassisShapes.cabin.length}`);
 			destroyVehicle(vehicle);
@@ -69,20 +75,34 @@ describe('hull cabin-tub (Tier-3 stage 1)', () => {
 			const vehicle = createVehicle(world, { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M, z: 0 });
 			const md = vehicle.chassis.getMassData();
 
-			console.log(`[hull-cabin] mass=${md.mass.toFixed(3)} (ref ${refMD.mass.toFixed(3)}) COM=(${md.center.x.toExponential(2)},${md.center.y.toFixed(5)},${md.center.z.toFixed(5)})`);
+			// CRUSH M1 RECALIBRATION: the chassis body alone now carries the parity REMAINDER (legacy
+			// mass minus the 135kg of welded crush segments, geometry.ts's deductSegmentsFromParity()) --
+			// the byte-parity claim moved from "chassis body == legacy chassis" to "rigid COMPOSITE
+			// (chassis + welded segments at their rest poses) == legacy chassis". Recompose it with the
+			// same segment box specs vehicle.ts deducted and hold it to the same tolerances as before.
+			const composite = composeSegmentsWithChassis(
+				{ mass: md.mass, center: md.center, inertia: md.inertia },
+				segmentMassSpecs(),
+				refMD.center,
+			);
+			const segTotal = segmentMassSpecs().reduce((sum, s) => sum + s.massKg, 0);
+			console.log(
+				`[hull-cabin] chassis=${md.mass.toFixed(3)} +segments=${segTotal} composite=${composite.mass.toFixed(3)} (ref ${refMD.mass.toFixed(3)}) COM=(${composite.center.x.toExponential(2)},${composite.center.y.toFixed(5)},${composite.center.z.toFixed(5)})`,
+			);
 
-			// Total mass is exactly the tuned chassis mass, and matches the legacy composite.
-			expect(md.mass).toBeCloseTo(CHASSIS_MASS_KG, 3);
-			expect(md.mass).toBeCloseTo(refMD.mass, 5);
-			// Center of mass matches the legacy composite (the COM-lowering the ballast used to provide is
-			// now carried by setMassData directly).
-			expect(md.center.x).toBeCloseTo(refMD.center.x, 6);
-			expect(md.center.y).toBeCloseTo(refMD.center.y, 6);
-			expect(md.center.z).toBeCloseTo(refMD.center.z, 6);
-			// Inertia tensor diagonal matches (drives every rotation/rollover/handling calibration).
-			expect(md.inertia.cx.x).toBeCloseTo(refMD.inertia.cx.x, 3);
-			expect(md.inertia.cy.y).toBeCloseTo(refMD.inertia.cy.y, 3);
-			expect(md.inertia.cz.z).toBeCloseTo(refMD.inertia.cz.z, 3);
+			// Composite mass is exactly the tuned chassis mass, and matches the legacy composite.
+			expect(composite.mass).toBeCloseTo(CHASSIS_MASS_KG, 3);
+			expect(composite.mass).toBeCloseTo(refMD.mass, 5);
+			// Composite center of mass matches the legacy composite (the COM-lowering the ballast used to
+			// provide is carried by setMassData directly).
+			expect(composite.center.x).toBeCloseTo(refMD.center.x, 6);
+			expect(composite.center.y).toBeCloseTo(refMD.center.y, 6);
+			expect(composite.center.z).toBeCloseTo(refMD.center.z, 6);
+			// Composite inertia tensor diagonal about the legacy COM matches refMD's (which box3d reports
+			// about the body COM -- same point, since the composite COM equals it, asserted above).
+			expect(composite.inertia.cx.x).toBeCloseTo(refMD.inertia.cx.x, 3);
+			expect(composite.inertia.cy.y).toBeCloseTo(refMD.inertia.cy.y, 3);
+			expect(composite.inertia.cz.z).toBeCloseTo(refMD.inertia.cz.z, 3);
 
 			destroyVehicle(vehicle);
 		} finally {
