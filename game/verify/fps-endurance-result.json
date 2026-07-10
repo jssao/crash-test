@@ -1,0 +1,40 @@
+{
+  "pass": true,
+  "gateRatio": 0.7,
+  "ratio": 1.103,
+  "baselineFps": 7.2,
+  "finalFps": 8,
+  "cycles": 35,
+  "durationMs": 90000,
+  "rendererInfo": {
+    "baseline": {
+      "fps": 7.248187953011747,
+      "calls": 691,
+      "triangles": 256286,
+      "geometries": 899,
+      "textures": 37,
+      "programs": 12,
+      "sceneObjs": 1265,
+      "meshes": 1066,
+      "sprites": 0,
+      "heapMB": 49
+    },
+    "final": {
+      "fps": 7.997334221926025,
+      "calls": 691,
+      "triangles": 256286,
+      "geometries": 899,
+      "textures": 37,
+      "programs": 12,
+      "sceneObjs": 1265,
+      "meshes": 1066,
+      "sprites": 0,
+      "heapMB": 50
+    }
+  },
+  "geoGrowth": 0,
+  "objGrowth": 0,
+  "heapGrowth": 1,
+  "consoleErrors": 0,
+  "pageErrors": 0
+}

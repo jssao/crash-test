@@ -1,0 +1,46 @@
+{
+  "calls": [
+    967,
+    967
+  ],
+  "triangles": [
+    315298,
+    315298
+  ],
+  "geometries": [
+    739,
+    789
+  ],
+  "textures": [
+    35,
+    37
+  ],
+  "programs": [
+    11,
+    12
+  ],
+  "sceneObjs": [
+    1265,
+    1265
+  ],
+  "meshes": [
+    1066,
+    1066
+  ],
+  "sprites": [
+    0,
+    0
+  ],
+  "renderMedMs": [
+    2.100000023841858,
+    1.899999976158142
+  ],
+  "awake": [
+    true,
+    true
+  ],
+  "featureBodies": [
+    759,
+    759
+  ]
+}
