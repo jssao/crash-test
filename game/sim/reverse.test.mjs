@@ -176,8 +176,16 @@ describe('reverse wheel-detach gating (impact required for a drivetrain-force pl
     try {
       for (let i = 0; i < 30; i++) sim.step(NEUTRAL_INPUT);
       // A synthetic qualifying impact: car-touching (chassis id), horizontal normal (not a ground
-      // contact), above the min approach speed -- i.e. the car IS in a collision this step.
-      const carHit = { userDataA: CAR_ENTITY_ID.chassis, userDataB: 9_999_999, point: { x: 0, y: 0, z: 0 }, normal: { x: 1, y: 0, z: 0 }, approachSpeed: 10 };
+      // contact), above the min approach speed -- i.e. the car IS in a collision this step. The impact
+      // point is placed FAR from the car (z=1000) on purpose: stepWeldsAndWheels()'s impact-context gate
+      // (part 3) keys only on the hit's userData/normal/approachSpeed, never its point, so a distant point
+      // still arms the base wheel-detach path -- but it sits well outside every panel's STRESS_RADIUS_M,
+      // so the accumulated-stress model (part 2) contributes ZERO panel stress from it. A near-origin
+      // point (the earlier value) fed every step instead loosened/broke the hood weld within the first
+      // step or two, and that weld state change perturbed the chassis dynamics enough to reshape the
+      // rear-wheel joint-force profile below its debounce plateau -- masking the very base-path detach
+      // this test exists to prove. Isolating impact-context from panel damage removes that pollution.
+      const carHit = { userDataA: CAR_ENTITY_ID.chassis, userDataB: 9_999_999, point: { x: 0, y: 0, z: 1000 }, normal: { x: 1, y: 0, z: 0 }, approachSpeed: 10 };
       const counters = { fl: 0, fr: 0, rl: 0, rr: 0 };
       let detached = false;
       // Hand-drive the physics + weld gate (not sim.step, so we control the hit list precisely) with the
