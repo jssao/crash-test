@@ -23,6 +23,7 @@ import {
 	STRESS_RADIUS_M,
 	WHEEL_DETACH_DEBOUNCE_STEPS,
 	WHEEL_DETACH_FORCE_MULT,
+	WHEEL_DETACH_IMPACT_BYPASS_MULT,
 	type PanelVulnerability,
 } from './damage-tuning';
 import { breakPanelWeld, loosenPanelWeld, PANEL_ENTITY_ID, PANEL_KEYS, type PanelHandle, type PanelKey } from './panels';
@@ -218,14 +219,34 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		escalatePanel(panel, panel.stress > STRESS_BREAK_S2, panel.stress > STRESS_LOOSEN_S1, timeSec, emit);
 	}
 
-	// ---- 3) Wheel detach (debounced -- see WHEEL_DETACH_DEBOUNCE_STEPS's doc comment) ----
+	// ---- 3) Wheel detach (impact-gated + debounced -- see WHEEL_DETACH_FORCE_MULT's doc comment) ----
 	const perWheelWeightShareN = (carMassKg * GRAVITY_MAG) / 4;
 	const wheelDetachForceN = WHEEL_DETACH_FORCE_MULT * perWheelWeightShareN;
+	const wheelDetachBypassForceN = WHEEL_DETACH_IMPACT_BYPASS_MULT * perWheelWeightShareN;
+	// IMPACT CONTEXT: is the car in a genuine collision THIS step? A qualifying hit is car-touching,
+	// above the min approach speed, and NOT a near-vertical ground contact (same three filters the
+	// accumulated-stress path in part 2 uses). The reverse (and forward) drivetrain load carries NO
+	// such hit, so a purely drivetrain-induced joint-force plateau -- the reverse spin-motor reaction
+	// sustaining ~4x the rear weight share for ~1s (measured, see WHEEL_DETACH_FORCE_MULT's doc) --
+	// never reaches the base detach path; a wall/pole/tree crash's force breach coincides with its hit
+	// and detaches exactly as before. A catastrophic CONTACTLESS load (the direct-impulse mechanism
+	// test, or a real gross overload) still detaches via the higher WHEEL_DETACH_IMPACT_BYPASS_MULT.
+	let impactContext = false;
+	for (const hit of hits) {
+		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
+		if (Math.abs(hit.normal.y) > STRESS_MAX_NORMAL_UP_COMPONENT) continue;
+		if (!hitTouchesCar(hit, panels)) continue;
+		impactContext = true;
+		break;
+	}
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
 		const wheel = vehicle.wheels[key];
 		if (!wheel.joint) continue;
 		const forceMag = length(wheel.joint.getConstraintForce());
-		if (forceMag > wheelDetachForceN) {
+		// Detach-eligible this step iff a contactless gross overload, or a base-threshold breach that
+		// coincides with a real impact. Either way still requires WHEEL_DETACH_DEBOUNCE_STEPS in a row.
+		const detachEligible = forceMag > wheelDetachBypassForceN || (forceMag > wheelDetachForceN && impactContext);
+		if (detachEligible) {
 			wheelOverThresholdSteps[key] = (wheelOverThresholdSteps[key] ?? 0) + 1;
 		} else {
 			wheelOverThresholdSteps[key] = 0;

@@ -243,11 +243,37 @@ export const LOOSEN_DAMPING_RATIO = 0.15;
  * spike (measured: a hard handbrake-from-standstill stop can spike to ~38kN for exactly one step) does
  * not falsely detach a wheel during ordinary aggressive driving, while a genuinely sustained overload
  * (the mechanism test's repeated impulse, or a real sustained crash load) still does.
+ *
+ * THIS is the BASE threshold: it only counts toward detach when it coincides with a real IMPACT (a
+ * car-touching collision that step -- see welds.ts's stepWeldsAndWheels() part 3 and
+ * WHEEL_DETACH_IMPACT_BYPASS_MULT below). REVERSE-DETACH FIX (measured, game/verify/reverse-check.mjs
+ * + verify/playtest-r3/diag-reverse.mjs): a plain forward -> full-stop -> reverse maneuver on open flat
+ * ground, zero collision, drove the two REAR wheel joints to a SUSTAINED ~14.5kN plateau (~4.0x the
+ * rear weight share) for ~80 consecutive steps -- the reverse spin-motor holds the barely-moving rear
+ * wheels in a permanent high-slip stall, and getConstraintForce() reports that reaction as a force
+ * that noses just over 4x for far longer than the debounce, tearing BOTH rear wheels off with no
+ * impact at all. The debounce cannot help (the breach is genuinely sustained, not a spike), so the
+ * base breach is now gated on impact context: a purely drivetrain-induced plateau (reverse OR forward)
+ * carries no car-collision hit and can never reach the detach path, mirroring the occupants' restraint
+ * gating (world/features/occupants/physics.ts). A real crash's force breach DOES coincide with the
+ * wall/pole/tree hit, so crash wheel-detach is byte-unchanged (base threshold + debounce, as before).
  */
 export const WHEEL_DETACH_FORCE_MULT = 4;
 
-/** Consecutive fixed steps the wheel-joint force must stay above threshold before actually detaching
- * (see WHEEL_DETACH_FORCE_MULT's doc comment for why: filters a single-step transient spike). */
+/**
+ * CONTACTLESS gross-overload bypass multiplier: a wheel-joint force this many times the per-wheel
+ * weight share detaches the wheel WITHOUT requiring impact context (still debounced). This preserves
+ * the direct-impulse mechanism test (game/sim/damage-wheel-detach.test.mjs applies a huge impulse
+ * straight to a wheel body, producing NO hit event but a measured ~22kN->40kN+ sustained joint force,
+ * ~7-14x the share) and any genuinely catastrophic contactless load, while sitting well ABOVE the
+ * measured reverse plateau (~4.0x) so the reverse false-detach can never reach it. Chosen at 6x
+ * (=~21.6kN on this car): ~50% above the reverse plateau, below the impulse-test regime, and the lone
+ * ~38kN single-step handbrake spike is still filtered by WHEEL_DETACH_DEBOUNCE_STEPS. */
+export const WHEEL_DETACH_IMPACT_BYPASS_MULT = 6;
+
+/** Consecutive fixed steps a detach-eligible breach (base+impact, or the contactless gross-overload
+ * bypass) must persist before actually detaching (see WHEEL_DETACH_FORCE_MULT's doc comment for why:
+ * filters a single-step transient solver spike). */
 export const WHEEL_DETACH_DEBOUNCE_STEPS = 3;
 
 // ---------------------------------------------------------------------------------------------

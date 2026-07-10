@@ -242,6 +242,9 @@ async function main() {
     const runFwd = (steps) => evalExpr(`JSON.stringify(window.__runInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }, ${steps}, 30))`);
     const runNeutral = (steps) => evalExpr(`JSON.stringify(window.__runInput(${neutral}, ${steps}, 60))`);
     const resetCar = () => evalExpr("window.__GAME__.resetCar(); window.__GAME__.setInput(null); 'ok'");
+    // Wheel integrity: on open flat ground with zero collision, reversing must NEVER tear a wheel off
+    // (the blocker this check now also guards -- see src/damage/welds.ts's impact-gated wheel detach).
+    const wheelStates = () => evalExpr('JSON.stringify(window.__GAME__.telemetry.damage.wheelStates)');
 
     // ---- Scenario D (control): forward from fresh spawn ----
     await resetCar();
@@ -253,7 +256,8 @@ async function main() {
     await resetCar();
     await evalExpr(`window.__GAME__.stepN(20); 'ok'`);
     results.A_reverse_fresh = JSON.parse(await runRev(240)); // exactly 4s -- the acceptance window
-    console.log('[A reverse-fresh 4s] alongForward=%s (negative=reverse) endSpeed=%s endGear=%s', results.A_reverse_fresh.displacementAlongForward, results.A_reverse_fresh.endSpeed, results.A_reverse_fresh.endGear);
+    results.A_wheelStates = JSON.parse(await wheelStates());
+    console.log('[A reverse-fresh 4s] alongForward=%s (negative=reverse) endSpeed=%s endGear=%s wheels=%s', results.A_reverse_fresh.displacementAlongForward, results.A_reverse_fresh.endSpeed, results.A_reverse_fresh.endGear, JSON.stringify(results.A_wheelStates));
     console.table(results.A_reverse_fresh.samples);
 
     // ---- Scenario B: idle until asleep, then reverse ----
@@ -262,7 +266,8 @@ async function main() {
     results.B_idle = idle;
     console.log('[B idle-10s] endSpeed=%s lastAwake=%s', idle.endSpeed, idle.samples.at(-1)?.awake);
     results.B_reverse_after_idle = JSON.parse(await runRev(240)); // exactly 4s
-    console.log('[B reverse-after-idle] alongForward=%s endSpeed=%s endGear=%s', results.B_reverse_after_idle.displacementAlongForward, results.B_reverse_after_idle.endSpeed, results.B_reverse_after_idle.endGear);
+    results.B_wheelStates = JSON.parse(await wheelStates());
+    console.log('[B reverse-after-idle] alongForward=%s endSpeed=%s endGear=%s wheels=%s', results.B_reverse_after_idle.displacementAlongForward, results.B_reverse_after_idle.endSpeed, results.B_reverse_after_idle.endGear, JSON.stringify(results.B_wheelStates));
     console.table(results.B_reverse_after_idle.samples);
 
     // ---- Scenario C: forward -> stop -> reverse ----
@@ -271,7 +276,8 @@ async function main() {
     await runFwd(180); // drive forward 3s
     const stopSeg = JSON.parse(await runRev(240)); // hold S: first brakes to stop, then should reverse
     results.C_forward_then_reverse = stopSeg;
-    console.log('[C fwd->reverse] alongForward(from stop-start)=%s endSpeed=%s endGear=%s', stopSeg.displacementAlongForward, stopSeg.endSpeed, stopSeg.endGear);
+    results.C_wheelStates = JSON.parse(await wheelStates());
+    console.log('[C fwd->reverse] alongForward(from stop-start)=%s endSpeed=%s endGear=%s wheels=%s', stopSeg.displacementAlongForward, stopSeg.endSpeed, stopSeg.endGear, JSON.stringify(results.C_wheelStates));
     console.table(stopSeg.samples);
 
     c.ws.close();
@@ -301,10 +307,22 @@ async function main() {
   console.log(`  C forward->stop->reverse:   ${revTrans} m`);
   console.log(`  D control forward:          ${results.D_forward_fresh?.displacementAlongForward} m (expect large +)`);
 
-  writeFileSync(path.join(OUT_DIR, 'reverse-check-report.json'), JSON.stringify({ results, consoleErrors, pageErrors, timestamp: new Date().toISOString() }, null, 2));
+  // Wheel integrity: reversing on open flat ground (zero collision) must never detach a wheel.
+  const detachedIn = (s) => (s ? Object.entries(s).filter(([, v]) => v === 'detached').map(([k]) => k) : []);
+  const wheelIntegrity = [
+    ['A fresh-spawn reverse', results.A_wheelStates],
+    ['B reverse-after-sleep', results.B_wheelStates],
+    ['C forward->stop->reverse', results.C_wheelStates],
+  ].map(([label, s]) => ({ label, detached: detachedIn(s) }));
+  const anyDetached = wheelIntegrity.some((w) => w.detached.length > 0);
+  console.log(`  wheel integrity (no crash):`);
+  for (const w of wheelIntegrity) console.log(`    ${w.label}: ${w.detached.length ? 'DETACHED ' + w.detached.join(',') + ' -> FAIL' : 'all attached -> PASS'}`);
+
+  writeFileSync(path.join(OUT_DIR, 'reverse-check-report.json'), JSON.stringify({ results, wheelIntegrity, consoleErrors, pageErrors, timestamp: new Date().toISOString() }, null, 2));
 
   if (consoleErrors.length > 0 || pageErrors.length > 0) exitCode = 1;
   if (!passA || !passB) exitCode = 2;
+  if (anyDetached) exitCode = 3; // a wheel fell off during a plain reverse maneuver -- the blocker
   process.exit(exitCode);
 }
 

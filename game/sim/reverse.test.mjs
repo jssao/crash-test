@@ -15,7 +15,12 @@
 // torque cap, real bounded motion, transition) so a future edit that guts reverse still trips a fast test.
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
-import { REVERSE_MAX_DRIVE_TORQUE_NM, REVERSE_MAX_SPEED_MS } from '../src/vehicle/tuning.ts';
+import { createDamageSim } from './damage-harness.mjs';
+import { REVERSE_MAX_DRIVE_TORQUE_NM, REVERSE_MAX_SPEED_MS, FIXED_DT, FIXED_SUBSTEPS, GRAVITY_MAG } from '../src/vehicle/tuning.ts';
+import { CAR_ENTITY_ID, NEUTRAL_INPUT, stepVehicle } from '../src/vehicle/vehicle.ts';
+import { length } from '../src/vehicle/mathUtil.ts';
+import { stepWeldsAndWheels } from '../src/damage/welds.ts';
+import { WHEEL_DETACH_FORCE_MULT, WHEEL_DETACH_IMPACT_BYPASS_MULT, WHEEL_DETACH_DEBOUNCE_STEPS } from '../src/damage/damage-tuning.ts';
 
 const mm = (x, y, z) => ({ x: x / 1000, y: y / 1000, z: z / 1000 });
 // Approximates the full game's cardetail + occupant sprung load (same set as ride-height.test.mjs).
@@ -103,6 +108,115 @@ describe('reverse', () => {
       expect(sawFootBrake).toBe(true); // braked while still rolling forward
       expect(sawReverse).toBe(true); // then engaged reverse once stopped
       expect(finalReverseSpeed).toBeGreaterThan(3); // actually reversing at the end
+    } finally {
+      sim.destroy();
+    }
+  });
+});
+
+// REVERSE WHEEL-DETACH FIX (blocker regression). ROOT CAUSE (measured, browser
+// verify/playtest-r3/diag-reverse.mjs): a plain forward -> full-stop -> reverse maneuver on open flat
+// ground with ZERO collision drove the two REAR wheel joints to a SUSTAINED ~14.5kN plateau (~4.0x the
+// per-wheel weight share) for ~80 consecutive steps -- the reverse spin-motor holds the barely-moving
+// rear wheels in a permanent high-slip stall and getConstraintForce() reports that reaction as a force
+// just over the 4x detach threshold for far longer than the debounce, tearing both rear wheels off. The
+// flat-ground headless sim can't reproduce the plateau (same nose-heavy-attitude limitation the reverse
+// SCOPE NOTE above documents -- measured: reverse rear force stays ~3kN here), so these guard the FIX at
+// its true seam instead: wheel detach is now IMPACT-GATED (welds.ts stepWeldsAndWheels part 3) -- a
+// base-threshold force breach only counts toward detach when it coincides with a real car-touching
+// impact; a purely drivetrain-induced (contactless) plateau in the reverse band never detaches, while a
+// catastrophic contactless overload still does via WHEEL_DETACH_IMPACT_BYPASS_MULT.
+describe('reverse wheel-detach gating (impact required for a drivetrain-force plateau)', () => {
+  // A sustained CONTACTLESS impulse on a rear wheel body, sized to hold the joint's reported constraint
+  // force in the "reverse band" -- above the base 4x detach threshold but below the 6x contactless
+  // gross-overload bypass -- for well past the debounce window. Stands in for the reverse spin-motor's
+  // rear-joint plateau (which this flat sim can't produce), but as a clean contactless force with no hit
+  // events, exactly the situation the fix must stop from detaching a wheel.
+  const BAND_IMPULSE_NS = 2800; // measured: peaks ~5.2x share (~18.6kN), ~5 consecutive steps over base, stays under the 6x gross bypass
+
+  it('a sustained contactless in-band rear-wheel joint load does NOT detach the wheel (the reverse false-positive)', async () => {
+    const sim = await createDamageSim();
+    try {
+      for (let i = 0; i < 30; i++) sim.step(NEUTRAL_INPUT);
+      const share = (sim.damage.carMassKg * GRAVITY_MAG) / 4;
+      const baseN = WHEEL_DETACH_FORCE_MULT * share;
+      const grossN = WHEEL_DETACH_IMPACT_BYPASS_MULT * share;
+      let maxConsecOverBase = 0;
+      let consec = 0;
+      let peak = 0;
+      // sim.step() runs the FULL damage pipeline (drains the real -- here empty -- hit events, then the
+      // impact-gated wheel detach). No collision, so impact context is never armed.
+      for (let i = 0; i < 20; i++) {
+        if (sim.vehicle.wheels.rl.joint) sim.vehicle.wheels.rl.body.applyLinearImpulseToCenter({ x: 0, y: 0, z: BAND_IMPULSE_NS }, true);
+        sim.step(NEUTRAL_INPUT);
+        const j = sim.vehicle.wheels.rl.joint;
+        const f = j ? length(j.getConstraintForce()) : Infinity; // detached -> treat as over (will fail the attach assert)
+        peak = Math.max(peak, Number.isFinite(f) ? f : peak);
+        if (f > baseN) { consec++; maxConsecOverBase = Math.max(maxConsecOverBase, consec); } else consec = 0;
+      }
+      console.log(
+        `[reverse detach-gate contactless] peak=${peak.toFixed(0)}N (${(peak / share).toFixed(2)}x) base=${baseN.toFixed(0)} gross=${grossN.toFixed(0)} ` +
+          `maxConsecOverBase=${maxConsecOverBase} rl=${sim.damageTelemetry().wheelStates.rl}`,
+      );
+      // Self-validation: the load actually stayed over the BASE threshold long enough that the OLD
+      // (ungated) code WOULD have detached (>= debounce consecutive) -- so a green here is meaningful,
+      // not a vacuous pass from the force never breaching.
+      expect(maxConsecOverBase).toBeGreaterThanOrEqual(WHEEL_DETACH_DEBOUNCE_STEPS);
+      // ...and it stayed comfortably below the contactless gross-overload bypass (in-band, not a crash).
+      expect(peak).toBeLessThan(grossN);
+      // THE FIX: no collision -> no detach, despite a sustained over-base plateau.
+      expect(sim.damageTelemetry().wheelStates.rl).toBe('attached');
+    } finally {
+      sim.destroy();
+    }
+  });
+
+  it('the same in-band load WITH a coincident car impact DOES detach (impact context arms the base path)', async () => {
+    const sim = await createDamageSim();
+    try {
+      for (let i = 0; i < 30; i++) sim.step(NEUTRAL_INPUT);
+      // A synthetic qualifying impact: car-touching (chassis id), horizontal normal (not a ground
+      // contact), above the min approach speed -- i.e. the car IS in a collision this step.
+      const carHit = { userDataA: CAR_ENTITY_ID.chassis, userDataB: 9_999_999, point: { x: 0, y: 0, z: 0 }, normal: { x: 1, y: 0, z: 0 }, approachSpeed: 10 };
+      const counters = { fl: 0, fr: 0, rl: 0, rr: 0 };
+      let detached = false;
+      // Hand-drive the physics + weld gate (not sim.step, so we control the hit list precisely) with the
+      // SAME contactless in-band impulse plus a coincident impact fed to the detach check every step.
+      for (let i = 0; i < 24 && !detached; i++) {
+        if (sim.vehicle.wheels.rl.joint) sim.vehicle.wheels.rl.body.applyLinearImpulseToCenter({ x: 0, y: 0, z: BAND_IMPULSE_NS }, true);
+        stepVehicle(sim.vehicle, NEUTRAL_INPUT, FIXED_DT);
+        sim.world.step(FIXED_DT, FIXED_SUBSTEPS);
+        stepWeldsAndWheels({
+          vehicle: sim.vehicle,
+          panels: sim.damage.panels,
+          hits: [carHit],
+          carMassKg: sim.damage.carMassKg,
+          timeSec: 0,
+          wheelOverThresholdSteps: counters,
+          emit: () => {},
+        });
+        if (!sim.vehicle.wheels.rl.joint) detached = true;
+      }
+      console.log(`[reverse detach-gate with-impact] detached=${detached} rl=${sim.damageTelemetry().wheelStates.rl}`);
+      expect(detached).toBe(true);
+    } finally {
+      sim.destroy();
+    }
+  });
+
+  it('a contactless GROSS overload still detaches (crash / direct-impulse mechanism preserved)', async () => {
+    const sim = await createDamageSim();
+    try {
+      for (let i = 0; i < 30; i++) sim.step(NEUTRAL_INPUT);
+      let detached = false;
+      // 5000 Ns/step measured to peak ~10x share -> well over the 6x contactless bypass, sustained.
+      for (let i = 0; i < 20 && !detached; i++) {
+        if (sim.vehicle.wheels.rl.joint) sim.vehicle.wheels.rl.body.applyLinearImpulseToCenter({ x: 0, y: 0, z: 5000 }, true);
+        sim.step(NEUTRAL_INPUT);
+        if (!sim.vehicle.wheels.rl.joint) detached = true;
+      }
+      console.log(`[reverse detach-gate gross-bypass] detached=${detached} rl=${sim.damageTelemetry().wheelStates.rl}`);
+      expect(detached).toBe(true);
     } finally {
       sim.destroy();
     }
