@@ -99,6 +99,54 @@ export interface BoxShapeOptions extends ShapeOptions {
 	halfExtents?: Vec3;
 }
 
+/** A single contact point within a manifold (b3ManifoldPoint, types.h) -- see Shape.getContactData(). */
+export interface ContactManifoldPoint {
+	/** Negative if penetrating (speculative collision, so some points may be separated). */
+	separation: number;
+	/** Impulse along the manifold normal from the FINAL sub-step only. */
+	normalImpulse: number;
+	/** Total normal impulse across every sub-step this time step -- nonzero iff there was a real
+	 * interaction (a speculative-but-not-touching point has normalImpulse 0 here too). */
+	totalNormalImpulse: number;
+	/** Relative normal velocity pre-solve; negative means the shapes were approaching. */
+	normalVelocity: number;
+}
+
+/**
+ * The manifold readback for one touching contact (b3ContactData + its first b3Manifold, types.h) --
+ * see Shape.getContactData(). Exposes the solver's actual per-point impulses, as opposed to the
+ * approachSpeed heuristic hit events (HitEventCursor) carry.
+ */
+export interface ContactManifoldData {
+	entityIdA: number;
+	entityIdB: number;
+	/** Number of manifolds box3d computed for this contact -- normally 1; mesh/height-field contacts
+	 * can have more (one per triangle in contact). Only the first manifold's normal/impulses/points
+	 * are broken out below (see totalNormalImpulseSum for the one field that's still correct across
+	 * every manifold, not just the first). */
+	manifoldCount: number;
+	/** b3ManifoldPoint.totalNormalImpulse summed across EVERY point of EVERY manifold on this contact
+	 * -- the field to use for "how hard did this contact push overall" (e.g. solver-impulse-driven
+	 * crumple depth) regardless of manifoldCount, unlike the rest of this interface which only
+	 * reflects manifold 0. */
+	totalNormalImpulseSum: number;
+	/** manifolds[0].normal -- world space, points from this contact's shapeA to shapeB. */
+	normal: Vec3;
+	/** manifolds[0].frictionImpulse -- central friction linear impulse. */
+	frictionImpulse: Vec3;
+	/** manifolds[0].rollingImpulse -- rolling resistance angular impulse (spheres/capsules). */
+	rollingImpulse: Vec3;
+	/** manifolds[0].twistImpulse -- central friction angular impulse about the normal. */
+	twistImpulse: number;
+	/** manifolds[0].points, 0 to 4 entries. */
+	points: ContactManifoldPoint[];
+}
+
+// Word (4-byte) stride of one b3jsContactData record -- must match B3JS_CONTACT_RECORD_WORDS in
+// src/wasm-shim/binding.c exactly.
+const CONTACT_DATA_STRIDE_WORDS = 31;
+const CONTACT_DATA_MAX_POINTS = 4;
+
 /** A handle to a shape attached to a body. Create via Body.create*Shape(); destroy via .destroy(). */
 export class Shape {
 	private destroyed = false;
@@ -126,6 +174,22 @@ export class Shape {
 
 	enableHitEvents( flag: boolean ): void {
 		this.native._b3js_Shape_EnableHitEvents( this.handle, flag ? 1 : 0 );
+	}
+
+	/**
+	 * Enables poll-free sensor begin/end touch events for this shape (b3Shape_EnableSensorEvents,
+	 * box3d.h; see World.sensorBeginEvents()/sensorEndEvents()). Disabled by default, even on shapes
+	 * created with `isSensor: true`. Per this shim's own empirical verification
+	 * (tests/sensor-events.test.ts): a sensor/visitor pair only reports touches once BOTH shapes have
+	 * this enabled -- calling it on only the sensor shape produces no events at all. The ordinary
+	 * (non-sensor) "visitor" shape must separately call this too.
+	 */
+	enableSensorEvents( flag: boolean ): void {
+		this.native._b3js_Shape_EnableSensorEvents( this.handle, flag ? 1 : 0 );
+	}
+
+	isSensorEventsEnabled(): boolean {
+		return this.native._b3js_Shape_AreSensorEventsEnabled( this.handle ) !== 0;
 	}
 
 	/**
@@ -228,6 +292,62 @@ export class Shape {
 				userMaterialId,
 			} )
 		);
+	}
+
+	/** Maximum number of touching contacts b3Shape_GetContactData() could return right now
+	 * (b3Shape_GetContactCapacity, box3d.h) -- sizes the call getContactData() makes internally. */
+	getContactCapacity(): number {
+		return this.native._b3js_Shape_GetContactCapacity( this.handle );
+	}
+
+	/**
+	 * Manifold readback for every contact currently touching this shape (b3Shape_GetContactData,
+	 * box3d.h) -- the solver's actual per-contact normal/friction/rolling impulses, in place of the
+	 * approachSpeed heuristic hit events use (see ContactManifoldData's doc comment). Query-time only
+	 * (unlike moveEvents()/hitEvents(), this is not drained per-step) -- call it whenever you need a
+	 * fresh read, e.g. right after world.step() for shapes flagged interesting that frame.
+	 */
+	getContactData(): ContactManifoldData[] {
+		const capacity = this.getContactCapacity();
+		if ( capacity <= 0 ) {
+			return [];
+		}
+
+		const ptr = this.native._malloc( capacity * CONTACT_DATA_STRIDE_WORDS * 4 );
+		try {
+			const count = this.native._b3js_Shape_GetContactData( this.handle, ptr, capacity );
+			const f = this.native.HEAPF32;
+			const u = this.native.HEAPU32;
+			const out: ContactManifoldData[] = [];
+			for ( let i = 0; i < count; i++ ) {
+				const base = ( ptr >> 2 ) + i * CONTACT_DATA_STRIDE_WORDS;
+				const pointCount = Math.min( u[base + 14], CONTACT_DATA_MAX_POINTS );
+				const points: ContactManifoldPoint[] = [];
+				for ( let p = 0; p < pointCount; p++ ) {
+					const pbase = base + 15 + p * 4;
+					points.push( {
+						separation: f[pbase],
+						normalImpulse: f[pbase + 1],
+						totalNormalImpulse: f[pbase + 2],
+						normalVelocity: f[pbase + 3],
+					} );
+				}
+				out.push( {
+					entityIdA: u[base],
+					entityIdB: u[base + 1],
+					manifoldCount: u[base + 2],
+					totalNormalImpulseSum: f[base + 3],
+					normal: { x: f[base + 4], y: f[base + 5], z: f[base + 6] },
+					frictionImpulse: { x: f[base + 7], y: f[base + 8], z: f[base + 9] },
+					rollingImpulse: { x: f[base + 10], y: f[base + 11], z: f[base + 12] },
+					twistImpulse: f[base + 13],
+					points,
+				} );
+			}
+			return out;
+		} finally {
+			this.native._free( ptr );
+		}
 	}
 
 	/** @param updateBodyMass recompute the owning body's mass from its remaining shapes (default true). */

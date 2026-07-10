@@ -4,7 +4,7 @@ import type { Native } from "./native.js";
 import { registerHandle, unregisterHandle, forgetHandle } from "./registry.js";
 import { withFloatOutBuffer } from "./scratch.js";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_GRAVITY, DEFAULT_MASK_BITS, type Vec3 } from "./math.js";
-import { ContactEventsView, HitEventsView, JointEventsView, MoveEventsView } from "./events.js";
+import { ContactEventsView, HitEventsView, JointEventsView, MoveEventsView, SensorEventsView } from "./events.js";
 import { Body, defaultBodyOptions, type BodyOptions } from "./body.js";
 import type { RayCastResult } from "./body.js";
 import {
@@ -42,6 +42,18 @@ export interface WorldOptions {
 export interface RayCastOptions {
 	categoryBits?: bigint;
 	maskBits?: bigint;
+}
+
+/** Mirrors b3ShapeProxy (types.h) -- the generic "convex point cloud + radius" cast shape
+ * b3World_CastShape sweeps through the world (see World.castShapeClosest()). A sphere is 1 point with
+ * a nonzero radius; a capsule is 2 points with a nonzero radius; a box/hull is its corner/vertex
+ * points with radius 0. */
+export interface ShapeCastProxy {
+	/** Up to B3_MAX_SHAPE_CAST_POINTS (64) points; extras are dropped -- see b3js_CastShapeClosest's
+	 * doc comment, src/wasm-shim/binding.c. */
+	points: Vec3[];
+	/** External radius of the point cloud. 0 for a plain point-cloud/box/hull cast. */
+	radius?: number;
 }
 
 /** Mirrors b3ExplosionDef (types.h) -- see World.explode(). Upstream's own default def
@@ -150,6 +162,32 @@ export class World {
 	}
 
 	/**
+	 * Zero-allocation cursor over this step's sensor begin-touch events (types.h's
+	 * b3SensorBeginTouchEvent) -- fires once when a shape starts overlapping a sensor shape. Poll-free
+	 * trigger volumes (occupant-in-seat, checkpoint, "entered structure"). Requires the sensor shape
+	 * created with `isSensor: true` PLUS `Shape.enableSensorEvents(true)` called on BOTH the sensor
+	 * shape and the visitor shape -- sensor events are disabled by default even on sensors, and (per
+	 * this shim's own empirical verification, tests/sensor-events.test.ts) enabling it on only one side
+	 * of the pair reports nothing; see b3js_Shape_EnableSensorEvents's doc comment, src/wasm-shim/
+	 * binding.c. Pairs with sensorEndEvents().
+	 */
+	sensorBeginEvents(): SensorEventsView {
+		const ptr = this.native._b3js_GetSensorBeginEventsPtr( this.handle );
+		const count = this.native._b3js_GetSensorBeginEventsCount( this.handle );
+		return new SensorEventsView( this.native, ptr, count );
+	}
+
+	/** Zero-allocation cursor over this step's sensor end-touch events (types.h's
+	 * b3SensorEndTouchEvent) -- fires once when a shape stops overlapping a sensor shape (including
+	 * when either shape is destroyed -- see sensorUserData/visitorUserData's fallback-to-0 behavior on
+	 * an already-destroyed shape, b3js_EntityIdFromShapeOrZero in binding.c). See sensorBeginEvents(). */
+	sensorEndEvents(): SensorEventsView {
+		const ptr = this.native._b3js_GetSensorEndEventsPtr( this.handle );
+		const count = this.native._b3js_GetSensorEndEventsCount( this.handle );
+		return new SensorEventsView( this.native, ptr, count );
+	}
+
+	/**
 	 * Applies a radial explosion (b3World_Explode, box3d.h) -- an area-aware impulse to spheres/
 	 * capsules/hulls within `options.radius` (+`options.falloff`) of `options.position`. Takes effect
 	 * immediately (not queued for the next step).
@@ -180,6 +218,48 @@ export class World {
 			};
 		} finally {
 			this.native._free( ptr );
+		}
+	}
+
+	/**
+	 * Sweeps `proxy` (see ShapeCastProxy) from `origin` by `translation` and returns only the closest
+	 * hit (b3World_CastShape, box3d.h -- see b3js_CastShapeClosest's doc comment, src/wasm-shim/
+	 * binding.c, for why this is a thin "closest" wrapper over the engine's callback-based cast).
+	 * Ignores initial overlap at the origin, same as castRayClosest(). Core use case: chase-cam
+	 * occlusion -- sphere-cast camera-\>car each frame and pull the camera in when it would clip a
+	 * wall/building.
+	 */
+	castShapeClosest( proxy: ShapeCastProxy, origin: Vec3, translation: Vec3,
+		options: RayCastOptions = {} ): RayCastResult {
+		const pointCount = proxy.points.length;
+		const flatPoints = new Float32Array( pointCount * 3 );
+		for ( let i = 0; i < pointCount; i++ ) {
+			flatPoints[i * 3] = proxy.points[i].x;
+			flatPoints[i * 3 + 1] = proxy.points[i].y;
+			flatPoints[i * 3 + 2] = proxy.points[i].z;
+		}
+
+		const pointsPtr = this.native._malloc( flatPoints.byteLength );
+		const outPtr = this.native._malloc( 8 * 4 );
+		try {
+			this.native.HEAPF32.set( flatPoints, pointsPtr >> 2 );
+			const entityId = this.native._b3js_CastShapeClosest(
+				this.handle, pointsPtr, pointCount, proxy.radius ?? 0,
+				origin.x, origin.y, origin.z, translation.x, translation.y, translation.z,
+				options.categoryBits ?? DEFAULT_CATEGORY_BITS, options.maskBits ?? DEFAULT_MASK_BITS, outPtr
+			);
+			const f = this.native.HEAPF32;
+			const i = outPtr >> 2;
+			return {
+				hit: f[i] !== 0,
+				point: { x: f[i + 1], y: f[i + 2], z: f[i + 3] },
+				normal: { x: f[i + 4], y: f[i + 5], z: f[i + 6] },
+				fraction: f[i + 7],
+				entityId,
+			};
+		} finally {
+			this.native._free( pointsPtr );
+			this.native._free( outPtr );
 		}
 	}
 

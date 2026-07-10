@@ -42,11 +42,21 @@ export interface ContactEventCursor {
 	userDataB: number;
 }
 
+/** A sensor begin/end touch event (b3SensorBeginTouchEvent/b3SensorEndTouchEvent, types.h) -- see
+ * World.sensorBeginEvents()/sensorEndEvents(). Named by role (sensor vs. visitor), unlike
+ * ContactEventCursor's symmetric A/B, since the two shapes in a sensor touch are not interchangeable:
+ * one is the sensor (isSensor: true at creation), the other is whatever touched it. */
+export interface SensorEventCursor {
+	sensorUserData: number;
+	visitorUserData: number;
+}
+
 // Word (4-byte) strides -- must match the b3js*Event structs in binding.c exactly.
 const MOVE_EVENT_STRIDE_WORDS = 9; // userData, px,py,pz, qx,qy,qz,qs, flags
 const HIT_EVENT_STRIDE_WORDS = 11; // userDataA, userDataB, px,py,pz, nx,ny,nz, approachSpeed, materialIdA, materialIdB
 const JOINT_EVENT_STRIDE_WORDS = 1; // userData
 const CONTACT_EVENT_STRIDE_WORDS = 2; // userDataA, userDataB
+const SENSOR_EVENT_STRIDE_WORDS = 2; // sensorUserData, visitorUserData
 
 export class MoveEventsView {
 	private readonly cursor: MoveEventCursor = {
@@ -147,6 +157,31 @@ export class ContactEventsView {
 	}
 
 	forEach( fn: ( event: ContactEventCursor, index: number ) => void ): void {
+		for ( let i = 0; i < this.count; i++ ) {
+			fn( this.at( i ), i );
+		}
+	}
+}
+
+/** Zero-allocation cursor over a step's sensor begin/end touch events (see
+ * World.sensorBeginEvents()/sensorEndEvents()). Same two-entity-id shape for both begin and end. */
+export class SensorEventsView {
+	private readonly cursor: SensorEventCursor = { sensorUserData: 0, visitorUserData: 0 };
+
+	constructor( private readonly native: Native, private readonly ptr: number, readonly count: number ) {}
+
+	at( index: number ): SensorEventCursor {
+		if ( index < 0 || index >= this.count ) {
+			throw new RangeError( `sensor event index ${ index } out of range [0, ${ this.count })` );
+		}
+		const base = ( this.ptr >> 2 ) + index * SENSOR_EVENT_STRIDE_WORDS;
+		const u = this.native.HEAPU32;
+		this.cursor.sensorUserData = u[base];
+		this.cursor.visitorUserData = u[base + 1];
+		return this.cursor;
+	}
+
+	forEach( fn: ( event: SensorEventCursor, index: number ) => void ): void {
 		for ( let i = 0; i < this.count; i++ ) {
 			fn( this.at( i ), i );
 		}

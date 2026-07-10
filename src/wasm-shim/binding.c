@@ -72,6 +72,22 @@ static uint32_t b3js_EntityIdFromShape( b3ShapeId shapeId )
 	return b3js_PtrToU32( bodyUserData );
 }
 
+// Same as b3js_EntityIdFromShape, but safe to call on a shape id that may have already been
+// destroyed -- returns 0 instead of touching freed memory. Needed for sensor end-touch events:
+// unlike contact begin/end (drained synchronously right after step(), before any JS code could have
+// destroyed anything), b3SensorEndTouchEvent's own doc comment (types.h) says an end event fires when
+// "destroying a body or shape" too, and that destroy can have happened via a JS Shape.destroy()/
+// Body.destroy() call made *before* this step (e.g. debris cleanup) -- so the shape may legitimately
+// be gone by the time this step's sensor events are read.
+static uint32_t b3js_EntityIdFromShapeOrZero( b3ShapeId shapeId )
+{
+	if ( !b3Shape_IsValid( shapeId ) )
+	{
+		return 0;
+	}
+	return b3js_EntityIdFromShape( shapeId );
+}
+
 static inline b3Transform b3js_Frame( float px, float py, float pz, float qx, float qy, float qz, float qw )
 {
 	b3Transform t;
@@ -126,6 +142,17 @@ typedef struct b3jsContactEvent
 	uint32_t userDataB;
 } b3jsContactEvent;
 
+// Sensor begin/end touch events (b3SensorBeginTouchEvent/b3SensorEndTouchEvent, types.h) -- poll-free
+// trigger volumes (occupant-in-seat, checkpoint, "entered structure"). Same two-entity-id shape as a
+// contact begin/end event, but naming the roles explicitly (sensor vs. visitor) since, unlike a
+// contact pair, the two shapes are not symmetric: one is the sensor (created with isSensor: true),
+// the other is whatever shape (with enableSensorEvents: true) touched it.
+typedef struct b3jsSensorEvent
+{
+	uint32_t sensorUserData;
+	uint32_t visitorUserData;
+} b3jsSensorEvent;
+
 typedef struct b3jsEventBuf
 {
 	void* data;
@@ -140,6 +167,8 @@ static b3jsEventBuf s_hitBufs[B3JS_MAX_WORLDS];
 static b3jsEventBuf s_jointBufs[B3JS_MAX_WORLDS];
 static b3jsEventBuf s_contactBeginBufs[B3JS_MAX_WORLDS];
 static b3jsEventBuf s_contactEndBufs[B3JS_MAX_WORLDS];
+static b3jsEventBuf s_sensorBeginBufs[B3JS_MAX_WORLDS];
+static b3jsEventBuf s_sensorEndBufs[B3JS_MAX_WORLDS];
 
 static void b3js_EnsureCapacity( b3jsEventBuf* buf, int neededCount, size_t elemSize )
 {
@@ -253,6 +282,35 @@ static void b3js_DrainEvents( b3WorldId worldId )
 		jointOut[i].userData = b3js_PtrToU32( jointEvents.jointEvents[i].userData );
 	}
 	jointBuf->count = jointEvents.count;
+
+	// Sensor begin/end touch events -- see b3jsSensorEvent's doc comment above for why the end-event
+	// resolution uses the OrZero variant (a destroyed-shape-safe read) while begin can safely use the
+	// same "nothing between step() and this drain destroys a shape" reasoning as contact begin/end.
+	// Both use the OrZero variant uniformly here: it is cheap (one extra b3Shape_IsValid check) and
+	// removes any need to reason about which event kind is actually safe on a given day upstream
+	// changes its sensor semantics.
+	b3SensorEvents sensorEvents = b3World_GetSensorEvents( worldId );
+	b3jsEventBuf* sensorBeginBuf = &s_sensorBeginBufs[slot];
+	b3js_EnsureCapacity( sensorBeginBuf, sensorEvents.beginCount, sizeof( b3jsSensorEvent ) );
+	b3jsSensorEvent* sensorBeginOut = (b3jsSensorEvent*)sensorBeginBuf->data;
+	for ( int i = 0; i < sensorEvents.beginCount; i++ )
+	{
+		const b3SensorBeginTouchEvent* ev = &sensorEvents.beginEvents[i];
+		sensorBeginOut[i].sensorUserData = b3js_EntityIdFromShapeOrZero( ev->sensorShapeId );
+		sensorBeginOut[i].visitorUserData = b3js_EntityIdFromShapeOrZero( ev->visitorShapeId );
+	}
+	sensorBeginBuf->count = sensorEvents.beginCount;
+
+	b3jsEventBuf* sensorEndBuf = &s_sensorEndBufs[slot];
+	b3js_EnsureCapacity( sensorEndBuf, sensorEvents.endCount, sizeof( b3jsSensorEvent ) );
+	b3jsSensorEvent* sensorEndOut = (b3jsSensorEvent*)sensorEndBuf->data;
+	for ( int i = 0; i < sensorEvents.endCount; i++ )
+	{
+		const b3SensorEndTouchEvent* ev = &sensorEvents.endEvents[i];
+		sensorEndOut[i].sensorUserData = b3js_EntityIdFromShapeOrZero( ev->sensorShapeId );
+		sensorEndOut[i].visitorUserData = b3js_EntityIdFromShapeOrZero( ev->visitorShapeId );
+	}
+	sensorEndBuf->count = sensorEvents.endCount;
 }
 
 // =================================================================================================
@@ -278,6 +336,8 @@ uint64_t b3js_CreateWorld( float gx, float gy, float gz, float hitEventThreshold
 	s_jointBufs[slot].count = 0;
 	s_contactBeginBufs[slot].count = 0;
 	s_contactEndBufs[slot].count = 0;
+	s_sensorBeginBufs[slot].count = 0;
+	s_sensorEndBufs[slot].count = 0;
 
 	return b3js_PackWorldId( worldId );
 }
@@ -375,6 +435,30 @@ int32_t b3js_GetContactEndEventsCount( uint64_t worldId64 )
 	return s_contactEndBufs[slot].count;
 }
 
+int32_t b3js_GetSensorBeginEventsPtr( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return (int32_t)(intptr_t)s_sensorBeginBufs[slot].data;
+}
+
+int32_t b3js_GetSensorBeginEventsCount( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return s_sensorBeginBufs[slot].count;
+}
+
+int32_t b3js_GetSensorEndEventsPtr( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return (int32_t)(intptr_t)s_sensorEndBufs[slot].data;
+}
+
+int32_t b3js_GetSensorEndEventsCount( uint64_t worldId64 )
+{
+	int slot = b3js_WorldSlot( b3js_UnpackWorldId( worldId64 ) );
+	return s_sensorEndBufs[slot].count;
+}
+
 // Radial explosion (b3World_Explode / b3ExplosionDef, box3d.h/types.h) -- area-aware impulse applied
 // to spheres/capsules/hulls within radius+falloff of `position`. Upstream's own default def
 // (b3DefaultExplosionDef()) only seeds maskBits; radius/falloff/impulsePerArea have no meaningful
@@ -420,6 +504,104 @@ uint32_t b3js_CastRayClosest( uint64_t worldId64, float ox, float oy, float oz, 
 		return 0;
 	}
 	return b3js_EntityIdFromShape( result.shapeId );
+}
+
+// Closest-hit shape cast (b3World_CastShape, box3d.h) -- sweeps an arbitrary convex point cloud
+// (b3ShapeProxy: pointsPtr/pointCount + radius, same generic "point cloud with a radius" convention
+// b3ShapeCastInput itself uses -- a sphere is 1 point + nonzero radius, a capsule is 2 points +
+// nonzero radius, a box/hull is its corner points with radius 0) through the world and returns only
+// the closest hit, mirroring b3js_CastRayClosest above. Upstream's b3World_CastShape is
+// callback-based (b3CastResultFcn, called once per candidate shape) with no built-in "closest"
+// convenience of its own (unlike CastRay/CastRayClosest) -- b3js_CastShapeCallback below supplies
+// that by returning `fraction` every time, which per the callback's own doc comment ("return
+// fraction: clip the ray to this point") narrows the sweep to progressively closer hits so the last
+// call recorded is the closest one.
+typedef struct b3jsCastShapeContext
+{
+	int hit;
+	float px, py, pz;
+	float nx, ny, nz;
+	float fraction;
+	uint32_t entityId;
+} b3jsCastShapeContext;
+
+static float b3js_CastShapeCallback( b3ShapeId shapeId, b3Pos point, b3Vec3 normal, float fraction,
+									  uint64_t userMaterialId, int triangleIndex, int childIndex, void* context )
+{
+	(void)userMaterialId;
+	(void)triangleIndex;
+	(void)childIndex;
+
+	b3jsCastShapeContext* ctx = (b3jsCastShapeContext*)context;
+	ctx->hit = 1;
+	ctx->px = point.x;
+	ctx->py = point.y;
+	ctx->pz = point.z;
+	ctx->nx = normal.x;
+	ctx->ny = normal.y;
+	ctx->nz = normal.z;
+	ctx->fraction = fraction;
+	ctx->entityId = b3js_EntityIdFromShape( shapeId );
+	return fraction;
+}
+
+// pointsPtr is a flat (x,y,z)-tuple array of up to B3_MAX_SHAPE_CAST_POINTS points (extra points are
+// silently dropped -- callers should never approach that limit; a box/hull proxy needs at most its
+// own corner/vertex count). outPtr must have room for 8 floats: [hit(0/1), px,py,pz, nx,ny,nz,
+// fraction]. Returns the entity id of the closest hit shape, or 0 if nothing was hit.
+uint32_t b3js_CastShapeClosest( uint64_t worldId64, const float* pointsPtr, int32_t pointCount, float radius,
+								 float ox, float oy, float oz, float tx, float ty, float tz,
+								 uint64_t categoryBits, uint64_t maskBits, float* outPtr )
+{
+	b3WorldId worldId = b3js_UnpackWorldId( worldId64 );
+	b3QueryFilter filter = b3DefaultQueryFilter();
+	filter.categoryBits = categoryBits;
+	filter.maskBits = maskBits;
+
+	if ( pointCount > B3_MAX_SHAPE_CAST_POINTS )
+	{
+		pointCount = B3_MAX_SHAPE_CAST_POINTS;
+	}
+	if ( pointCount < 1 )
+	{
+		pointCount = 1;
+	}
+
+	b3Vec3 points[B3_MAX_SHAPE_CAST_POINTS];
+	for ( int i = 0; i < pointCount; i++ )
+	{
+		points[i].x = pointsPtr[i * 3 + 0];
+		points[i].y = pointsPtr[i * 3 + 1];
+		points[i].z = pointsPtr[i * 3 + 2];
+	}
+
+	b3ShapeProxy proxy;
+	proxy.points = points;
+	proxy.count = pointCount;
+	proxy.radius = radius;
+
+	b3Pos origin = { ox, oy, oz };
+	b3Vec3 translation = { tx, ty, tz };
+
+	b3jsCastShapeContext ctx;
+	ctx.hit = 0;
+	ctx.px = ctx.py = ctx.pz = 0.0f;
+	ctx.nx = ctx.ny = ctx.nz = 0.0f;
+	ctx.fraction = 1.0f;
+	ctx.entityId = 0;
+
+	b3World_CastShape( worldId, origin, &proxy, translation, filter, b3js_CastShapeCallback, &ctx );
+
+	outPtr[0] = ctx.hit ? 1.0f : 0.0f;
+	outPtr[1] = ctx.px;
+	outPtr[2] = ctx.py;
+	outPtr[3] = ctx.pz;
+	outPtr[4] = ctx.nx;
+	outPtr[5] = ctx.ny;
+	outPtr[6] = ctx.nz;
+	outPtr[7] = ctx.fraction;
+
+	return ctx.hit ? ctx.entityId : 0;
 }
 
 // =================================================================================================
@@ -915,6 +1097,22 @@ void b3js_Shape_EnableHitEvents( uint64_t shapeId64, int flag )
 	b3Shape_EnableHitEvents( b3LoadShapeId( shapeId64 ), flag != 0 );
 }
 
+// Runtime sensor-event enable (b3Shape_EnableSensorEvents, box3d.h). Per b3ShapeDef's own doc comment
+// (types.h) this flag "applies to sensors and non-sensors" and is "disabled by default, even for
+// sensors" -- confirmed empirically here (tests/sensor-events.test.ts): a sensor/visitor pair only
+// generates begin/end touch events once BOTH shapes in the pair have this enabled. Enabling it on
+// only the sensor shape (isSensor: true at creation, see ShapeOptions.isSensor) produces no events at
+// all -- the visitor shape (the ordinary, non-sensor shape touching it) must separately opt in too.
+void b3js_Shape_EnableSensorEvents( uint64_t shapeId64, int flag )
+{
+	b3Shape_EnableSensorEvents( b3LoadShapeId( shapeId64 ), flag != 0 );
+}
+
+int b3js_Shape_AreSensorEventsEnabled( uint64_t shapeId64 )
+{
+	return b3Shape_AreSensorEventsEnabled( b3LoadShapeId( shapeId64 ) ) ? 1 : 0;
+}
+
 // Runtime collision filter (b3Filter: categoryBits/maskBits uint64, groupIndex int32) -- lets a
 // shape's category/mask/group change after creation (e.g. flipping a ragdoll occupant from
 // "no-collide with car interior" to "collide with everything" on ejection). Split into three
@@ -1038,6 +1236,128 @@ uint64_t b3js_Shape_GetMeshSurfaceMaterial( uint64_t shapeId64, int32_t index, f
 	outPtr[4] = m.tangentVelocity.y;
 	outPtr[5] = m.tangentVelocity.z;
 	return m.userMaterialId;
+}
+
+// ---- Manifold readback (b3Shape_GetContactData, box3d.h) -- the solver's actual per-contact-point
+// normal/friction/rolling impulses (b3Manifold, types.h), as opposed to the approachSpeed heuristic
+// hit events carry. Query-time only (not drained per-step like move/hit/joint events): caller must
+// first size a buffer from b3js_Shape_GetContactCapacity(), matching the malloc/free-per-call
+// convention documented in scratch.ts (this is a getter, not a per-step hot-path drain).
+//
+// Each returned contact is a fixed-size B3JS_CONTACT_RECORD_WORDS-float record (must match
+// CONTACT_DATA_STRIDE_WORDS in src/ts/shape.ts):
+//   [0]  entityIdA (uint32 bit pattern, resolved via b3js_EntityIdFromShape)
+//   [1]  entityIdB
+//   [2]  manifoldCount for this contact (mesh/height-field contacts can have more than one; only the
+//        FIRST manifold's detail is broken out below -- see the field doc for why)
+//   [3]  totalNormalImpulseSum -- b3ManifoldPoint.totalNormalImpulse summed across EVERY point of
+//        EVERY manifold on this contact (not just manifold 0). This is the one field safe to use
+//        as "how hard did this contact push overall" regardless of manifoldCount -- e.g. for
+//        solver-impulse-driven crumple depth, replacing the approachSpeed heuristic.
+//   [4..6]   manifolds[0].normal (x,y,z), world space, points from shapeA to shapeB
+//   [7..9]   manifolds[0].frictionImpulse (x,y,z) -- central friction linear impulse
+//   [10..12] manifolds[0].rollingImpulse (x,y,z) -- rolling resistance angular impulse
+//   [13]     manifolds[0].twistImpulse -- central friction angular impulse about the normal
+//   [14]     manifolds[0].pointCount (0..4)
+//   [15..30] up to 4 points from manifolds[0], 4 floats each: {separation, normalImpulse,
+//            totalNormalImpulse, normalVelocity} (b3ManifoldPoint, types.h) -- unused point slots
+//            (index >= pointCount) are zeroed.
+#define B3JS_CONTACT_RECORD_WORDS 31
+#define B3JS_CONTACT_MAX_POINTS 4
+
+int32_t b3js_Shape_GetContactCapacity( uint64_t shapeId64 )
+{
+	return b3Shape_GetContactCapacity( b3LoadShapeId( shapeId64 ) );
+}
+
+// outPtr must have room for capacity * B3JS_CONTACT_RECORD_WORDS floats. Returns the number of
+// contacts actually written (<= capacity) -- box3d.h's own warning: "do not ignore the return value".
+int32_t b3js_Shape_GetContactData( uint64_t shapeId64, float* outPtr, int32_t capacity )
+{
+	if ( capacity <= 0 )
+	{
+		return 0;
+	}
+
+	b3ShapeId shapeId = b3LoadShapeId( shapeId64 );
+	b3ContactData* contacts = (b3ContactData*)malloc( (size_t)capacity * sizeof( b3ContactData ) );
+	if ( contacts == NULL )
+	{
+		return 0;
+	}
+
+	int count = b3Shape_GetContactData( shapeId, contacts, capacity );
+
+	for ( int i = 0; i < count; i++ )
+	{
+		const b3ContactData* cd = &contacts[i];
+		float* rec = outPtr + (size_t)i * B3JS_CONTACT_RECORD_WORDS;
+		uint32_t* recU = (uint32_t*)rec;
+
+		recU[0] = b3js_EntityIdFromShape( cd->shapeIdA );
+		recU[1] = b3js_EntityIdFromShape( cd->shapeIdB );
+		recU[2] = (uint32_t)cd->manifoldCount;
+
+		float totalNormalImpulseSum = 0.0f;
+		for ( int mi = 0; mi < cd->manifoldCount; mi++ )
+		{
+			const b3Manifold* mm = &cd->manifolds[mi];
+			for ( int p = 0; p < mm->pointCount; p++ )
+			{
+				totalNormalImpulseSum += mm->points[p].totalNormalImpulse;
+			}
+		}
+		rec[3] = totalNormalImpulseSum;
+
+		if ( cd->manifoldCount > 0 )
+		{
+			const b3Manifold* m = &cd->manifolds[0];
+			rec[4] = m->normal.x;
+			rec[5] = m->normal.y;
+			rec[6] = m->normal.z;
+			rec[7] = m->frictionImpulse.x;
+			rec[8] = m->frictionImpulse.y;
+			rec[9] = m->frictionImpulse.z;
+			rec[10] = m->rollingImpulse.x;
+			rec[11] = m->rollingImpulse.y;
+			rec[12] = m->rollingImpulse.z;
+			rec[13] = m->twistImpulse;
+
+			int pointCount = m->pointCount;
+			if ( pointCount > B3JS_CONTACT_MAX_POINTS )
+			{
+				pointCount = B3JS_CONTACT_MAX_POINTS;
+			}
+			recU[14] = (uint32_t)pointCount;
+
+			for ( int p = 0; p < B3JS_CONTACT_MAX_POINTS; p++ )
+			{
+				float* prec = rec + 15 + p * 4;
+				if ( p < pointCount )
+				{
+					const b3ManifoldPoint* pt = &m->points[p];
+					prec[0] = pt->separation;
+					prec[1] = pt->normalImpulse;
+					prec[2] = pt->totalNormalImpulse;
+					prec[3] = pt->normalVelocity;
+				}
+				else
+				{
+					prec[0] = prec[1] = prec[2] = prec[3] = 0.0f;
+				}
+			}
+		}
+		else
+		{
+			for ( int w = 4; w < B3JS_CONTACT_RECORD_WORDS; w++ )
+			{
+				rec[w] = 0.0f;
+			}
+		}
+	}
+
+	free( contacts );
+	return count;
 }
 
 // =================================================================================================

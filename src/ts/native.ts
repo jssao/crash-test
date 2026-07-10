@@ -41,10 +41,17 @@ export interface Native {
 	_b3js_GetContactBeginEventsCount( worldId: bigint ): number;
 	_b3js_GetContactEndEventsPtr( worldId: bigint ): number;
 	_b3js_GetContactEndEventsCount( worldId: bigint ): number;
+	_b3js_GetSensorBeginEventsPtr( worldId: bigint ): number;
+	_b3js_GetSensorBeginEventsCount( worldId: bigint ): number;
+	_b3js_GetSensorEndEventsPtr( worldId: bigint ): number;
+	_b3js_GetSensorEndEventsCount( worldId: bigint ): number;
 	_b3js_World_Explode( worldId: bigint, maskBits: bigint, px: number, py: number, pz: number, radius: number,
 		falloff: number, impulsePerArea: number ): void;
 	_b3js_CastRayClosest( worldId: bigint, ox: number, oy: number, oz: number, tx: number, ty: number, tz: number,
 		categoryBits: bigint, maskBits: bigint, outPtr: number ): number;
+	_b3js_CastShapeClosest( worldId: bigint, pointsPtr: number, pointCount: number, radius: number, ox: number,
+		oy: number, oz: number, tx: number, ty: number, tz: number, categoryBits: bigint, maskBits: bigint,
+		outPtr: number ): number;
 
 	// ---- Body ----
 	_b3js_CreateBody( worldId: bigint, type: number, px: number, py: number, pz: number, qx: number, qy: number,
@@ -118,6 +125,8 @@ export interface Native {
 	_b3js_Shape_GetUserData( shapeId: bigint ): number;
 	_b3js_Shape_EnableContactEvents( shapeId: bigint, flag: number ): void;
 	_b3js_Shape_EnableHitEvents( shapeId: bigint, flag: number ): void;
+	_b3js_Shape_EnableSensorEvents( shapeId: bigint, flag: number ): void;
+	_b3js_Shape_AreSensorEventsEnabled( shapeId: bigint ): number;
 	_b3js_Shape_SetFilter( shapeId: bigint, categoryBits: bigint, maskBits: bigint, groupIndex: number,
 		invokeContacts: number ): void;
 	_b3js_Shape_GetFilterCategoryBits( shapeId: bigint ): bigint;
@@ -134,6 +143,8 @@ export interface Native {
 	_b3js_Shape_SetMeshMaterial( shapeId: bigint, index: number, friction: number, restitution: number,
 		rollingResistance: number, tvx: number, tvy: number, tvz: number, userMaterialId: bigint ): void;
 	_b3js_Shape_GetMeshSurfaceMaterial( shapeId: bigint, index: number, outPtr: number ): bigint;
+	_b3js_Shape_GetContactCapacity( shapeId: bigint ): number;
+	_b3js_Shape_GetContactData( shapeId: bigint, outPtr: number, capacity: number ): number;
 
 	// ---- Joints (common) ----
 	_b3js_DestroyJoint( jointId: bigint, wakeAttached: number ): void;

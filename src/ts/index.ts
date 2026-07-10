@@ -32,7 +32,7 @@ export {
 export type { Vec3, Quat, Transform, Matrix3 } from "./math.js";
 
 export { World } from "./world.js";
-export type { WorldOptions, RayCastOptions, ExplosionOptions } from "./world.js";
+export type { WorldOptions, RayCastOptions, ExplosionOptions, ShapeCastProxy } from "./world.js";
 
 export { Body, BodyType, defaultBodyOptions } from "./body.js";
 export type { BodyOptions, RayCastResult, MassData } from "./body.js";
@@ -46,6 +46,8 @@ export type {
 	ShapeFilter,
 	SurfaceMaterial,
 	MeshMaterialEntry,
+	ContactManifoldData,
+	ContactManifoldPoint,
 } from "./shape.js";
 
 export { Joint, WeldJoint, WheelJoint, RevoluteJoint, DistanceJoint, SphericalJoint } from "./joint.js";
@@ -59,8 +61,14 @@ export type {
 	SphericalJointOptions,
 } from "./joint.js";
 
-export { MoveEventsView, HitEventsView, JointEventsView, ContactEventsView } from "./events.js";
-export type { MoveEventCursor, HitEventCursor, JointEventCursor, ContactEventCursor } from "./events.js";
+export { MoveEventsView, HitEventsView, JointEventsView, ContactEventsView, SensorEventsView } from "./events.js";
+export type {
+	MoveEventCursor,
+	HitEventCursor,
+	JointEventCursor,
+	ContactEventCursor,
+	SensorEventCursor,
+} from "./events.js";
 
 export {
 	registerHandle,
