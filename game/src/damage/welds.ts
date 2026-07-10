@@ -85,6 +85,33 @@ export interface HitEventLike {
 	point: V3;
 	normal: V3;
 	approachSpeed: number;
+	/**
+	 * Effective mass (kg) of the NON-car body in this contact, resolved by system.ts from the damage
+	 * system's foreign-mass registry (setForeignMass()). `undefined` means "not a registered dynamic
+	 * body" -- i.e. a static wall / tree / ground OR any obstacle whose owner hasn't opted into the
+	 * mass-aware path -- and is treated as effectively infinite mass (factor 1, unchanged behavior).
+	 * Only finite positive values attenuate car damage. See massAwareDamageFactor().
+	 */
+	otherMassKg?: number;
+}
+
+/**
+ * The car-damage attenuation factor e for one contact, from the OTHER body's effective mass:
+ * `e = m_other / (m_other + m_car)` for a dynamic body of known finite mass, else 1 (static/ground/
+ * unknown -> effectively infinite mass -> full damage, exactly the pre-mass-aware behavior). This is
+ * the single definition of "e" used by BOTH the plastic-crumple deposit (system.ts, via
+ * applyCrumpleEvent's massFactor) and the accumulated weld-stress increment (below) -- weighting every
+ * approach-speed-driven car-damage contribution by how much momentum the other body can actually
+ * transmit. A 2.7kg brick vs a 1300kg car reads e~=0.002; a wall reads exactly 1.
+ *
+ * NOTE this deliberately leaves the SOLVER-driven triggers untouched: the direct weld constraint-force
+ * spike and the wheel-detach force test (stepWeldsAndWheels parts 1 & 3) already read the real
+ * mass-aware contact response out of the solver (getConstraintForce()), so a light body already fails
+ * to spike them -- only the approach-SPEED heuristics (crumple depth + accumulated stress) needed this.
+ */
+export function massAwareDamageFactor(otherMassKg: number | undefined, carMassKg: number): number {
+	if (otherMassKg == null || !(otherMassKg > 0) || !(carMassKg > 0)) return 1;
+	return otherMassKg / (otherMassKg + carMassKg);
 }
 
 function isCarPanelId(id: number): PanelKey | null {
@@ -177,7 +204,12 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 			if (dist > STRESS_RADIUS_M) continue;
 			const dirFactor = panelDirectionalFactor(PANEL_VULNERABILITY[key], dirLocal);
 			if (dirFactor <= 0) continue;
-			panel.stress += STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor;
+			// Mass-aware weighting: a light plank/brick/sapling transmits a fraction e of the stress a
+			// wall would at the same closing speed (massAwareDamageFactor). For a static/unknown other
+			// body e is exactly 1, so `* 1` is an IEEE-754 no-op and this stress figure is bit-identical
+			// to the pre-mass-aware code -- the byte-stable-against-static-obstacles guarantee.
+			const massFactor = massAwareDamageFactor(hit.otherMassKg, carMassKg);
+			panel.stress += STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor * massFactor;
 		}
 	}
 	for (const key of PANEL_KEYS) {

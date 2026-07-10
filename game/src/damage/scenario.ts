@@ -64,6 +64,80 @@ export function destroyTestWall(wall: Body): void {
 	wall.destroy();
 }
 
+/** One light dynamic "fence picket" spawned by spawnFenceLine(): the raw Body/Shape plus the entity id
+ * it's tagged with (Body AND Shape userData) and its mass, so a caller can register the mass with the
+ * damage system (setForeignMass()) and later inspect/despawn it. */
+export interface FencePlank {
+	body: Body;
+	shape: Shape;
+	entityId: number;
+	massKg: number;
+	spawnPos: V3;
+}
+
+export interface FenceLineOptions {
+	/** Meters ahead of the vehicle spawn (along spawn-forward) to place the fence line. */
+	distanceAhead?: number;
+	/** Number of pickets across the line. */
+	plankCount?: number;
+	/** Total lateral span (meters) the pickets are spread across (perpendicular to spawn-forward). */
+	spanWidth?: number;
+	/** Mass (kg) of each picket -- the user's "2kg plank" case defaults here. */
+	plankMassKg?: number;
+	/** First entity id (Body/Shape userData); pickets get firstEntityId, +1, +2, ... Must be OUTSIDE
+	 * the car's reserved 1-10 range so the damage system treats them as foreign obstacles. */
+	firstEntityId?: number;
+}
+
+const PLANK_HALF_EXTENTS: V3 = { x: 0.05, y: 0.6, z: 0.04 };
+
+/**
+ * Spawns a row of light dynamic "fence pickets" across the vehicle's forward path -- the headless stand-
+ * in for the user's "drive through a fence line" case. Each picket is a thin, tall box tagged (Body AND
+ * Shape userData) with a unique entity id in a high, car-disjoint range so the mass-aware damage path
+ * (system.ts's foreignMassForHit -> welds.ts's massAwareDamageFactor) recognizes it as a light obstacle
+ * once its mass is registered via setForeignMass(). Returns the pickets (with their entity ids + masses)
+ * so the caller registers the masses and can inspect scatter / despawn afterward. Renderer-free.
+ *
+ * NOTE the pickets carry NO enableHitEvents flag of their own -- box3d fires a hit event whenever
+ * EITHER contacting shape has it enabled, and every car shape already does (see spawnTestWall's note),
+ * so a car<->picket contact is reported with one side = a car entity id and the other = the picket's id.
+ */
+export function spawnFenceLine(world: World, vehicle: Vehicle, options: FenceLineOptions = {}): FencePlank[] {
+	const { distanceAhead = 8, plankCount = 15, spanWidth = 6, plankMassKg = 2, firstEntityId = 1000 } = options;
+	const forward = rotateVector(vehicle.spawnRotation, LOCAL_FORWARD);
+	const right = rotateVector(vehicle.spawnRotation, { x: 1, y: 0, z: 0 });
+	const half = PLANK_HALF_EXTENTS;
+	const density = plankMassKg / (8 * half.x * half.y * half.z);
+	const planks: FencePlank[] = [];
+	for (let i = 0; i < plankCount; i++) {
+		const t = plankCount === 1 ? 0 : (i / (plankCount - 1)) * 2 - 1; // [-1, 1]
+		const lateral = t * (spanWidth / 2);
+		const pos: V3 = {
+			x: vehicle.spawnPosition.x + forward.x * distanceAhead + right.x * lateral,
+			y: half.y, // body origin at half-height so the box's bottom face sits on y=0 (same as buildPoles)
+			z: vehicle.spawnPosition.z + forward.z * distanceAhead + right.z * lateral,
+		};
+		const entityId = firstEntityId + i;
+		// Mild damping so scattered pickets settle instead of pirouetting forever (mirrors bodies.ts's
+		// per-kind settle damping); linear stays tiny so they still fly on the car's hit.
+		const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: vehicle.spawnRotation, userData: entityId, angularDamping: 0.9, linearDamping: 0.05 });
+		const shape = body.createBoxShape({ halfExtents: half, density, friction: 0.6, userData: entityId });
+		body.applyMassFromShapes();
+		planks.push({ body, shape, entityId, massKg: plankMassKg, spawnPos: pos });
+	}
+	return planks;
+}
+
+/** Full teardown of a spawnFenceLine() result (shapes before bodies -- same box3d-js live-handle-
+ * registry ordering as destroyTestWall()/destroyVehicle()). */
+export function destroyFenceLine(planks: readonly FencePlank[]): void {
+	for (const p of planks) {
+		p.shape.destroy(false);
+		p.body.destroy();
+	}
+}
+
 /**
  * "Teleport-align + set velocity toward the wall": resets the vehicle to its pristine spawn transform
  * (resetVehicle(), so repeated calls from a fresh or already-driven car both start from the same known

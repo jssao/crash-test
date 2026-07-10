@@ -27,8 +27,31 @@ import {
 	STRESS_MIN_APPROACH_SPEED_MS,
 } from './damage-tuning';
 import { createDamageEventEmitter, DamageEventEmitter, type DamageEvent } from './events';
-import { PANEL_KEYS, totalPanelMassKg, type PanelHandle, type PanelKey } from './panels';
-import { hitTouchesCar, stepWeldsAndWheels, type HitEventLike } from './welds';
+import { PANEL_ENTITY_ID, PANEL_KEYS, totalPanelMassKg, type PanelHandle, type PanelKey } from './panels';
+import { hitTouchesCar, massAwareDamageFactor, stepWeldsAndWheels, type HitEventLike } from './welds';
+import { CAR_ENTITY_ID } from '../vehicle/vehicle';
+
+/** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-10) -- the
+ * complement is "a foreign obstacle", whose mass (if a registered dynamic body) attenuates car damage.
+ * Built once from the two authoritative id tables so it can never drift from them. */
+const CAR_ENTITY_IDS: ReadonlySet<number> = new Set<number>([
+	CAR_ENTITY_ID.chassis,
+	...Object.values(CAR_ENTITY_ID.wheel),
+	...Object.values(PANEL_ENTITY_ID),
+]);
+
+/** The registered mass (kg) of the NON-car body in `hit`, or undefined when the other side is static/
+ * unknown, both sides are the car (self-contact), or neither side is the car (not our hit). Undefined
+ * -> massAwareDamageFactor() returns 1 -> unchanged behavior. */
+function foreignMassForHit(system: DamageSystem, userDataA: number, userDataB: number): number | undefined {
+	const aCar = CAR_ENTITY_IDS.has(userDataA);
+	const bCar = CAR_ENTITY_IDS.has(userDataB);
+	let otherId: number;
+	if (aCar && !bCar) otherId = userDataB;
+	else if (bCar && !aCar) otherId = userDataA;
+	else return undefined;
+	return system.foreignMasses.get(otherId);
+}
 
 export interface DamageTelemetry {
 	panelStates: Record<PanelKey, 'attached' | 'loosened' | 'broken'>;
@@ -47,6 +70,29 @@ export interface DamageSystem {
 	timeSec: number;
 	/** @internal welds.ts's per-wheel detach debounce counters -- see its doc comment. */
 	readonly wheelOverThresholdSteps: Record<WheelKey, number>;
+	/**
+	 * entity id (foreign body userData) -> its effective mass (kg), for the mass-aware damage weighting
+	 * (a light plank/brick/sapling transmits only e = m/(m+carMass) of the crush/stress a wall would).
+	 * Populated by obstacle owners at spawn via setForeignMass() -- a body must carry a matching non-car
+	 * userData tag AND be registered here to be treated as light; anything unregistered stays "wall-like"
+	 * (factor 1), so this is opt-in and cannot regress static walls/trees/ground. See system.ts's
+	 * foreignMassForHit() + welds.ts's massAwareDamageFactor().
+	 */
+	readonly foreignMasses: Map<number, number>;
+}
+
+/** Registers (or updates) a foreign body's effective mass so contacts against it attenuate car damage.
+ * `entityId` must be the same value the body/shape was tagged with (Body/Shape userData) and must be
+ * outside the car's reserved 1-10 range (a car id is ignored -- self-contacts never attenuate). */
+export function setForeignMass(system: DamageSystem, entityId: number, massKg: number): void {
+	if (CAR_ENTITY_IDS.has(entityId)) return;
+	system.foreignMasses.set(entityId, massKg);
+}
+
+/** Forgets one foreign body's mass (e.g. it was destroyed) -- subsequent contacts against `entityId`
+ * revert to wall-like full damage. No-op if it wasn't registered. */
+export function clearForeignMass(system: DamageSystem, entityId: number): void {
+	system.foreignMasses.delete(entityId);
 }
 
 /**
@@ -103,7 +149,14 @@ function worldToLocal(transform: { position: V3; rotation: Q4 }, worldPoint: V3,
  * mesh (which would otherwise re-capture whatever DEFORMED positions the THREE geometry currently
  * holds as the new "pristine" base -- permanently baking in damage instead of repairing it).
  */
-export function createDamageSystem(vehicle: Vehicle, registry: CrumpleRegistry = createCrumpleRegistry()): DamageSystem {
+export function createDamageSystem(
+	vehicle: Vehicle,
+	registry: CrumpleRegistry = createCrumpleRegistry(),
+	// Pass an EXISTING map (same rationale as `registry` above) when rebuilding the damage system on a
+	// car repair -- foreign masses describe WORLD obstacles, not the car, so they should survive the
+	// car being rebuilt; a fresh default is correct only for a from-scratch construction.
+	foreignMasses: Map<number, number> = new Map<number, number>(),
+): DamageSystem {
 	const carMassKg = vehicle.chassis.getMass() + totalPanelMassKg(vehicle.panels) + Object.values(vehicle.wheels).reduce((sum, w) => sum + w.body.getMass(), 0);
 	const wheelOverThresholdSteps = {} as Record<WheelKey, number>;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) wheelOverThresholdSteps[key] = 0;
@@ -115,6 +168,7 @@ export function createDamageSystem(vehicle: Vehicle, registry: CrumpleRegistry =
 		carMassKg,
 		timeSec: 0,
 		wheelOverThresholdSteps,
+		foreignMasses,
 	};
 }
 
@@ -155,6 +209,10 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 			point: { x: c.point.x, y: c.point.y, z: c.point.z },
 			normal: { x: c.normal.x, y: c.normal.y, z: c.normal.z },
 			approachSpeed: c.approachSpeed,
+			// Resolved ONCE here (the single hit drain) so crumple (below) and weld stress
+			// (stepWeldsAndWheels) weight this contact by the identical mass ratio. Undefined for a
+			// static/unknown other body -> factor 1 -> unchanged behavior.
+			otherMassKg: foreignMassForHit(system, c.userDataA, c.userDataB),
 		});
 	}
 
@@ -176,11 +234,15 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
 		if (!hitTouchesCar(hit, system.panels)) continue;
 		system.emitter.emit({ type: 'impact', severity: hit.approachSpeed, point: hit.point });
+		// Mass-aware crush depth: a light other body (registered dynamic mass) deposits only e =
+		// m/(m+carMass) of a wall's crush; static/unknown -> 1 -> byte-identical (see crumple.ts's
+		// applyImpactToMesh massFactor doc).
+		const massFactor = massAwareDamageFactor(hit.otherMassKg, system.carMassKg);
 		const result = applyCrumpleEvent(system.registry, hit.approachSpeed, (mesh) => {
 			const transform = transformFor(system, mesh.attachedTo);
 			if (!transform) return { point: FAR_AWAY_POINT, normal: UP_NORMAL };
 			return worldToLocal(transform, hit.point, hit.normal);
-		});
+		}, massFactor);
 		for (const meshId of result.shatteredNowMeshIds) system.emitter.emit({ type: 'glassShattered', mesh: meshId });
 	}
 

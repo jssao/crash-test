@@ -169,8 +169,17 @@ export function smoothFalloff(t: number): number {
 /** Applies one impact (already in this mesh's LOCAL space) to a single mesh: displaces every vertex
  * within the impact radius along -localNormal, accumulates (never heals), clamps per-vertex magnitude,
  * updates dentedCount/shattered. Returns the number of vertices touched (0 if the mesh's bounding
- * sphere doesn't even reach the impact radius -- cheap quick-reject). */
-export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, localNormal: V3, approachSpeedMs: number): number {
+ * sphere doesn't even reach the impact radius -- cheap quick-reject).
+ *
+ * `massFactor` in (0,1] is the mass-aware attenuation of the crush DEPTH (system.ts computes it from
+ * the OTHER body's effective mass ratio e = m_other/(m_other+m_car); static/ground/unknown obstacles
+ * pass the default 1.0 -- see system.ts's carDamageMassFactor()). It scales only the per-vertex
+ * displacement `mag`, deliberately NOT the impact radius or the quick-reject geometry, so at the
+ * default 1.0 EVERY result is bit-for-bit identical to the pre-mass-aware code (x*1.0 is an exact
+ * IEEE-754 identity) -- the byte-stable-against-static-obstacles guarantee the mass-aware rollout rests
+ * on. A light plank (e~0.002) still "touches" the same vertices but deposits a ~500x shallower dent, so
+ * essentially none clear CRUMPLE_DENT_EPSILON_M -> no cosmetic damage, exactly the user's plank case. */
+export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, localNormal: V3, approachSpeedMs: number, massFactor = 1): number {
 	const radius = CRUMPLE_RADIUS0_M + CRUMPLE_RADIUS_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_RADIUS_SPEED_CAP_MS);
 
 	const dxC = mesh.centerLocal.x - localPoint.x;
@@ -205,7 +214,9 @@ export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, lo
 		const t = dist / radius;
 		const falloff = Math.pow(smoothFalloff(t), CRUMPLE_FALLOFF_POWER);
 		const jitterSigned = deterministicJitter01(i, seed) * 2 - 1; // [-1,1)
-		const mag = magBase * falloff * (1 + CRUMPLE_JITTER_FRACTION * jitterSigned);
+		// massFactor last: for the default 1.0 this trailing `* 1` is an exact IEEE-754 no-op, so the
+		// static-obstacle path stays bit-identical (see this function's doc comment).
+		const mag = magBase * falloff * (1 + CRUMPLE_JITTER_FRACTION * jitterSigned) * massFactor;
 		if (mag <= 0) continue;
 
 		const px = off[i * 3];
@@ -368,7 +379,7 @@ export interface CrumpleEventResult {
  * by distance and applies the spec's perf guard: meshes beyond the 2 nearest are skipped if they have
  * more than CRUMPLE_PERF_VERTEX_GUARD vertices.
  */
-export function applyCrumpleEvent(registry: CrumpleRegistry, approachSpeedMs: number, localize: (mesh: DeformableMeshHandle) => LocalImpact): CrumpleEventResult {
+export function applyCrumpleEvent(registry: CrumpleRegistry, approachSpeedMs: number, localize: (mesh: DeformableMeshHandle) => LocalImpact, massFactor = 1): CrumpleEventResult {
 	const radius = CRUMPLE_RADIUS0_M + CRUMPLE_RADIUS_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_RADIUS_SPEED_CAP_MS);
 
 	const candidates: { mesh: DeformableMeshHandle; local: LocalImpact; dist: number }[] = [];
@@ -387,7 +398,7 @@ export function applyCrumpleEvent(registry: CrumpleRegistry, approachSpeedMs: nu
 	candidates.forEach((c, i) => {
 		if (i >= CRUMPLE_PERF_NEAREST_EXEMPT_COUNT && c.mesh.vertexCount > CRUMPLE_PERF_VERTEX_GUARD) return;
 		const wasShattered = c.mesh.shattered;
-		const touched = applyImpactToMesh(c.mesh, c.local.point, c.local.normal, approachSpeedMs);
+		const touched = applyImpactToMesh(c.mesh, c.local.point, c.local.normal, approachSpeedMs, massFactor);
 		if (touched > 0) {
 			touchedMeshIds.push(c.mesh.id);
 			recomputeNormals(c.mesh);
