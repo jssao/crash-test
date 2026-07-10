@@ -97,6 +97,17 @@ export const PANEL_BREAK_FORCE_MULT = 300_000;
 export const STRESS_MIN_APPROACH_SPEED_MS = 3;
 
 /**
+ * Minimum approach speed (m/s) for a contact against a GLASS PANE shape (vehicle.ts GLASS_ENTITY_ID)
+ * to shatter it (Tier-3 Stage 2). Real automotive glass takes incidental brushes but fails under a
+ * body thrown at it: a 70km/h-crash ejectee crosses the cabin at 10-19 m/s. 3 m/s (matching
+ * STRESS_MIN_APPROACH_SPEED_MS's "real impact, not a resting contact" floor) cleanly separates the
+ * two regimes while letting rollover roof-slams and deep-penetration debris strikes shatter glass
+ * believably. Below-threshold pane hits are still consumed by the glass path (never leaked to
+ * crumple/welds) -- they just don't break the pane.
+ */
+export const GLASS_PANE_SHATTER_MIN_APPROACH_MS = 3;
+
+/**
  * Hit events whose contact normal is this vertical (|normal.y| above this, 0=horizontal, 1=straight
  * up/down) are excluded from the accumulated-stress model entirely, regardless of approach speed.
  *

@@ -21,18 +21,21 @@ import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
 import { BodyType } from '../../src/ts/index.ts';
 import { createVehicle, destroyVehicle } from '../src/vehicle/vehicle.ts';
-import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
+import { CHASSIS_ORIGIN_HEIGHT_M } from '../src/vehicle/tuning.ts';
+import { createDamageSystem, stepDamageSystem } from '../src/damage/system.ts';
 import {
 	createOccupant,
 	createSeatPan,
+	ejectOccupant,
 	matchOccupantVelocity,
 	matchSeatPanVelocity,
 	pollOccupantRestraint,
+	setOccupantLimp,
 	teardownOccupant,
 	teardownSeatPan,
 } from '../src/world/features/occupants/physics.ts';
 import { createOccupantRuntime, resetOccupantAccelBaseline, updateOccupantActive } from '../src/world/features/occupants/active.ts';
-import { SEAT_KEYS } from '../src/world/features/occupants/tuning.ts';
+import { OCCUPANT_GROUP_INDEX, PART_KEYS, SEAT_KEYS } from '../src/world/features/occupants/tuning.ts';
 
 const NEUTRAL = { throttle: 0, brake: 0, steer: 0, handbrake: false };
 
@@ -44,7 +47,12 @@ function activeCtx(sim) {
 function seatAll(sim) {
 	const chassis = sim.vehicle.chassis;
 	const t = chassis.getTransform();
-	const rig = { pans: [], occupants: [], runtimes: [] };
+	// Tier-3 Stage 2: the damage system is part of the browser-faithful loop -- its central hit
+	// drain is what consumes an ejectee's glass-pane strike (glassShattered + destroy the pane,
+	// game/src/damage/system.ts), so without it the panes never open and ejected occupants stay
+	// walled into the cabin. Rebuilt with every rig, against the CURRENT vehicle (main.ts rebuilds
+	// it in doCarRepair the same way).
+	const rig = { pans: [], occupants: [], runtimes: [], damage: createDamageSystem(sim.vehicle) };
 	SEAT_KEYS.forEach((seatKey, i) => {
 		rig.pans.push(createSeatPan(sim.world, chassis, seatKey, t.position, t.rotation));
 		rig.occupants.push(createOccupant(sim.world, chassis, i, seatKey, t.position, t.rotation));
@@ -58,9 +66,11 @@ function teardownAll(rig) {
 	for (const p of rig.pans) teardownSeatPan(p);
 }
 
-/** One browser-faithful fixed step: physics, then per occupant poll + active update. */
+/** One browser-faithful fixed step: physics, then the damage system's central drain (glass panes!),
+ * then per occupant poll + active update -- exactly main.ts's fixed-step order. */
 function stepAll(sim, rig, input = NEUTRAL) {
 	sim.step(input);
+	stepDamageSystem(rig.damage, sim.world, 1 / 60);
 	const ctx = activeCtx(sim);
 	rig.occupants.forEach((o, i) => {
 		pollOccupantRestraint(o);
@@ -167,6 +177,12 @@ describe('escalation 2: a 30km/h bump ejects nobody', () => {
 				expect(rig.runtimes[i].state).toBe('seated');
 				expect(allFinite(rig.occupants[i])).toBe(true);
 			}
+			// Tier-3 Stage 2: a mild bump must not shatter glass either -- both solid panes survive.
+			// (Derived booleans -- see escalation-5's pane assert note.)
+			expect(sim.vehicle.glass.windshield.shape !== null, 'windshield pane intact').toBe(true);
+			expect(sim.vehicle.glass.windshield.shape.isValid()).toBe(true);
+			expect(sim.vehicle.glass.rearWindow.shape !== null, 'rear pane intact').toBe(true);
+			expect(sim.vehicle.glass.rearWindow.shape.isValid()).toBe(true);
 
 			wall.destroy();
 			teardownAll(rig);
@@ -297,8 +313,10 @@ describe('escalation 4: browser-faithful world reset re-seats 4/4 from every FSM
 				expect(o.ejected, `${name}: occupant ${i} not ejected after reset`).toBe(false);
 				expect(o.restraintJoint, `${name}: occupant ${i} restraint present`).not.toBeNull();
 				expect(allFinite(o), `${name}: occupant ${i} finite`).toBe(true);
-				// Filter restored: seated occupants ride the shared car group (never collide with car).
-				expect(o.parts.pelvis.shape.getFilter().groupIndex, `${name}: occupant ${i} car-filtered`).toBe(CAR_GROUP_INDEX);
+				// Filter restored: seated occupants ride the occupants' own shared group (Tier-3 Stage 2
+				// filter path -- see physics.ts COLLISION FILTERING; car-vs-occupant pairs fall through
+				// to category/mask, occupant-vs-occupant stays suppressed by this group).
+				expect(o.parts.pelvis.shape.getFilter().groupIndex, `${name}: occupant ${i} occupant-group`).toBe(OCCUPANT_GROUP_INDEX);
 				// Physically IN the cabin: pelvis near the chassis, no part sunk through the floor.
 				const p = o.parts.pelvis.body.getPosition();
 				expect(Math.hypot(p.x - carPos.x, p.y - carPos.y, p.z - carPos.z), `${name}: occupant ${i} in cabin`).toBeLessThan(1.8);
@@ -408,6 +426,134 @@ describe('escalation 4: browser-faithful world reset re-seats 4/4 from every FSM
 		console.log('[reset-coverage]', JSON.stringify([...seen]));
 		for (const s of ['seated', 'tumbling', 'settled', 'recover', 'flee', 'safe', 'dead']) {
 			expect(seen.has(s), `covered FSM state '${s}' at reset`).toBe(true);
+		}
+	});
+});
+
+// -- Tier-3 Stage 2: ejection is literal contact physics through a destroyable pane ------------------
+
+describe('escalation 5 (Tier-3 Stage 2): 70km/h ejection punches THROUGH the windshield pane', () => {
+	it('both rears eject, strike the solid pane (glassShattered + shape destroyed), and each flies >2m clear through the open aperture', async () => {
+		const sim = await createSim();
+		try {
+			const rig = seatAll(sim);
+			const shattered = [];
+			rig.damage.emitter.on((e) => {
+				if (e.type === 'glassShattered') shattered.push(e.mesh);
+			});
+			for (let i = 0; i < 60; i++) stepAll(sim, rig);
+
+			// Solid pane exists BEFORE the crash (the collision gate the ejectee must break). Derived
+			// booleans, never the Shape object itself: chai's deep inspection of a failing Shape
+			// assertion walks the `native` wasm-module reference and OOMs the worker.
+			expect(rig.damage.vehicle.glass.windshield.shape !== null).toBe(true);
+			expect(rig.damage.vehicle.glass.windshield.shape.isValid()).toBe(true);
+
+			const wall = spawnTestWall(sim.world, sim.vehicle, 20);
+			crashSetup(sim.vehicle, 70);
+			const v = sim.vehicle.chassis.getLinearVelocity();
+			rig.occupants.forEach((o, i) => {
+				matchOccupantVelocity(o, v);
+				resetOccupantAccelBaseline(o, rig.runtimes[i]);
+			});
+			for (const p of rig.pans) matchSeatPanVelocity(p, v);
+
+			let sawNaN = false;
+			// Track each occupant's PEAK pelvis-to-chassis separation across the aftermath: the wall
+			// sits right ahead of the car, so an ejectee that sails clear through the aperture still
+			// comes to rest against the wall / bounces back over the nose -- the peak (not the final
+			// resting distance) is what proves the body genuinely flew out of the cabin.
+			const peakSeparation = rig.occupants.map(() => 0);
+			for (let i = 0; i < 300; i++) {
+				stepAll(sim, rig);
+				const cp = sim.vehicle.chassis.getPosition();
+				rig.occupants.forEach((o, k) => {
+					if (!allFinite(o)) sawNaN = true;
+					if (!o.ejected) return;
+					const p = o.parts.pelvis.body.getPosition();
+					peakSeparation[k] = Math.max(peakSeparation[k], Math.hypot(p.x - cp.x, p.y - cp.y, p.z - cp.z));
+				});
+			}
+
+			const ejected = rig.occupants.filter((o) => o.ejected);
+			const separations = ejected.map((o) => peakSeparation[rig.occupants.indexOf(o)]);
+			console.log(
+				`[eject-through-pane] ejected=${ejected.map((o) => o.seatKey)} paneShape=${rig.damage.vehicle.glass.windshield.shape === null ? 'destroyed' : 'ALIVE'} shattered=${JSON.stringify(shattered)} separations=${separations.map((d) => d.toFixed(2))}`,
+			);
+
+			expect(sawNaN).toBe(false);
+			// Both unbelted rears break out (crash-gated force breach at the wall impact).
+			expect(ejected.length).toBeGreaterThanOrEqual(2);
+			const seats = new Set(ejected.map((o) => o.seatKey));
+			expect(seats.has('rearLeft')).toBe(true);
+			expect(seats.has('rearRight')).toBe(true);
+			// The pane was HIT by a flying body and is genuinely GONE: shape destroyed + nulled by the
+			// damage system's central drain, glassShattered emitted for the Windshield node.
+			expect(rig.damage.vehicle.glass.windshield.shape === null, 'windshield pane destroyed').toBe(true);
+			expect(shattered.some((m) => m.includes('Windshield'))).toBe(true);
+			// Restored per-occupant separation bar: with the aperture genuinely open, EVERY ejected body
+			// sails >2m clear of the wreck (the pre-Stage-2 interim calibration allowed one to linger).
+			for (const d of separations) expect(d).toBeGreaterThan(2);
+
+			wall.destroy();
+			teardownAll(rig);
+		} finally {
+			sim.destroy();
+		}
+	});
+});
+
+describe('escalation 6 (Tier-3 Stage 2): a corpse rests ON the hood', () => {
+	it('a dead ejected occupant dropped onto the hood settles on top of it and never sinks through', async () => {
+		const sim = await createSim();
+		try {
+			const rig = seatAll(sim);
+			for (let i = 0; i < 60; i++) stepAll(sim, rig);
+
+			// Script the state the drama produces: eject (belt gone, EJECTED filter -- panels are now
+			// collidable) + limp (dead), then translate the whole ragdoll rigidly to hover over the hood.
+			const corpse = rig.occupants[0];
+			ejectOccupant(corpse);
+			setOccupantLimp(corpse);
+			rig.runtimes[0].alive = false;
+			const hood = sim.vehicle.panels.hood;
+			const hoodPos = hood.body.getPosition();
+			const hoodTopY = hoodPos.y + hood.halfExtents.y;
+			const pelvis = corpse.parts.pelvis.body.getPosition();
+			const delta = { x: hoodPos.x - pelvis.x, y: hoodTopY + 0.5 - pelvis.y, z: hoodPos.z - pelvis.z };
+			for (const key of PART_KEYS) {
+				const b = corpse.parts[key].body;
+				const t = b.getTransform();
+				b.setTransform({ x: t.position.x + delta.x, y: t.position.y + delta.y, z: t.position.z + delta.z }, t.rotation);
+				b.setLinearVelocity({ x: 0, y: 0, z: 0 });
+				b.setAngularVelocity({ x: 0, y: 0, z: 0 });
+			}
+
+			let minPelvisY = Infinity;
+			for (let i = 0; i < 240; i++) {
+				stepAll(sim, rig);
+				if (i > 120) minPelvisY = Math.min(minPelvisY, corpse.parts.pelvis.body.getPosition().y);
+			}
+
+			const end = corpse.parts.pelvis.body.getPosition();
+			const hoodTopNow = hood.body.getPosition().y + hood.halfExtents.y;
+			const vEnd = corpse.parts.pelvis.body.getLinearVelocity();
+			console.log(
+				`[corpse-on-hood] pelvisEnd=(${end.x.toFixed(2)},${end.y.toFixed(2)},${end.z.toFixed(2)}) hoodTop=${hoodTopNow.toFixed(2)} minPelvisY(after settle)=${minPelvisY.toFixed(2)} speed=${Math.hypot(vEnd.x, vEnd.y, vEnd.z).toFixed(3)}`,
+			);
+
+			expect(allFinite(corpse)).toBe(true);
+			// Rests ON the hood: pelvis center stays ABOVE the hood's top face (a phased-out corpse
+			// would fall to the ground plane, far below), and it is settled, not still bouncing.
+			expect(end.y).toBeGreaterThan(hoodTopNow - 0.02);
+			expect(minPelvisY).toBeGreaterThan(hoodTopNow - 0.05);
+			expect(Math.hypot(vEnd.x, vEnd.y, vEnd.z)).toBeLessThan(0.5);
+			// And it stayed near the hood footprint (did not roll off to the ground during settle).
+			expect(Math.hypot(end.x - hood.body.getPosition().x, end.z - hood.body.getPosition().z)).toBeLessThan(1.2);
+
+			teardownAll(rig);
+		} finally {
+			sim.destroy();
 		}
 	});
 });

@@ -9,10 +9,12 @@
 // ACTIVE LAYER (./active.ts): once per fixed step each occupant is driven by the muscle/life-death/
 // self-preservation-FSM controller -- alive+seated occupants BRACE against g-forces (torque-limited
 // muscles), lethal impacts KILL them (limp forever), survivors TUMBLE -> SETTLE -> RECOVER -> FLEE ->
-// SAFE. An ejecting occupant's head/torso crossing a cabin-glass plane shatters that window via a sink
-// main.ts wires to the damage system's glassShattered emitter (setGlassShatterSink hook below), and
-// occupant<->car collision is re-enabled once the whole body clears the chassis hull AABB. See
-// active.ts's HONEST-PHYSICS DISCLOSURE for which parts are real physics vs the documented assist.
+// SAFE. Tier-3 STAGE 2: occupants really collide with the cabin interior + the two solid glass panes
+// (see physics.ts's COLLISION FILTERING doc) -- an ejecting body physically punches the windshield
+// pane, and the damage system's own central hit drain consumes that contact (glassShattered + destroy
+// the pane, game/src/damage/system.ts), so this feature no longer detects or forwards glass events at
+// all. See active.ts's HONEST-PHYSICS DISCLOSURE for which parts are real physics vs the documented
+// assist.
 
 import * as THREE from 'three';
 import type { FeatureContext, WorldFeature } from '../feature';
@@ -38,15 +40,9 @@ interface OccupantEntry {
 	visual: OccupantVisual;
 }
 
-/** Sink main.ts registers so an ejecting occupant crossing a cabin-glass plane can shatter that window
- * via the damage system's glassShattered emitter -- see setGlassShatterSink() hook. `node` is a
- * car-map.ts glassMeshNodes name (e.g. 'BodyWindshield'). */
-type GlassShatterSink = (node: string) => void;
-
 export default function createOccupantsFeature(ctx: FeatureContext): WorldFeature {
 	const seatPans: SeatPan[] = [];
 	const entries: OccupantEntry[] = [];
-	let glassSink: GlassShatterSink | null = null;
 
 	/**
 	 * Builds all 4 seat pans + all 4 occupants fresh against the CURRENT vehicle (never cached across
@@ -91,8 +87,7 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 			const activeCtx = { chassisPos: t.position, chassisRot: t.rotation, chassisVel: chassis.getLinearVelocity(), world: ctx.world };
 			for (const entry of entries) {
 				pollOccupantRestraint(entry.occupant); // may eject this step (breaks restraint + kick)
-				const shattered = updateOccupantActive(entry.occupant, entry.runtime, dt, activeCtx);
-				if (glassSink) for (const node of shattered) glassSink(node);
+				updateOccupantActive(entry.occupant, entry.runtime, dt, activeCtx);
 				sampleOccupantVisual(entry.occupant, entry.visual);
 			}
 		},
@@ -115,12 +110,6 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 		},
 
 		hooks: {
-			/** main.ts wires the glass-shatter sink here (occupant crosses a cabin-glass plane -> shatter
-			 * that window via the damage system's glassShattered emitter). Kept as a registration hook
-			 * rather than a FeatureContext field so no shared file changes -- see main.ts. */
-			setGlassShatterSink: (sink: GlassShatterSink) => {
-				glassSink = sink;
-			},
 			/** Read-only per-seat state for scripted playtests (game/verify/feature-occupants.mjs,
 			 * game/sim/features-occupants.test.mjs). */
 			seatStates: () =>
@@ -142,11 +131,9 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 						state: e.runtime.state,
 						ejected: e.occupant.ejected,
 						peakAccelG: e.runtime.peakAccelG,
-						carCollisionEnabled: e.runtime.carCollisionEnabled,
 						headHeight: head.y,
 						headPos: head,
 						pelvisPos: e.occupant.parts.pelvis.body.getPosition(),
-						shatteredGlass: [...e.runtime.shatteredGlass],
 					};
 				}),
 			/** Diagnostic-only: per-seat torso mesh world position/visibility, for verify-script sanity

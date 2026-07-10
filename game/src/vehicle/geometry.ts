@@ -194,6 +194,110 @@ export function buildCabinShapes(): CabinShapeDef[] {
 	return shapes;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Tier-3 STAGE 2: solid glass panes (docs/build-log/specs/compound-hull-design.md, S2.1/S2.2)
+// ---------------------------------------------------------------------------------------------
+// Windshield + rear window as thin SOLID convex slabs on the chassis body, gating the cabin's
+// front/rear escape paths. Both panes sit fully INSIDE the solid nose/tail crush volumes (which are
+// occupant-transparent, so only occupants/deep debris ever reach the panes), and the outside world's
+// contacts always resolve against the nose/tail/roof exterior surfaces first -- so the panes NEVER
+// touch walls/ground in the crash suites and exist solely as occupant-facing collision gates. A hit
+// on a pane is consumed by the damage system's central drain (system.ts): glassShattered + destroy
+// the pane, so the aperture becomes genuinely open and the occupant flies out through REAL contact
+// physics.
+//
+// Seated-clearance ground truth (chassis-local probe, Stage-2 round 2 + re-measured this round):
+// BOTH panes deliberately sit ~0.25-0.4m outboard of the visual glass lines, clear of the seated
+// occupants' whole measured spawn/settle/jostle envelopes -- see the WINDSHIELD_BOTTOM and
+// REAR_WINDOW_TOP doc comments for the measured failures that forced each off the visual line.
+
+/** Pane slab thickness, meters (along z -- the slabs are sheared, so normal thickness is ~4% less). */
+const GLASS_THICKNESS_M = 0.04;
+
+/**
+ * Windshield rails. MEASURED CORRECTION (mirror of the rear-window one below): a pane on the visual
+ * glass line (beltline/firewall corner up to the roof-front edge) leaves only ~0.045m between its
+ * inner plane and the braced front torsos -- a mere 30km/h wall BUMP pitches the torsos into it, and
+ * the contact-vs-belt fight pumped a measured 26.7/58.7kN through the front restraints (vs
+ * 4.8/5.4kN pane-less), snapping all four belts on a bump that must eject nobody. The pane is a
+ * collision GATE inside the occupant-transparent nose, not the visual glass, so it sits ~0.25m
+ * forward of the glass line instead: bottom rail (0.42, 0.92), top rail (0.84, 1.00), thickness -z
+ * (toward the cabin). Measured clearances: front head 0.41m, torso more, knees/thighs 0.10m below
+ * the bottom rail -- ordinary bumps/braces never reach it, while a genuinely ejecting body crosses
+ * the gap and strikes it at full fly-out speed. Outer rails stay >=0.02m inside the nose's front
+ * bevel (bevel z at y 0.84 is 1.023). The escape slivers around the rails (roof front edge above,
+ * a descending sub-rail path below) are all under a head's diameter for plausible trajectories.
+ */
+const WINDSHIELD_BOTTOM = { y: 0.42, z: 0.92 };
+const WINDSHIELD_TOP = { y: 0.84, z: 1.0 };
+/**
+ * Rear-window rails. MEASURED CORRECTION to the handoff's first-guess span (top z -0.64 -> bottom
+ * -1.10, the visual fastback glass line): the rear seats sit INSIDE the tail volume with no seat
+ * backs, so the SPAWN pose puts the rear heads (center y 0.63, z ~-1.09, r 0.09) a full radius
+ * ACROSS that pane plane (center measured 0.072m outside it), and over the first ~1s of settle the
+ * unsupported rear torsos slump rearward-down to a torso-top endpoint at ~(y 0.38, z -1.35). A pane
+ * on the visual glass line therefore spawn-overlaps the heads -- depenetration snapped all four
+ * belts AT IDLE when tried (occupants-escalation went from idleRMS 0.001 to 1.87 rad/s with 4/4
+ * ejected). The pane is a COLLISION gate, not the visual glass (the tail volume it hides in is
+ * occupant-transparent anyway), so it sits BEHIND the whole measured spawn->slump swept envelope
+ * instead: bottom rail (0.50, -1.52), top rail (0.95, -1.14), thickness +z (toward the cabin).
+ * Clearances vs the swept envelope >=0.08m everywhere in the pane's y band; outer rails stay
+ * >=0.015m inside the tail's rear bevel (envelope z at y 0.95 is -1.155, at 0.50 is -1.615). The
+ * 5cm slit above the top rail (y 0.95..1.00 at z -1.10) is under a third of a head's diameter. A
+ * rearward ejectee crosses the open cabin band, enters the (transparent) tail, and strikes this
+ * gate exactly as it would the visual glass -- same event, same shatter, ~0.4m deeper.
+ */
+const REAR_WINDOW_TOP = { y: 0.95, z: -1.14 };
+const REAR_WINDOW_BOTTOM = { y: BELTLINE_Y_M - 0.02, z: -1.52 };
+
+/** Pane half-widths, tapered with the envelope loft so the slab never pokes out of the body side
+ * (envelope half-width at the beltline ~0.85, at y 0.95 ~0.76). The A/C pillars (x 0.66..0.80)
+ * overlap the windshield's edges, so no head-sized gap exists at the aperture corners. */
+const WINDSHIELD_HALF_WIDTH_BOTTOM_M = 0.84;
+const WINDSHIELD_HALF_WIDTH_TOP_M = 0.76;
+const REAR_WINDOW_HALF_WIDTH_BOTTOM_M = 0.84;
+const REAR_WINDOW_HALF_WIDTH_TOP_M = 0.74;
+
+export type GlassPaneKey = 'windshield' | 'rearWindow';
+
+/** One pane as an 8-point convex slab: bottom/top rails extruded GLASS_THICKNESS_M along z TOWARD
+ * THE CABIN (`zSign` -1 for the windshield, +1 for the rear window; sheared slab -- fine for a
+ * convex hull), so each pane's OUTER extreme is the rail plane itself and stays inside the
+ * enclosing crush volume. */
+function paneSlabPoints(bottom: { y: number; z: number }, top: { y: number; z: number }, wb: number, wt: number, zSign: 1 | -1): Float32Array {
+	const t = GLASS_THICKNESS_M * zSign;
+	// prettier-ignore
+	return new Float32Array([
+		-wb, bottom.y, bottom.z,   wb, bottom.y, bottom.z,
+		-wb, bottom.y, bottom.z + t,   wb, bottom.y, bottom.z + t,
+		-wt, top.y, top.z,   wt, top.y, top.z,
+		-wt, top.y, top.z + t,   wt, top.y, top.z + t,
+	]);
+}
+
+/** The 2 glass-pane shape defs (chassis-local point clouds), keyed for createVehicle(). */
+export function buildGlassPaneShapes(): Record<GlassPaneKey, Float32Array> {
+	return {
+		windshield: paneSlabPoints(WINDSHIELD_BOTTOM, WINDSHIELD_TOP, WINDSHIELD_HALF_WIDTH_BOTTOM_M, WINDSHIELD_HALF_WIDTH_TOP_M, -1),
+		rearWindow: paneSlabPoints(REAR_WINDOW_BOTTOM, REAR_WINDOW_TOP, REAR_WINDOW_HALF_WIDTH_BOTTOM_M, REAR_WINDOW_HALF_WIDTH_TOP_M, 1),
+	};
+}
+
+// FOOTWELL-SHELF NEGATIVE RESULT (Tier-3 Stage 2, tried + reverted -- kept for the record): the
+// seated occupants' feet dangle BELOW the belly line (shin capsule ends at chassis-local y ~-0.20 vs
+// hull bottom -0.07) and stand on the WORLD GROUND PLANE through the occupant-transparent floorpan.
+// An occupant-only "footwell shelf" slab on the chassis (top ~1cm above the laden ground line, so
+// the feet would ride WITH the car) fixed every foot-drag artifact in isolation -- but box3d pair
+// filtering is TWO-SIDED: (catA & maskB) && (catB & maskA), and the ground/terrain shapes carry the
+// DEFAULT all-ones category, so a shelf whose mask is "occupants only" still collides with the
+// ground (the ground's all-ones category intersects any nonzero mask) -- the car beached itself on
+// its own invisible shelf (chassis pinned at exactly shelf-bottom height, wheels free-spinning, 0
+// traction; sim/diag/stage2-pinch-probe.mjs). Making it work would require clearing a bit from the
+// terrain feature's heightfield category (outside this slice's ownership). The feet-on-ground
+// artifact instead stays (pre-Stage-2 status quo, all suites calibrated around it) and is defused
+// where it BITES: foot-drag belt spikes can no longer eject anyone (pollOccupantRestraint()'s
+// crash-gate + matchOccupantVelocity()'s ring seeding, occupants/physics.ts).
+
 /** Mirror a flat (x,y,z) point cloud across the X=0 plane (left -> right cabin shape). */
 function mirrorX(points: Float32Array): Float32Array {
 	const out = new Float32Array(points.length);

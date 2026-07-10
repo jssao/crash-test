@@ -43,7 +43,8 @@
 // C / -to P. (For the revolute knee/elbow the off-hinge-axis component of that torque is simply absorbed
 // by the joint constraint, so the same routine straightens them -- no separate hinge math needed.)
 
-import type { Body, World } from '../../../../../src/ts/index.js';
+import { DEFAULT_MASK_BITS, type Body, type World } from '../../../../../src/ts/index.js';
+import { OCCUPANT_CATEGORY_BIT } from '../../../vehicle/tuning';
 import {
 	add,
 	clamp,
@@ -52,13 +53,12 @@ import {
 	multiplyQuat,
 	normalize,
 	quatFromAxisAngle,
-	rotateVector,
 	scale,
 	sub,
 	type Q4 as MQ4,
 	type V3,
 } from '../../../vehicle/mathUtil';
-import { EJECTED_MARKER_BIT, enableOccupantCarCollision, setOccupantLimp, type Occupant } from './physics';
+import { setOccupantLimp, type Occupant } from './physics';
 import {
 	BALL_SPRING_HERTZ,
 	BRACE_ATTACK_TAU_S,
@@ -72,23 +72,9 @@ import {
 	FSM_RECOVER_SECONDS,
 	FSM_SETTLE_SECONDS,
 	FSM_TUMBLE_MIN_SECONDS,
-	GLASS_NODE_DOOR_LEFT,
-	GLASS_NODE_DOOR_RIGHT,
-	GLASS_NODE_REAR,
-	GLASS_NODE_WINDSHIELD,
-	GLASS_REAR_Z_M,
-	GLASS_SIDE_X_M,
-	GLASS_WINDSHIELD_Z_M,
-	GLASS_Y_MAX_M,
-	GLASS_Y_MIN_M,
 	GRAVITY_G_UNIT,
 	GROUND_RAY_DOWN_M,
 	GROUND_RAY_UP_M,
-	HULL_AABB_CLEAR_MARGIN_M,
-	HULL_AABB_HALF_X_M,
-	HULL_AABB_HALF_Z_M,
-	HULL_AABB_Y_MAX_M,
-	HULL_AABB_Y_MIN_M,
 	MUSCLE_DEADBAND_RAD,
 	MUSCLE_DEADBAND_RAD_S,
 	MUSCLE_HIP,
@@ -98,8 +84,6 @@ import {
 	MUSCLE_SHOULDER,
 	MUSCLE_SPINE,
 	MUSCLE_TUMBLING_SCALE,
-	PART_DIMS,
-	PART_KEYS,
 	partTransverseInertia,
 	RECOVER_BLOCKED_MAX_STEPS,
 	RECOVER_BLOCKED_PELVIS_Y_M,
@@ -109,6 +93,7 @@ import {
 	RESTRAINT_BRACE_DAMPING,
 	RESTRAINT_BRACE_HERTZ,
 	SEATED_BRACE_HERTZ,
+	SEAT_PAN_ALL_CATEGORY_BITS,
 	SETTLE_ANGULAR_SPEED_RAD_S,
 	SETTLE_LINEAR_SPEED_MS,
 	STABILIZE_ANG_GAIN,
@@ -119,7 +104,6 @@ import {
 	STABILIZE_STEP_AMPLITUDE_RAD,
 	STABILIZE_STEP_HZ,
 	STABILIZE_WALK_SPEED_MS,
-	baseOf,
 	type MuscleGains,
 } from './tuning';
 
@@ -241,7 +225,6 @@ export interface OccupantRuntime {
 	settledStartSec: number;
 	recoverStartSec: number;
 	hipConeWidened: boolean;
-	carCollisionEnabled: boolean;
 	// Seated solver-spring bracing (gain-scheduled on measured chassis g -- see tuning.ts SEATED_BRACE_*)
 	/** Smoothed chassis g-load estimate (EMA of |dv|/dt in g). */
 	gLoadSmoothed: number;
@@ -263,12 +246,6 @@ export interface OccupantRuntime {
 	fleeTarget: V3 | null;
 	/** Pelvis XZ frozen at RECOVER start (rise-in-place), and the moving "carrot" target for FLEE. */
 	standAnchor: V3 | null;
-	// Glass shatter surfacing (drained by index.ts into the damage emitter; read directly by the test)
-	shatteredGlass: Set<string>;
-	newlyShatteredGlass: string[];
-	/** Previous-step chassis-local head/torso Z & X, for outward glass-plane crossing detection. */
-	prevLocalHead: V3 | null;
-	prevLocalTorso: V3 | null;
 }
 
 export function createOccupantRuntime(): OccupantRuntime {
@@ -283,7 +260,6 @@ export function createOccupantRuntime(): OccupantRuntime {
 		settledStartSec: 0,
 		recoverStartSec: 0,
 		hipConeWidened: false,
-		carCollisionEnabled: false,
 		gLoadSmoothed: 0,
 		braceLevel: 0,
 		appliedBraceLevel: -1,
@@ -293,10 +269,6 @@ export function createOccupantRuntime(): OccupantRuntime {
 		recoverGiveUp: false,
 		fleeTarget: null,
 		standAnchor: null,
-		shatteredGlass: new Set(),
-		newlyShatteredGlass: [],
-		prevLocalHead: null,
-		prevLocalTorso: null,
 	};
 }
 
@@ -317,11 +289,6 @@ export interface ActiveStepContext {
 	/** Physics world, for the ground raycast under recovering occupants. Optional for backward
 	 * compatibility: without it, ground is assumed at world y=0 (the pre-terrain flat-plane model). */
 	world?: World;
-}
-
-/** World -> chassis-local point (inverse of chassisPos + rotate(chassisRot, .)). */
-function toChassisLocal(p: V3, ctx: ActiveStepContext): V3 {
-	return rotateVector(conj(ctx.chassisRot), sub(p, ctx.chassisPos));
 }
 
 /** One PD "muscle": momentum-conserving torque pair driving child body toward `targetRel` (its desired
@@ -449,62 +416,12 @@ function updateLifeDeath(occupant: Occupant, runtime: OccupantRuntime, dt: numbe
 	runtime.prevTorsoVel = torsoVel;
 }
 
-// -- Glass-plane crossing detection ----------------------------------------------------------------
-
-function detectGlassCrossing(occupant: Occupant, runtime: OccupantRuntime, ctx: ActiveStepContext): void {
-	const localHead = toChassisLocal(occupant.parts.head.body.getPosition(), ctx);
-	const localTorso = toChassisLocal(occupant.parts.torso.body.getPosition(), ctx);
-	const prevH = runtime.prevLocalHead;
-	const prevT = runtime.prevLocalTorso;
-	runtime.prevLocalHead = localHead;
-	runtime.prevLocalTorso = localTorso;
-	if (!prevH || !prevT) return;
-
-	const fire = (node: string): void => {
-		if (runtime.shatteredGlass.has(node)) return;
-		runtime.shatteredGlass.add(node);
-		runtime.newlyShatteredGlass.push(node);
-	};
-	const inYBand = (p: V3) => p.y >= GLASS_Y_MIN_M && p.y <= GLASS_Y_MAX_M;
-	// Check head + torso; a crossing by either fires the window once.
-	for (const [prev, now] of [
-		[prevH, localHead],
-		[prevT, localTorso],
-	] as const) {
-		if (!inYBand(now)) continue;
-		// Windshield: crossed +Z outward.
-		if (prev.z < GLASS_WINDSHIELD_Z_M && now.z >= GLASS_WINDSHIELD_Z_M) fire(GLASS_NODE_WINDSHIELD);
-		// Rear window: crossed -Z outward.
-		if (prev.z > GLASS_REAR_Z_M && now.z <= GLASS_REAR_Z_M) fire(GLASS_NODE_REAR);
-		// Side windows: crossed |x| outward (+X = car left).
-		if (prev.x < GLASS_SIDE_X_M && now.x >= GLASS_SIDE_X_M) fire(GLASS_NODE_DOOR_LEFT);
-		if (prev.x > -GLASS_SIDE_X_M && now.x <= -GLASS_SIDE_X_M) fire(GLASS_NODE_DOOR_RIGHT);
-	}
-}
-
-// -- Car-collision re-enable (only once the whole body clears the chassis hull AABB + margin) -------
-
-function tryEnableCarCollision(occupant: Occupant, runtime: OccupantRuntime, ctx: ActiveStepContext): void {
-	if (runtime.carCollisionEnabled) return;
-	// Occupant AABB in chassis-local space (part centers +/- radius), vs the inflated hull AABB.
-	let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-	for (const key of PART_KEYS) {
-		const lp = toChassisLocal(occupant.parts[key].body.getPosition(), ctx);
-		const r = PART_DIMS[baseOf(key)].radius;
-		minX = Math.min(minX, lp.x - r); maxX = Math.max(maxX, lp.x + r);
-		minY = Math.min(minY, lp.y - r); maxY = Math.max(maxY, lp.y + r);
-		minZ = Math.min(minZ, lp.z - r); maxZ = Math.max(maxZ, lp.z + r);
-	}
-	const m = HULL_AABB_CLEAR_MARGIN_M;
-	const separated =
-		maxX < -HULL_AABB_HALF_X_M - m || minX > HULL_AABB_HALF_X_M + m ||
-		maxZ < -HULL_AABB_HALF_Z_M - m || minZ > HULL_AABB_HALF_Z_M + m ||
-		maxY < HULL_AABB_Y_MIN_M - m || minY > HULL_AABB_Y_MAX_M + m;
-	if (separated) {
-		enableOccupantCarCollision(occupant);
-		runtime.carCollisionEnabled = true;
-	}
-}
+// RETIRED (Tier-3 Stage 2, the FILTER PATH): detectGlassCrossing() (trajectory-plane glass hack)
+// and tryEnableCarCollision() (hull-AABB-exit filter flip) are gone. Glass shatter is literal
+// contact physics against the SOLID pane shapes (vehicle.ts GLASS_ENTITY_ID), consumed by the damage
+// system's central hit drain (system.ts); and an ejected occupant's lifetime filter already collides
+// with the car's interior/glass/panels/world from the first step (physics.ts, COLLISION FILTERING),
+// so there is no deferred re-enable moment to detect.
 
 // -- FSM (ejected + alive) -------------------------------------------------------------------------
 
@@ -514,10 +431,11 @@ function pelvisState(occupant: Occupant): { pos: V3; speed: number; angSpeed: nu
 }
 
 /** Measures the ground height under the occupant's pelvis (world Y) via a straight-down raycast,
- * caching it in runtime.groundY. The ray is masked to EJECTED_MARKER_BIT -- ejected ragdoll capsules
- * (this occupant's AND every other ejected occupant's) have that category bit cleared, so the ray can
- * only hit the actual world (terrain/props/car), never the ragdoll lying in its own path. Without a
- * world in ctx (legacy callers) falls back to the pre-terrain flat-plane assumption (ground = y 0). */
+ * caching it in runtime.groundY. The ray masks OUT the occupant category (all ragdoll capsules --
+ * this occupant's AND every other one's -- carry only OCCUPANT_CATEGORY_BIT) plus the seat pans, so
+ * it can only hit the actual world (terrain/props/car), never the ragdoll lying in its own path.
+ * Without a world in ctx (legacy callers) falls back to the pre-terrain flat-plane assumption
+ * (ground = y 0). */
 function sampleGroundY(occupant: Occupant, runtime: OccupantRuntime, ctx: ActiveStepContext): void {
 	if (!ctx.world) {
 		runtime.groundY = runtime.groundY ?? 0;
@@ -527,7 +445,10 @@ function sampleGroundY(occupant: Occupant, runtime: OccupantRuntime, ctx: Active
 	const hit = ctx.world.castRayClosest(
 		{ x: p.x, y: p.y + GROUND_RAY_UP_M, z: p.z },
 		{ x: 0, y: -(GROUND_RAY_UP_M + GROUND_RAY_DOWN_M), z: 0 },
-		{ maskBits: EJECTED_MARKER_BIT },
+		// Everything except occupant capsules (their only category bit) and the cabin seat pans --
+		// the same effective target set the retired EJECTED_MARKER_BIT mask hit: the world, terrain,
+		// props, and the car itself, never a ragdoll lying in the ray's path.
+		{ maskBits: DEFAULT_MASK_BITS & ~(OCCUPANT_CATEGORY_BIT | SEAT_PAN_ALL_CATEGORY_BITS) },
 	);
 	if (hit.hit) runtime.groundY = hit.point.y;
 	// miss: keep the last measurement (null if never measured -> the FSM prefers staying down).
@@ -650,26 +571,18 @@ function fleeDirection(occupantPos: V3, ctx: ActiveStepContext): V3 {
 }
 
 /**
- * Drives one occupant's active behaviour for a single fixed step (call AFTER world.step()). Returns the
- * list of glass nodes that newly shattered THIS step (index.ts forwards them to the damage emitter).
+ * Drives one occupant's active behaviour for a single fixed step (call AFTER world.step()). Glass
+ * shatter is no longer surfaced here -- an ejecting body physically strikes the solid pane shapes and
+ * the damage system's central drain consumes those hits (system.ts) -- so this returns nothing.
  */
-export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntime, dt: number, ctx: ActiveStepContext): string[] {
+export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntime, dt: number, ctx: ActiveStepContext): void {
 	runtime.timeSec += dt;
-	runtime.newlyShatteredGlass.length = 0;
 
 	updateLifeDeath(occupant, runtime, dt);
-	if (!runtime.alive) {
-		// Dead = pure limp ragdoll: no muscle, no FSM. But PHYSICAL bookkeeping still applies to a
-		// corpse in flight: a body flung through the windshield still shatters it, and once fully
-		// clear of the hull AABB it must still re-enable car collision -- without this a dead ejected
-		// occupant stayed car-filtered forever and visibly sank INTO the wreck (one of the
-		// user-reported phase-outs).
-		if (occupant.ejected) {
-			detectGlassCrossing(occupant, runtime, ctx);
-			tryEnableCarCollision(occupant, runtime, ctx);
-		}
-		return runtime.newlyShatteredGlass;
-	}
+	// Dead = pure limp ragdoll: no muscle, no FSM -- and (Stage 2) no bookkeeping either: a corpse's
+	// capsules already carry the honest lifetime filter, so they shatter glass by contact and rest ON
+	// the wreck (hood/roof/panels) with no phase-out possible by construction.
+	if (!runtime.alive) return;
 
 	if (!occupant.ejected) {
 		// SEATED + ALIVE: solver-spring bracing, gain-scheduled on the measured chassis g-load (see
@@ -689,7 +602,7 @@ export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntim
 			runtime.appliedBraceLevel = runtime.braceLevel;
 			applySeatedBraceSprings(occupant, runtime.braceLevel);
 		}
-		return runtime.newlyShatteredGlass;
+		return;
 	}
 
 	// EJECTED + ALIVE: enter the self-preservation FSM on the first ejected step.
@@ -703,7 +616,4 @@ export function updateOccupantActive(occupant: Occupant, runtime: OccupantRuntim
 		runtime.braceLevel = 0;
 	}
 	updateEjectedFsm(occupant, runtime, dt, ctx);
-	detectGlassCrossing(occupant, runtime, ctx);
-	tryEnableCarCollision(occupant, runtime, ctx);
-	return runtime.newlyShatteredGlass;
 }

@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 //
 // Headless tests for the ACTIVE occupant layer (game/src/world/features/occupants/active.ts): muscle
-// bracing, the muscle-overwhelm gradient, life/death, glass-shatter-on-ejection, car-collision
-// re-enable, and the self-preservation get-up/flee FSM. Imports physics.ts + active.ts DIRECTLY (skips
+// bracing, the muscle-overwhelm gradient, life/death, ejection THROUGH the destroyable windshield
+// pane (Tier-3 Stage 2 contact physics -- the damage system's central drain consumes the strike),
+// and the self-preservation get-up/flee FSM. Imports physics.ts + active.ts DIRECTLY (skips
 // the vite-only WorldFeature registry, same convention as features-occupants.test.mjs); no visuals /
 // three / DOM, exactly the renderer-free code the browser feature drives.
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
+import { createDamageSystem, stepDamageSystem } from '../src/damage/system.ts';
 import {
 	createOccupant,
 	createSeatPan,
@@ -178,13 +180,34 @@ describe('occupants-active: muscles are overwhelmed by a violent crash', () => {
 	});
 });
 
-describe('occupants-active: ejection shatters glass, clears the car AABB, lands on the ground', () => {
-	it('a 70km/h frontal crash ejects occupants who shatter the windshield, re-enable car collision, and settle on the ground without tunnelling', async () => {
+describe('occupants-active: ejection punches through the windshield pane and lands on the ground', () => {
+	it('a 70km/h frontal crash ejects occupants who SHATTER the solid pane by contact (shape destroyed, glassShattered emitted) and settle on the ground without tunnelling', async () => {
 		const sim = await createSim();
 		try {
 			const rig = seatAll(sim);
-			for (let i = 0; i < 30; i++) sim.step(NEUTRAL);
-			const wall = spawnTestWall(sim.world, sim.vehicle, 22);
+			// Tier-3 Stage 2: the damage system's central drain consumes the ejectee's pane strike
+			// (glassShattered + destroy the pane) -- part of the browser's fixed-step loop.
+			const damage = createDamageSystem(sim.vehicle);
+			const shattered = [];
+			damage.emitter.on((e) => {
+				if (e.type === 'glassShattered') shattered.push(e.mesh);
+			});
+			for (let i = 0; i < 60; i++) {
+				sim.step(NEUTRAL);
+				stepDamageSystem(damage, sim.world, 1 / 60);
+				const ctx = activeCtx(sim);
+				rig.occupants.forEach((o, i2) => {
+					pollOccupantRestraint(o);
+					updateOccupantActive(o, rig.runtimes[i2], 1 / 60, ctx);
+				});
+			}
+			// The solid pane exists before the crash -- the collision gate the ejectee must break.
+			// (Asserted via derived booleans: handing chai a Shape wrapper OOMs the worker on failure --
+			// its deep inspection walks the `native` wasm-module reference.)
+			expect(sim.vehicle.glass.windshield.shape !== null).toBe(true);
+			expect(sim.vehicle.glass.windshield.shape.isValid()).toBe(true);
+
+			const wall = spawnTestWall(sim.world, sim.vehicle, 20);
 			crashSetup(sim.vehicle, 70);
 			const v = sim.vehicle.chassis.getLinearVelocity();
 			rig.occupants.forEach((o, i) => {
@@ -197,6 +220,7 @@ describe('occupants-active: ejection shatters glass, clears the car AABB, lands 
 			let minYAfterEject = Infinity;
 			for (let step = 0; step < 600; step++) {
 				sim.step(NEUTRAL);
+				stepDamageSystem(damage, sim.world, 1 / 60);
 				const ctx = activeCtx(sim);
 				rig.occupants.forEach((o, i) => {
 					pollOccupantRestraint(o);
@@ -207,20 +231,16 @@ describe('occupants-active: ejection shatters glass, clears the car AABB, lands 
 			}
 
 			const ejected = rig.occupants.filter((o) => o.ejected);
-			const anyWindshield = rig.runtimes.some((r) => r.shatteredGlass.has('Windshield'));
-			const anyCarCollisionReEnabled = rig.runtimes.some((r) => r.carCollisionEnabled);
-			// Filter state readback: a re-enabled occupant's shapes must be back on the neutral group 0.
-			const reEnabledIdx = rig.runtimes.findIndex((r) => r.carCollisionEnabled);
-			const filterGroup = reEnabledIdx >= 0 ? rig.occupants[reEnabledIdx].parts.pelvis.shape.getFilter().groupIndex : null;
 			console.log(
-				`[ejection-active] ejected=${ejected.length} anyWindshield=${anyWindshield} carCollisionReEnabled=${anyCarCollisionReEnabled} filterGroup=${filterGroup} minPartYAfterEject=${minYAfterEject.toFixed(3)}`,
+				`[ejection-active] ejected=${ejected.length} paneShape=${sim.vehicle.glass.windshield.shape === null ? 'destroyed' : 'ALIVE'} shattered=${JSON.stringify(shattered)} minPartYAfterEject=${minYAfterEject.toFixed(3)}`,
 			);
 
 			expect(sawNaN).toBe(false);
 			expect(ejected.length).toBeGreaterThanOrEqual(2);
-			expect(anyWindshield).toBe(true); // glass shattered on windshield crossing
-			expect(anyCarCollisionReEnabled).toBe(true); // whole body cleared the hull AABB
-			expect(filterGroup).toBe(0); // occupant<->car collision genuinely re-enabled
+			// The pane was struck by a flying body and is GONE -- literal contact physics, no
+			// trajectory-plane hack: shape destroyed + nulled, glassShattered emitted for Windshield.
+			expect(sim.vehicle.glass.windshield.shape === null, 'windshield pane destroyed').toBe(true);
+			expect(shattered.some((m) => m.includes('Windshield'))).toBe(true);
 			expect(minYAfterEject).toBeGreaterThan(-0.25); // collided with ground, never tunnelled through it
 
 			wall.destroy();
@@ -263,10 +283,14 @@ describe('occupants-active: a survivor gets up and flees the wreck', () => {
 			for (const pnl of Object.values(sim.vehicle.panels)) pnl.body.setLinearVelocity(zero);
 			for (const p of rig.pans) p.body.setLinearVelocity(zero);
 
+			// Tier-3 Stage 2: the panes are solid collision gates now -- run the damage system so the
+			// ejectees' own strikes open them (otherwise nobody can leave the cabin to flee).
+			const damage = createDamageSystem(sim.vehicle);
 			let sawNaN = false;
 			for (let step = 0; step < 1800; step++) {
 				// 30s @ 60Hz
 				sim.step(NEUTRAL);
+				stepDamageSystem(damage, sim.world, 1 / 60);
 				const ctx = activeCtx(sim);
 				rig.occupants.forEach((o, i) => {
 					pollOccupantRestraint(o);

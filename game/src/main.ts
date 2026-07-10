@@ -279,23 +279,10 @@ async function main() {
     return carDeformables.bindings.find((b) => b.handle.id === meshId)?.mesh ?? null;
   }
 
-  // OCCUPANTS glass-shatter hook (additive): the occupants feature (world/features/occupants) detects
-  // an ejecting passenger's head/torso trajectory crossing a cabin-glass plane and calls this sink with
-  // the car-map glass NODE name; translate that to the matching registered glass deformable's mesh id
-  // and fire the SAME glassShattered event the crumple pipeline uses, so the existing material-swap
-  // (applyGlassShatterMaterial via handleDamageEvent) runs identically. `damageSystem` is captured by
-  // reference so it stays correct across car repairs (it's reassigned in doCarRepair). Kept here (not a
-  // FeatureContext field) so the only shared-file touch is this one additive block.
-  {
-    const occHooks = features.hooks['occupants'] as { setGlassShatterSink?: (fn: (node: string) => void) => void } | undefined;
-    occHooks?.setGlassShatterSink?.((node) => {
-      for (const b of carDeformables.bindings) {
-        if (b.handle.kind === 'glass' && (b.mesh.name === node || b.mesh.parent?.name === node)) {
-          damageSystem.emitter.emit({ type: 'glassShattered', mesh: b.handle.id });
-        }
-      }
-    });
-  }
+  // (Tier-3 Stage 2) The occupants glass-shatter sink that used to be wired here is RETIRED: an
+  // ejecting occupant now physically strikes the chassis's solid glass pane shapes, and the damage
+  // system's own central hit drain (game/src/damage/system.ts) both destroys the pane and emits the
+  // SAME glassShattered event the crumple pipeline uses -- handleDamageEvent below already handles it.
 
   /** GLASS: accumulated glass displacement > threshold -> swap to a 'shattered' variant, once (see
    * damage-tuning.ts's GLASS_SHATTER_THRESHOLD_M). The vertex-level "slight normal jitter" spec detail

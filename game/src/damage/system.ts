@@ -21,6 +21,7 @@ import {
 	type DeformableMeshHandle,
 } from './crumple';
 import {
+	GLASS_PANE_SHATTER_MIN_APPROACH_MS,
 	PANEL_DESPAWN_AFTER_S,
 	PANEL_DESPAWN_DISTANCE_M,
 	PANEL_HIT_EVENTS_DISABLE_AFTER_S,
@@ -29,16 +30,29 @@ import {
 import { createDamageEventEmitter, DamageEventEmitter, type DamageEvent } from './events';
 import { PANEL_ENTITY_ID, PANEL_KEYS, totalPanelMassKg, type PanelHandle, type PanelKey } from './panels';
 import { hitTouchesCar, massAwareDamageFactor, stepWeldsAndWheels, type HitEventLike } from './welds';
-import { CAR_ENTITY_ID } from '../vehicle/vehicle';
+import { CAR_ENTITY_ID, GLASS_ENTITY_ID, GLASS_MESH_NODE } from '../vehicle/vehicle';
+import { OCCUPANT_ENTITY_ID_BASE, OCCUPANT_ENTITY_ID_END } from '../vehicle/tuning';
+import type { GlassPaneKey } from '../vehicle/geometry';
 
-/** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-10) -- the
- * complement is "a foreign obstacle", whose mass (if a registered dynamic body) attenuates car damage.
- * Built once from the two authoritative id tables so it can never drift from them. */
+/** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-10, glass
+ * panes 11-12) -- the complement is "a foreign obstacle", whose mass (if a registered dynamic body)
+ * attenuates car damage. Built once from the authoritative id tables so it can never drift from them. */
 const CAR_ENTITY_IDS: ReadonlySet<number> = new Set<number>([
 	CAR_ENTITY_ID.chassis,
 	...Object.values(CAR_ENTITY_ID.wheel),
 	...Object.values(PANEL_ENTITY_ID),
+	...Object.values(GLASS_ENTITY_ID),
 ]);
+
+/** Reverse lookup: glass entity id -> pane key ('windshield' | 'rearWindow'). */
+const GLASS_PANE_BY_ID: ReadonlyMap<number, GlassPaneKey> = new Map(
+	(Object.entries(GLASS_ENTITY_ID) as [GlassPaneKey, number][]).map(([key, id]) => [id, key]),
+);
+
+/** True when a hit-event entity id is an occupant ragdoll capsule's (see the central drain below). */
+function isOccupantEntityId(id: number): boolean {
+	return id >= OCCUPANT_ENTITY_ID_BASE && id < OCCUPANT_ENTITY_ID_END;
+}
 
 /** The registered mass (kg) of the NON-car body in `hit`, or undefined when the other side is static/
  * unknown, both sides are the car (self-contact), or neither side is the car (not our hit). Undefined
@@ -191,6 +205,36 @@ export function registerDeformable(
 	return mesh;
 }
 
+/**
+ * Shatters one glass pane (Tier-3 Stage 2): destroys the SOLID pane shape (updateBodyMass=false so
+ * the chassis's setMassData() parity stamp survives) and nulls the handle -- the cabin aperture is
+ * genuinely open from this step on -- then marks the matching registered glass DEFORMABLE mesh(es)
+ * shattered so getDamageTelemetry()/the browser reset path stay consistent, and emits the SAME
+ * glassShattered event the crumple pipeline uses (main.ts's material swap runs identically). Emits
+ * per registered mesh id when one exists (browser), else once with the car-map node name (headless
+ * sims register no meshes but tests still observe the event). Idempotent per pane. */
+function shatterGlassPane(system: DamageSystem, paneKey: GlassPaneKey, viaCrumpleVisual = false): void {
+	const pane = system.vehicle.glass[paneKey];
+	if (!pane.shape) return;
+	pane.shape.destroy(false);
+	pane.shape = null;
+	// When the CRUMPLE model shattered the visual first, it already marked the mesh + emitted its own
+	// glassShattered -- this call only needed to open the physical aperture, so stop here (no
+	// double-emit).
+	if (viaCrumpleVisual) return;
+	const node = GLASS_MESH_NODE[paneKey];
+	// Registered glass deformable ids embed the mesh node name: `glass-<meshName>-<n>`
+	// (game/src/scene/carDeformables.ts).
+	let emitted = false;
+	for (const mesh of system.registry.meshes) {
+		if (mesh.kind !== 'glass' || !mesh.id.includes(node) || mesh.shattered) continue;
+		mesh.shattered = true;
+		system.emitter.emit({ type: 'glassShattered', mesh: mesh.id });
+		emitted = true;
+	}
+	if (!emitted) system.emitter.emit({ type: 'glassShattered', mesh: node });
+}
+
 /** Advances the damage system by one fixed step. Call AFTER stepVehicle()+world.step(). */
 export function stepDamageSystem(system: DamageSystem, world: World, dt: number): void {
 	system.timeSec += dt;
@@ -203,6 +247,24 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	const hits: HitEventLike[] = [];
 	for (let i = 0; i < hitsView.count; i++) {
 		const c = hitsView.at(i);
+		// ---- GLASS PANE hits (Tier-3 Stage 2) are consumed HERE, by the glass model alone: an
+		// occupant/debris strike on a pane shatters it (above threshold), and the hit NEVER reaches the
+		// crumple/weld models below -- panes are interior safety glass, not body metal, and keeping
+		// them out of `hits` keeps the crumple/weld pipelines byte-identical to the pane-less chassis
+		// (the panes sit fully inside the nose/tail crush volumes, so world contacts can't ordinarily
+		// reach them anyway -- see geometry.ts's Stage-2 section doc).
+		const paneKey = GLASS_PANE_BY_ID.get(c.userDataA) ?? GLASS_PANE_BY_ID.get(c.userDataB);
+		if (paneKey !== undefined) {
+			if (c.approachSpeed > GLASS_PANE_SHATTER_MIN_APPROACH_MS) shatterGlassPane(system, paneKey);
+			continue;
+		}
+		// ---- OCCUPANT-sourced hits (Tier-3 Stage 2) never reach the crumple/weld models either: a
+		// seated/tumbling ragdoll capsule really collides with the cabin interior shells now, those
+		// shells carry enableHitEvents, and occupant bodies are not registered foreign masses -- an
+		// un-excluded 1.6kg forearm brushing the sill would crumple the car at full unattenuated
+		// obstacle weight. Occupants interact with the damage model exclusively through the GLASS
+		// pane path above. (Band registered in vehicle/tuning.ts next to the filter-bit registry.)
+		if (isOccupantEntityId(c.userDataA) || isOccupantEntityId(c.userDataB)) continue;
 		hits.push({
 			userDataA: c.userDataA,
 			userDataB: c.userDataB,
@@ -243,7 +305,16 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 			if (!transform) return { point: FAR_AWAY_POINT, normal: UP_NORMAL };
 			return worldToLocal(transform, hit.point, hit.normal);
 		}, massFactor);
-		for (const meshId of result.shatteredNowMeshIds) system.emitter.emit({ type: 'glassShattered', mesh: meshId });
+		for (const meshId of result.shatteredNowMeshIds) {
+			system.emitter.emit({ type: 'glassShattered', mesh: meshId });
+			// Keep the PHYSICAL pane in sync when the CRUMPLE model shatters a glass visual (a violent
+			// enough exterior crash): destroy the matching solid pane so the aperture opens there too.
+			// Safe for byte-stability: at that moment the pane (buried inside the nose/tail volumes) has
+			// no live contacts, so removing the shape does not perturb the solver.
+			for (const [paneKey, node] of Object.entries(GLASS_MESH_NODE) as [GlassPaneKey, string][]) {
+				if (meshId.includes(node)) shatterGlassPane(system, paneKey, true);
+			}
+		}
 	}
 
 	stepWeldsAndWheels({

@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { Body, BodyType, forgetHandle, Shape, WeldJoint } from '../../../../../src/ts/index.js';
 import type { FeatureContext, WorldFeature } from '../feature';
 import { add, IDENTITY_Q, length, rotateVector, sub, type V3 } from '../../../vehicle/mathUtil';
-import { CAR_GROUP_INDEX } from '../../../vehicle/tuning';
+import { CAR_GROUP_INDEX, OCCUPANT_TRANSPARENT_CATEGORY_BITS } from '../../../vehicle/tuning';
 import { InterpolatedTransform } from '../../../core/loop';
 import { buildCarDetailMaterials, disposeCarDetailMaterials, type CarDetailMaterials } from './materials';
 import { SHAPE_BUILDERS } from './shapes';
@@ -102,6 +102,12 @@ function createShapeFor(body: Body, spec: CarDetailSpec, groupIndex: number, bod
 		enableHitEvents: false,
 		isSensor,
 		groupIndex,
+		// Tier-3 STAGE 2 (occupant filter path): occupant capsules left the shared car group to gain
+		// real cabin-interior collision, and cardetail parts must stay occupant-transparent -- the
+		// brakeBoosterMC (z=1.005) shares firewall space with the seated front knees, and mid-eject
+		// bodies cross the engine bay. Masks stay default, so ground/wall/debris contact (and the
+		// post-break scatter) is byte-identical. See vehicle/tuning.ts's collision-filter bit registry.
+		categoryBits: OCCUPANT_TRANSPARENT_CATEGORY_BITS,
 		userData: bodyUserData,
 	};
 	const massKg = scaledMassKg(spec);

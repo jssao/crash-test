@@ -8,7 +8,7 @@
 
 import { Body, BodyType, Shape, World, WeldJoint } from '../../../src/ts/index.js';
 import { add, IDENTITY_Q, multiplyQuat, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
-import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M } from '../vehicle/tuning';
+import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M, EJECTED_ONLY_OCCUPANT_CATEGORY_BITS } from '../vehicle/tuning';
 import { HULL_BOTTOM_Y_M } from '../vehicle/geometry';
 import { CAR_MAP, type Vec3Mm, type Vec4 } from '../assets/car-map';
 import { PANEL_FRICTION, PANEL_HALF_THICKNESS_M, PANEL_MASS_KG, PANEL_THICKNESS_AXIS } from './damage-tuning';
@@ -193,6 +193,12 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 			friction: PANEL_FRICTION,
 			enableHitEvents: true,
 			groupIndex: CAR_GROUP_INDEX,
+			// Tier-3 STAGE 2: ejected-only occupant collision -- a flying/resting body lands ON the
+			// hood/doors from outside, but a SEATED occupant never fights the hood's cowl edge or the
+			// door boxes' window band from inside the cabin (measured intrusions -- see vehicle/
+			// tuning.ts's OCCUPANT_EJECTED_COLLIDABLE_BIT doc comment). World/car interactions are
+			// unchanged (masks stay default; only occupant masks key on the cleared bits).
+			categoryBits: EJECTED_ONLY_OCCUPANT_CATEGORY_BITS,
 			userData: PANEL_ENTITY_ID[key],
 		});
 
@@ -256,6 +262,9 @@ export function breakPanelWeld(panel: PanelHandle): void {
 		friction: PANEL_FRICTION,
 		enableHitEvents: true,
 		groupIndex: 0, // neutral filter: can now hit the car + world
+		// Same ejected-only occupant category as the attached shape (see createPanels()): a corpse
+		// still rests on a BROKEN hood lying in the grass, a seated occupant still ignores it.
+		categoryBits: EJECTED_ONLY_OCCUPANT_CATEGORY_BITS,
 		userData: PANEL_ENTITY_ID[panel.key],
 	});
 	panel.state = 'broken';

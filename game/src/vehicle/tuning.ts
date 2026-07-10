@@ -45,6 +45,108 @@ export const WHEEL_MASS_KG = 22;
  */
 export const CAR_GROUP_INDEX = -1;
 
+// ---------------------------------------------------------------------------------------------
+// COLLISION-FILTER CATEGORY-BIT REGISTRY (Tier-3 Stage 2, the occupant FILTER PATH). Box3d filters:
+// a pair collides iff (catA & maskB) && (catB & maskA), unless a shared negative groupIndex vetoes
+// it first. DEFAULT_CATEGORY_BITS/DEFAULT_MASK_BITS are all-ones, so a bit listed here is present on
+// EVERY shape unless a creation site explicitly clears it. All project category bits live in this
+// one table so they can never collide:
+//   1n << 4n, 1n << 8n, 1n << 9n, 1n << 10n
+//             SEAT_PAN_CATEGORY_BITS (below; re-exported by occupants/tuning.ts) -- one bit PER
+//             SEAT (index 0-3); each seat pan carries ONLY its own seat's bit as its category.
+//   1n << 5n  OCCUPANT_COLLIDABLE_BIT (below) -- cleared from car volumes occupants pass through.
+//   1n << 6n  OCCUPANT_CATEGORY_BIT (below) -- the occupant capsules' own (only) category bit.
+//   1n << 7n  OCCUPANT_EJECTED_COLLIDABLE_BIT (below) -- panels: ejected-only occupant collision.
+// (1n << 3n was the retired EJECTED_MARKER_BIT -- Stage 2 replaced the whole ejected-filter-flip
+// machinery with the real category scheme below; the bit is left unassigned deliberately.)
+// ---------------------------------------------------------------------------------------------
+
+/** All-ones filter word, mirroring the binding's DEFAULT_CATEGORY_BITS/DEFAULT_MASK_BITS
+ * (src/ts/math.ts) -- not imported because this module deliberately imports nothing but car-map.ts
+ * (see the module doc); game/sim/hull-cabin-tub.test.mjs asserts the mirror stays equal. */
+const ALL_FILTER_BITS = 0xffffffffffffffffn;
+
+/** Seat pans carry ONLY their own seat's category bit, one bit PER SEAT INDEX (occupants/tuning.ts
+ * re-exports these; see its seat-pan doc comment): a SEATED occupant's mask includes its OWN seat's
+ * bit only -- the pelvis rests on its own pan via real contact, while the OTHER three rigid-welded
+ * pans are transparent to it (MEASURED: rear occupants sliding forward under a plain 0.5-brake
+ * slammed the FRONT seats' pans -- a rigid weld to the 1300kg chassis, i.e. a wall mid-cabin -- for
+ * single-step 3.1-3.2x belt-threshold spikes that ejected both rears during ordinary driving; a
+ * flick maneuver likewise wedged a rear shin between its own pan edge and the sill for a 3.0x
+ * spike). An EJECTED occupant's mask drops all pan bits (a body flying across the cabin must not be
+ * arrested by ANY rigid-welded pan). Defined here (not in occupants/tuning.ts) because
+ * vehicle.ts/panels.ts/cardetail need the derived category words below and the vehicle core must
+ * not import a world feature's module. */
+export const SEAT_PAN_CATEGORY_BITS: readonly bigint[] = [1n << 4n, 1n << 8n, 1n << 9n, 1n << 10n];
+
+/** Every seat pan bit OR'd -- the word cleared from occupant-transparent car volumes' categories
+ * (any occupant's seated mask contains exactly one of these) and masked out of rays that must not
+ * hit pans. */
+export const SEAT_PAN_ALL_CATEGORY_BITS = SEAT_PAN_CATEGORY_BITS.reduce((a, b) => a | b, 0n);
+
+/**
+ * "A SEATED occupant can collide with this shape" marker bit. Present by default on every shape in
+ * the world (ground/walls/trees/buildings, the cabin INTERIOR shells -- floorpan/sills/roof/pillars
+ * -- and the glass panes), and explicitly CLEARED from the car volumes occupants must pass through
+ * un-contested: the solid NOSE and TAIL crush volumes (seated front legs/feet live inside the nose,
+ * rear torsos/heads inside the tail -- measured, see the Stage-2 design in
+ * docs/build-log/specs/compound-hull-design.md), the WHEEL spheres, the cardetail parts
+ * (brakeBoosterMC shares firewall space with the front knees), and the damage PANELS (measured: the
+ * hood box's rear edge sits ~4cm from the braced front torsos and the door boxes span the window
+ * band beside the shoulders -- seated contact against them pumped crash-magnitude spikes through
+ * the belts during ordinary cornering). Occupant capsule maskBits are built EXCLUSIVELY from the
+ * three OCCUPANT_* bits here, so clearing them from a shape's category makes it occupant-
+ * transparent without touching how anything else (world, rays, other car parts) sees that shape.
+ */
+export const OCCUPANT_COLLIDABLE_BIT = 1n << 5n;
+
+/** The ONLY category bit occupant capsules carry. Rays/queries that must never hit an occupant
+ * (e.g. the occupant ground-height raycast in occupants/active.ts) mask this bit OUT; everything
+ * else's default all-ones mask still sees occupants normally. */
+export const OCCUPANT_CATEGORY_BIT = 1n << 6n;
+
+/**
+ * "An EJECTED occupant can collide with this shape" marker bit -- carried (beyond the default-
+ * category shapes) ONLY by the damage panels (hood/doors/trunk, attached AND broken) and the two
+ * GLASS PANES (vehicle.ts): an ejected body or corpse must land on / rest ON the hood, bounce off
+ * doors from outside, and punch THROUGH the windshield pane (the visible Stage-2 payoffs), but a
+ * SEATED occupant must not fight those same shapes from inside the cabin -- the door boxes' window
+ * band and the hood's cowl edge overlap the seated envelope, and a soft-belted torso lurching into
+ * the pane band during a hard flick got solver-squeezed between belt and pane for crash-magnitude
+ * belt spikes (and would false-shatter the windshield during ordinary hard driving) -- measured,
+ * see OCCUPANT_COLLIDABLE_BIT's doc + the Stage-2 sim/diag probes. Ejected masks are
+ * OCCUPANT_COLLIDABLE_BIT | OCCUPANT_EJECTED_COLLIDABLE_BIT; seated masks are
+ * OCCUPANT_COLLIDABLE_BIT | that seat's own SEAT_PAN_CATEGORY_BITS entry.
+ */
+export const OCCUPANT_EJECTED_COLLIDABLE_BIT = 1n << 7n;
+
+/** categoryBits for car volumes occupants NEVER collide with (nose/tail crush volumes, wheels,
+ * cardetail parts): default categories minus every bit an occupant mask can contain. Their masks
+ * stay default, but a pair needs (catA & maskB) AND (catB & maskA), so clearing the occupant-facing
+ * bits from the category alone fully suppresses the occupant pair while leaving every other
+ * interaction (world contacts, rays, hit events) byte-identical. */
+export const OCCUPANT_TRANSPARENT_CATEGORY_BITS =
+	~(OCCUPANT_COLLIDABLE_BIT | SEAT_PAN_ALL_CATEGORY_BITS | OCCUPANT_EJECTED_COLLIDABLE_BIT) & ALL_FILTER_BITS;
+
+/** categoryBits for shapes an occupant touches only once EJECTED: the damage PANELS
+ * (game/src/damage/panels.ts) and the GLASS PANES (vehicle.ts) -- occupant-transparent while SEATED
+ * (OCCUPANT_COLLIDABLE_BIT and the pan bits cleared) but collidable for EJECTED bodies
+ * (OCCUPANT_EJECTED_COLLIDABLE_BIT kept) -- see that bit's doc comment. */
+export const EJECTED_ONLY_OCCUPANT_CATEGORY_BITS = ~(OCCUPANT_COLLIDABLE_BIT | SEAT_PAN_ALL_CATEGORY_BITS) & ALL_FILTER_BITS;
+
+/**
+ * OCCUPANT capsule entity-id band [base, end) -- occupant part shapes/bodies tag
+ * `OCCUPANT_ENTITY_ID_BASE + seatIndex*100 + partIndex` (game/src/world/features/occupants/
+ * physics.ts). Registered HERE (like the collision-filter bit registry above) because the damage
+ * system must recognize occupant-sourced hit events without importing a world feature's module:
+ * occupant capsules really collide with the cabin interior shells (Tier-3 Stage 2), those shells
+ * carry enableHitEvents for the crumple pipeline, and occupant bodies are NOT registered foreign
+ * masses -- so without an explicit exclusion a 1.6kg forearm brushing the sill would crumple the
+ * car at full unattenuated obstacle weight (see game/src/damage/system.ts's central drain).
+ */
+export const OCCUPANT_ENTITY_ID_BASE = 1000;
+export const OCCUPANT_ENTITY_ID_END = 1400;
+
 /** World gravity magnitude (m/s^2), matching createVehicle()/createGroundBody()'s world gravity of
  * (0,-10,0) -- shared by the damage system's weight-based force thresholds (damage-tuning.ts). */
 export const GRAVITY_MAG = 10;

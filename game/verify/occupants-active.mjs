@@ -160,6 +160,10 @@ async function main() {
     // Stage 4: stumble away / standing.
     await evalExpr('window.__GAME__.stepN(900); "ok"');
     stages.flee = await evalExpr('window.__GAME__.features.occupants.occupantStates()');
+    // Tier-3 Stage 2: glass shatter is contact physics consumed by the damage system -- the
+    // authoritative browser evidence is the damage telemetry's shattered-glass mesh list (the
+    // per-occupant shatteredGlass bookkeeping was retired with the trajectory-plane hack).
+    stages.glassShattered = await evalExpr('window.__GAME__.telemetry.damage.glassShattered');
     await shot('occupants-active-4-flee.png');
 
     console.log('[verify-active] braking states:', JSON.stringify(stages.braking));
@@ -184,7 +188,7 @@ async function main() {
   writeFileSync(path.join(OUT_DIR, 'console-report-occupants-active.json'), JSON.stringify({ consoleErrors, pageErrors, stages, timestamp: new Date().toISOString() }, null, 2));
 
   const flee = stages.flee ?? [];
-  const anyGlass = flee.some((s) => (s.shatteredGlass ?? []).length > 0);
+  const anyGlass = (stages.glassShattered ?? []).length > 0;
   const anyAliveEjectedStanding = flee.some((s) => s.alive && s.ejected && s.headHeight > 1.0);
   console.log(`[verify-active] anyGlassShattered=${anyGlass} anyAliveEjectedStanding=${anyAliveEjectedStanding}`);
   if (consoleErrors.length > 0 || pageErrors.length > 0 || !anyGlass) exitCode = 1;

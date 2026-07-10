@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
+import { createDamageSystem, stepDamageSystem } from '../src/damage/system.ts';
 import {
 	createOccupant,
 	createSeatPan,
@@ -17,6 +18,7 @@ import {
 	teardownOccupant,
 	teardownSeatPan,
 } from '../src/world/features/occupants/physics.ts';
+import { createOccupantRuntime, resetOccupantAccelBaseline, updateOccupantActive } from '../src/world/features/occupants/active.ts';
 import { MASS_FRACTION, SEAT_KEYS } from '../src/world/features/occupants/tuning.ts';
 
 /** Builds all 4 seat pans + occupants against `sim.vehicle.chassis`'s CURRENT transform -- mirrors
@@ -163,7 +165,28 @@ describe('occupants: ejection on hard frontal crash', () => {
 		const sim = await createSim();
 		try {
 			const rig = seatAll(sim);
-			for (let i = 0; i < 30; i++) sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+			// Browser-faithful crash loop (Tier-3 Stage 2): the ACTIVE layer's seated brace springs are
+			// part of what the browser always runs, and they set the ejection timing -- an unbraced
+			// (poll-only) occupant bleeds its momentum into the soft passive belt spring over ~1m of
+			// stroke and breaks LATE with nothing left to fly with (measured: peak separation 1.1m
+			// poll-only vs >2m braced). Runtimes + active updates mirror index.ts's afterFixedStep.
+			const runtimes = rig.occupants.map(() => createOccupantRuntime());
+			const activeCtx = () => {
+				const t = sim.vehicle.chassis.getTransform();
+				return { chassisPos: t.position, chassisRot: t.rotation, chassisVel: sim.vehicle.chassis.getLinearVelocity(), world: sim.world };
+			};
+			// 60 settle steps (not 30): the crash-test speed injection lands a genuinely SUSTAINED
+			// multi-step belt load when it hits a still-settling rig (measured: 6 consecutive
+			// over-threshold polls -> the sustain fallback ejected the rears while still riding with
+			// the car, so they never flew). A settled rig takes the same injection as 1-2 isolated
+			// spikes. Escalation-5 (occupants-escalation.test.mjs) uses the same window.
+			for (let i = 0; i < 60; i++) {
+				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+				rig.occupants.forEach((o, k) => {
+					pollOccupantRestraint(o);
+					updateOccupantActive(o, runtimes[k], 1 / 60, activeCtx());
+				});
+			}
 
 			const wall = spawnTestWall(sim.world, sim.vehicle, 20);
 			crashSetup(sim.vehicle, 70);
@@ -172,53 +195,57 @@ describe('occupants: ejection on hard frontal crash', () => {
 			// spike across the restraint from crashSetup's own instantaneous speed injection, so the
 			// ACTUAL wall-impact deceleration is what's under test.
 			const v = sim.vehicle.chassis.getLinearVelocity();
-			for (const o of rig.occupants) matchOccupantVelocity(o, v);
+			rig.occupants.forEach((o, k) => {
+				matchOccupantVelocity(o, v);
+				resetOccupantAccelBaseline(o, runtimes[k]);
+			});
 			for (const p of rig.seatPans) matchSeatPanVelocity(p, v);
 
 			const pelvisDistAtT0 = rig.occupants.map((o) => pelvisDistanceFromChassis(sim, o));
 
+			// Tier-3 Stage 2: the damage system's central drain is what consumes an ejectee's strike on
+			// the solid windshield pane (glassShattered + destroy the pane) -- without it the aperture
+			// never opens and the freed bodies stay walled into the cabin.
+			const damage = createDamageSystem(sim.vehicle);
 			let sawNaN = false;
+			const peakSeparation = rig.occupants.map(() => 0);
 			for (let i = 0; i < 180; i++) {
 				// 3s @ 60Hz
 				sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
-				for (const o of rig.occupants) {
+				stepDamageSystem(damage, sim.world, 1 / 60);
+				rig.occupants.forEach((o, k) => {
 					pollOccupantRestraint(o);
+					updateOccupantActive(o, runtimes[k], 1 / 60, activeCtx());
 					if (!allPartsFinite(o)) sawNaN = true;
-				}
+					if (o.ejected) peakSeparation[k] = Math.max(peakSeparation[k], pelvisDistanceFromChassis(sim, o));
+				});
 			}
 
 			const ejected = rig.occupants.filter((o) => o.ejected);
 			const separations = rig.occupants.map((o) => pelvisDistanceFromChassis(sim, o));
 			console.log(
-				`[ejection] ejectedSeats=${ejected.map((o) => o.seatKey)} pelvisDistAtT0=${pelvisDistAtT0.map((d) => d.toFixed(2))} separationsAfter3s=${separations.map((d) => d.toFixed(2))}`,
+				`[ejection] ejectedSeats=${ejected.map((o) => o.seatKey)} pelvisDistAtT0=${pelvisDistAtT0.map((d) => d.toFixed(2))} separationsAfter3s=${separations.map((d) => d.toFixed(2))} peaks=${peakSeparation.map((d) => d.toFixed(2))}`,
 			);
 
 			expect(sawNaN).toBe(false);
 			expect(ejected.length).toBeGreaterThanOrEqual(2);
-			// SEPARATION ASSERTION (recalibrated against the measured post-Tier-3-Stage-1 trajectory --
-			// sim/diag traced directly): both unbelted rear belts genuinely BREAK (the ejection event this
-			// test exists to prove), and at least one freed occupant flies clean through the cabin >2m
-			// clear. The OTHER ejected occupant's separation is chaotic and seat-dependent: with the
-			// cabin-tub chassis, a 70km/h frontal decelerates the long/low Mustang so the rear-seat anchor
-			// bleeds the crash energy through the belt over ~1s of controlled deceleration, and one rear
-			// belt happens to break LATE (near full stop) -- by then little residual forward momentum
-			// remains, so that freed ragdoll's release kick pops it up-and-out and it settles ~1.3m clear
-			// within the 3s window rather than sailing >2m. That is real, deterministic ragdoll dynamics,
-			// not a restraint failure. So: assert (a) a genuine >2m fly-clear happens, and (b) EVERY
-			// ejected pelvis ends farther from the chassis than it started (the belt released it OUTWARD,
-			// never still riding in place). Tier-3 Stage 2 (occupants collide with the cabin + a
-			// destroyable windshield pane they punch through) restores the through-the-windshield path that
-			// makes BOTH rears sail clear -- see docs/build-log/specs/compound-hull-design.md S2.5, which
-			// supersedes this interim calibration.
-			const ejectedSeparations = ejected.map((o) => separations[rig.occupants.indexOf(o)]);
-			expect(Math.max(...ejectedSeparations)).toBeGreaterThan(2);
+			// SEPARATION ASSERTION (Tier-3 Stage 2 -- the RESTORED per-occupant bar, superseding the
+			// Stage-1 interim calibration): with the windshield pane genuinely destroyed by the ejectee's
+			// own strike, EVERY ejected body flies clean out of the cabin -- peak pelvis-to-chassis
+			// separation >2m each (peak, not final: the crash wall right ahead stops/bounces the flying
+			// bodies, so the resting distance understates the fly-out). Every ejected pelvis also ends
+			// farther out than it started (released OUTWARD, never still riding in place).
 			for (const o of ejected) {
 				const idx = rig.occupants.indexOf(o);
+				expect(peakSeparation[idx], `${o.seatKey} flew >2m clear`).toBeGreaterThan(2);
 				expect(separations[idx]).toBeGreaterThan(pelvisDistAtT0[idx]);
 			}
 			// The unbelted rear seats (lower threshold) must be among the ejected.
 			const ejectedSeatKeys = new Set(ejected.map((o) => o.seatKey));
 			expect(ejectedSeatKeys.has('rearLeft') || ejectedSeatKeys.has('rearRight')).toBe(true);
+			// And the pane they punched is GONE (aperture genuinely open). Derived boolean: chai's deep
+			// inspection of a Shape wrapper on failure OOMs the worker (wasm-module reference).
+			expect(sim.vehicle.glass.windshield.shape === null, 'windshield pane destroyed').toBe(true);
 
 			wall.destroy();
 			teardownAll(rig);

@@ -184,6 +184,9 @@ async function main() {
 		await shot('occupants-esc-4-getup.png');
 		await evalExpr('window.__GAME__.stepN(500); "ok"');
 		stages.flee = await states();
+		// Tier-3 Stage 2: authoritative shattered-glass evidence now lives in the damage telemetry
+		// (see verify/occupants-active.mjs's matching note).
+		stages.glassShattered = await evalExpr('window.__GAME__.telemetry.damage.glassShattered');
 		await shot('occupants-esc-5-flee.png');
 
 		// GROUNDED numeric gate on the REAL terrain: every alive upright survivor's pelvis sits in the
@@ -235,7 +238,7 @@ async function main() {
 	if (!(stages.idle?.idleDriftM < 0.02)) failures.push(`idle head drift ${stages.idle?.idleDriftM}m >= 0.02m (not still)`);
 	if (!(stages.mildBump ?? []).every((s) => !s.ejected && s.alive && s.state === 'seated')) failures.push('30km/h bump ejected/killed someone');
 	if (!(stages.ejection ?? []).some((s) => s.ejected)) failures.push('72km/h crash ejected nobody');
-	if (!(stages.flee ?? []).some((s) => (s.shatteredGlass ?? []).length > 0)) failures.push('no glass shattered in the violent crash');
+	if (!((stages.glassShattered ?? []).length > 0)) failures.push('no glass shattered in the violent crash');
 	if (!(stages.afterReset ?? []).every((s) => s.alive && !s.ejected && s.state === 'seated')) failures.push('world reset from post-crash state did not re-seat 4/4');
 	if (!(stages.afterSecondReset ?? []).every((s) => s.alive && !s.ejected && s.state === 'seated')) failures.push('world reset from seated state did not re-seat 4/4');
 	for (const g of stages.groundedCheck ?? []) {

@@ -173,6 +173,13 @@ export const ATTACH = {
 // eject, and gentle-driving head RMS crept over its bound) for no visual gain the exterior/through-glass
 // screenshots could show. Positions verified visually through the glass (game/verify/feature-occupants.
 // mjs) + via the settle/stability/ejection sim tests.
+// TIER-3 STAGE 2 NOTE: these positions are UNCHANGED from the pre-Stage-2 calibration. A rearward
+// rear-bench nudge (z -1.05 -> -1.09, to clear the rear shins off the floorpan's rear edge once
+// occupants gained real interior collision) was TRIED and reverted: with the legs clear at rest, a
+// mere 30km/h bump lurch slammed them square into the floorpan's 13cm-tall rear face instead
+// (measured 19.5kN rear-belt spikes vs 4.6kN before the nudge) -- the floorpan is occupant-
+// transparent now instead (vehicle.ts), which removes that wall entirely and keeps every occupant
+// calibration at its measured HEAD values.
 export const SEAT_LOCAL: Record<SeatKey, V3> = {
 	frontLeft: { x: 0.42, y: 0.22, z: 0.55 },
 	frontRight: { x: -0.42, y: 0.22, z: 0.55 },
@@ -184,22 +191,24 @@ export const SEAT_LOCAL: Record<SeatKey, V3> = {
  * spec's "graded drama": a hard frontal ejects at least the unbelted ones, mild driving never breaks
  * either. Tuned against features-occupants.test.mjs (seated-stability / jostle / ejection). */
 export const RESTRAINT_FORCE_THRESHOLD_N: Record<SeatKey, number> = {
-	frontLeft: 16000,
-	frontRight: 16000,
-	// MUSTANG-65 SWAP RE-CALIBRATION (measured): the hero-car swap lowered the body (wheel radius
-	// 0.39->0.31m) and lengthened it (4357->4591mm), so a frontal wall impact pitches the car nose-down
-	// more and the REAR-seat chassis anchor (z=-1.05) lifts/decelerates less -- the rear-seat restraint
-	// force at a 70km/h wall crash fell from the concept car's ~23kN to ~5.4kN (measured
-	// sim/_tmp probes: rearL 5381 / rearR 5481 N at 70km/h). The old 5300 rear threshold now sits right
-	// AT that peak (single-step, so neither the 3-step sustain nor the 1.3x instant-break fires) and the
-	// unbelted rears no longer eject in a hard frontal. Lowered to 4000: the 1.3x INSTANT-BREAK trips at
-	// 5200N -- below the 70km/h wall peak (~5481N -> both rears eject, features-occupants) but ABOVE the
-	// 30km/h bump peak (~3616N -> nobody ejects, escalation-2), a clean measured 30/70 km/h separation.
-	// Still ~2x above the hard-aggressive-driving rear peak (~2000N measured: full launch + hard brake +
-	// full-lock swerve + handbrake slide) and ~6x above the 10s mild-driving peak (623N), so mild/
-	// aggressive driving still never ejects.
-	rearLeft: 4000,
-	rearRight: 4000,
+	// TIER-3 STAGE-2 RE-CALIBRATION (16000 -> 20000, measured sim/diag/stage2-inj70-trace with the
+	// full browser-faithful loop): in the contact era a 70km/h wall loads the front belts to
+	// 15.7-16.6kN while the crash-gate is open -- 16000 sat exactly ON that band and one belted
+	// front ejected. The fronts' story is "belted: they stay in at 70" (only the unbelted rears
+	// fly); 20000 gives ~20% margin. A 140km/h+ crash still overwhelms this by force alone.
+	frontLeft: 20000,
+	frontRight: 20000,
+	// TIER-3 STAGE-2 RE-CALIBRATION (measured, sim/diag/stage2-inj30/70-trace probes with the full
+	// browser-faithful loop INCLUDING the damage system -- its panel-weld breaks and crumple-first
+	// ordering soften the deceleration the rear anchors see): at a 70km/h wall the rear belt loads
+	// only 3.95-4.48kN while the crash-gate is open (the old 4000, calibrated pre-Stage-2 at 5.4kN,
+	// sat exactly ON that band -- one rear ejected, the other read 0.99x and stayed). At a 30km/h
+	// bump the rear peak is 1.39kN with the gate shut anyway (chassis window-mean 1.19g < 2.5g).
+	// 3000 gives >=30% margin under the 70km/h band and >=2.1x margin over the 30km/h one. Ordinary
+	// hard-driving contact spikes DO exceed it (13.8kN single-step limb arrests, measured) but ride
+	// under an ordinary-driving chassis: the crash-gate blocks them and they never sustain 6 polls.
+	rearLeft: 3000,
+	rearRight: 3000,
 };
 
 /**
@@ -217,19 +226,38 @@ export const RESTRAINT_FORCE_THRESHOLD_N: Record<SeatKey, number> = {
  *     front forces >16kN for well past 3 steps); a solver spike lasts one.
  */
 export const RESTRAINT_ARM_STEPS = 30; // 0.5s @ 60Hz
-export const RESTRAINT_BREACH_STEPS = 3; // 50ms of sustained over-threshold force
+// TIER-3 STAGE 2 RECALIBRATION (contact era): with REAL occupant<->interior collision, brief
+// solver-arrest spikes (a limb/torso catching a sill or pillar mid-slalom for 1-2 steps) are normal
+// driving physics, not ejections. The sustain window doubles (3 -> 6 polls = 100ms) and only serves
+// as the slow-crush/pinned fallback; genuine crash ejections ride the FLY-BREAK gate below.
+export const RESTRAINT_BREACH_STEPS = 6; // 100ms of sustained over-threshold force
 /**
- * INSTANT-BREAK path: a force this many times the threshold breaks the belt on a SINGLE poll (real
- * webbing has an ultimate strength above its rated load -- gross overload snaps it instantly, it
- * does not get 50ms of grace). This is what keeps violent ejections dramatic under the sustain gate.
- * MEASURED single-step peaks (sim/diag/occupants-force-trace.test.mjs, thresholds disabled):
- *   30km/h bump:    rear 1.03x threshold (1-step) . front 0.4x  -> nobody breaks (needs 1.3x or 3 steps)
- *   70km/h wall:    rear 4.3-4.7x                 . front 1.38-1.5x -> ALL break instantly (the
- *                   designed 70km/h drama: through-the-windshield ejections, preserved)
- *   spawn settle:   ~0.5x rear                    -> never breaks
- * 1.3 sits between the 30km/h rear peak (1.03x, +26% margin) and the 70km/h front peak (1.38x).
+ * CRASH-BREAK gate (Tier-3 Stage 2 -- REPLACES the retired RESTRAINT_INSTANT_BREAK_FACTOR magnitude
+ * path): an over-threshold belt force breaks the belt IMMEDIATELY only while the CHASSIS itself is
+ * (or was, within the short decaying memory below) accelerating at at least this many g. Rationale +
+ * measurements (sim/diag/stage2-* probes, browser-faithful loop):
+ *   - Force magnitude CANNOT separate driving from crashes in the contact era: a smooth 0.5g S-curve
+ *     at 26m/s produced single-step limb/torso arrest spikes of 3.0-3.4x the rear threshold (a shin
+ *     catching the sill, the torso taking the interior wall), while the honest inertial load of a
+ *     70km/h wall crash peaks at only 1.9-2.1x -- the regimes are INVERTED in force.
+ *   - Pelvis-vs-chassis relative speed was tried and rejected: a braced occupant never GAINS
+ *     relative speed precisely because the belt holds (measured 0.7m/s at the 70km/h breach) --
+ *     chicken-and-egg.
+ *   - WINDOWED chassis acceleration separates the regimes by an order of magnitude: mild-driving
+ *     phases peak at 1.44g (launch) / 1.21g (0.5-brake) mean, while a 70km/h wall / 55km/h yank
+ *     moves the chassis velocity 8-19m/s across the 10-poll window (6-11g mean). A single-step
+ *     limb-arrest spike DOES jerk the 1300kg chassis past 2.5g for one poll (30kN+ solver impulse),
+ *     but only moves its velocity ~0.4m/s -- the windowed mean stays ~0.2g, blind to it.
+ *   - The 30km/h bump (~5g chassis, so the gate alone would pass) stays no-eject via the FORCE
+ *     threshold itself: its belt peak is 0.76x -- never breaches, gate never consulted.
+ * 2.5 sits ~1.7x above the hardest mild-driving chassis mean and >2x below the crash band.
  */
-export const RESTRAINT_INSTANT_BREAK_FACTOR = 1.3;
+export const RESTRAINT_BREAK_MIN_CHASSIS_ACCEL_G = 2.5;
+/** Crash-gate memory length, in polls (~0.17s at 60Hz) -- long enough that a yank-crash's
+ * single-step velocity jump is still inside the window when the loading belt crosses threshold a
+ * few steps later, short enough that the gate closes again a sixth of a second after any real
+ * deceleration ends. */
+export const RESTRAINT_ACCEL_WINDOW_POLLS = 10;
 
 /** Spawn drop, meters -- occupants spawn this far ABOVE their settled seat pose so the lap-restraint
  * joint's spring gently pulls the pelvis down onto the seat pan over the first few real fixed steps
@@ -241,17 +269,40 @@ export const SETTLE_DROP_M = 0.05;
  * split -- not depending on a 'cardetail' feature). */
 export const SEAT_PAN_HALF_EXTENTS: V3 = { x: 0.22, y: 0.05, z: 0.22 };
 /**
- * Seat pans carry ONLY this category bit (instead of the default all-bits), and an EJECTED occupant's
- * shapes drop it from their maskBits -- so a pan holds a SEATED occupant but is transparent to a
- * FLYING one. MEASURED artifact this fixes (sim/diag/occupants-eject-detail.test.mjs): a rear
- * occupant ejected in a 70km/h frontal crossed the cabin at ~19m/s and its trailing legs raked the
- * FRONT seat pan -- a rigid (hertz=0) weld to the 1300kg chassis, i.e. effectively a wall -- yanking
- * a 90g one-step spike through the hip joints into the torso and killing it mid-cabin before it
- * reached the windshield. Real seat backs fold/break away under a 55kg body at highway speed; a
- * rigid-weld pan is the same class of modeling artifact as the solid convex chassis hull, and it gets
- * the same treatment (filtered for ejected bodies). Everything else still collides with pans
- * normally (their maskBits stay default). */
-export const SEAT_PAN_CATEGORY_BIT = 1n << 4n;
+ * Seat pans carry ONLY their own seat's category bit (instead of the default all-bits; one bit PER
+ * SEAT INDEX, vehicle/tuning.ts's SEAT_PAN_CATEGORY_BITS), a SEATED occupant's mask includes only
+ * its OWN seat's bit, and an EJECTED occupant's mask drops all pan bits -- so a pan holds exactly
+ * the one occupant it exists for and is transparent to everyone else, seated or flying. MEASURED
+ * artifacts this shape of filter fixes: (1) ejected era (sim/diag/occupants-eject-detail.test.mjs):
+ * a rear occupant ejected in a 70km/h frontal crossed the cabin at ~19m/s and its trailing legs
+ * raked the FRONT seat pan -- a rigid (hertz=0) weld to the 1300kg chassis, i.e. effectively a wall
+ * -- yanking a 90g one-step spike through the hip joints into the torso and killing it mid-cabin
+ * before it reached the windshield. (2) Stage-2 seated era (sim/diag/stage2-* probes): once seated
+ * occupants gained real interior collision, a plain 0.5-brake slid both soft-belted (3Hz spring)
+ * rears ~0.7m forward INTO the front seats' pans for single-step 3.1-3.2x belt-threshold arrest
+ * spikes -- false ejections during the mild-driving suite -- and a hard steer flick wedged a rear
+ * shin between its own pan's outboard edge and the sill (opposing-normal pincer, 12-13kN). Real
+ * seat backs fold/break away under a 55kg body at highway speed; a rigid-weld pan is the same class
+ * of modeling artifact as the solid nose/tail crush volumes, and it gets the same treatment
+ * (filtered down to the one pair it exists for). Everything else still collides with pans normally
+ * (their maskBits stay default). The bits themselves are DEFINED in vehicle/tuning.ts's
+ * collision-filter bit registry (Tier-3 Stage 2) because the vehicle core needs them to build the
+ * derived category words and must not import a world feature's module; re-exported here for this
+ * feature's own call sites. */
+export { SEAT_PAN_CATEGORY_BITS, SEAT_PAN_ALL_CATEGORY_BITS } from '../../../vehicle/tuning';
+
+/**
+ * Shared negative collision group for ALL occupant capsules (every occupant, every part, seated AND
+ * ejected) -- Tier-3 STAGE 2: occupants left the car's shared CAR_GROUP_INDEX (-1) so category/mask
+ * filtering can give them REAL collision against the cabin interior shells + glass panes (see
+ * vehicle/tuning.ts's collision-filter bit registry). A distinct shared negative group preserves the
+ * two suppressions the old shared car group provided for free and that must survive the move:
+ * occupant-vs-occupant (4 ragdolls seated centimeters apart, and mid-flight bodies crossing the
+ * cabin) and self-collision among one ragdoll's own 11 capsules (non-adjacent parts overlap in the
+ * seated pose by construction). vs the car's own group (-1 != -2) the pair falls through to
+ * category/mask -- exactly the point.
+ */
+export const OCCUPANT_GROUP_INDEX = -2;
 export const SEAT_PAN_MASS_KG = 4;
 export const SEAT_PAN_FRICTION = 0.9;
 /** Vertical drop from SEAT_LOCAL down to the seat pan's center (pan top sits ~1cm below the pelvis's
@@ -503,41 +554,15 @@ export const STABILIZE_MAX_ANG_SPEED_RAD_S = 4.5; // clamp on the assisted uprig
 export const STABILIZE_STEP_AMPLITUDE_RAD = 0.5;
 export const STABILIZE_STEP_HZ = 1.4;
 
-/**
- * GLASS-SHATTER TRIGGER geometry (chassis-local, same frame as SEAT_LOCAL: +X = car left, +Z = front,
- * y measured up from the chassis body origin). An ejecting occupant's head/torso trajectory crossing
- * one of these boundaries OUTWARD fires that window's glassShattered (active.ts records it; index.ts
- * forwards to the damage system's emitter via a sink main.ts wires in). Approximate cabin-boundary
- * planes derived from the seat geometry + car-map wheelbase (like SEAT_LOCAL -- not scanned glass
- * geometry), which is all the crossing test needs. Node names are car-map.ts's glassMeshNodes. */
-export const GLASS_WINDSHIELD_Z_M = 0.95; // forward of the front seats (z=0.55); crossing +Z fires it
-export const GLASS_SIDE_X_M = 0.6; // |x| beyond this (outward) fires that side's door window
-export const GLASS_REAR_Z_M = -1.55; // behind the rear seats (z=-1.05); crossing -Z fires the rear window
-/** Vertical band (chassis-local y) a crossing must fall within to count as "through the glass" rather
- * than under the floor / over the roof. */
-export const GLASS_Y_MIN_M = 0.05;
-export const GLASS_Y_MAX_M = 1.25;
-// Mustang-65 shatter-glass panes (car-map.ts glassMeshNodes). The asset has TWO dedicated glass panes
-// -- 'Windshield' (front, includes the front side/quarter glass islands) and 'RearWindow'. The DOOR
-// windows are baked into the door PANEL meshes (they travel + crumple with the door, not as a separate
-// swappable pane), so there is no dedicated side-glass node: a side (door-window) ejection maps to the
-// 'Windshield' pane as the nearest cabin glass so the crossing still produces a visible shatter event.
-export const GLASS_NODE_WINDSHIELD = 'Windshield';
-export const GLASS_NODE_DOOR_LEFT = 'Windshield';
-export const GLASS_NODE_DOOR_RIGHT = 'Windshield';
-export const GLASS_NODE_REAR = 'RearWindow';
-
-/**
- * CAR-COLLISION RE-ENABLE. An ejected occupant starts collision-filtered against the whole car (it
- * spawned INSIDE the single convex chassis hull -- un-filtering while still inside = explosive
- * depenetration, the hard constraint this feature is built around; see physics.ts's EJECTED_MARKER
- * doc). We re-enable car collision (flip groupIndex CAR_GROUP_INDEX -> 0) only once the occupant's
- * ENTIRE body AABB clears this chassis-local hull AABB + margin -- so they fly out through the
- * (now-shattered) glass unimpeded, then can land on / bounce off the car's exterior from OUTSIDE
- * without ever tunnelling back through it. Extents come from the real chassis hull silhouette
- * (vehicle/tuning.ts HULL_* + car dims), inflated to a safe enclosing box. */
-export const HULL_AABB_HALF_X_M = 1.35;
-export const HULL_AABB_HALF_Z_M = 2.3;
-export const HULL_AABB_Y_MIN_M = -0.5; // chassis-local (origin ~hub height); ground is ~-0.39
-export const HULL_AABB_Y_MAX_M = 0.9;
-export const HULL_AABB_CLEAR_MARGIN_M = 0.2;
+// RETIRED (Tier-3 Stage 2, the FILTER PATH): the GLASS_* trajectory-plane-crossing constants and the
+// HULL_AABB_* car-collision-re-enable extents are gone. Glass shatter is now literal contact physics
+// -- two SOLID pane shapes on the chassis (vehicle.ts GLASS_ENTITY_ID, geometry.ts
+// buildGlassPaneShapes()) whose hit events the damage system's central drain consumes (system.ts:
+// glassShattered + destroy the pane) -- and ejected occupants keep ONE honest filter for their whole
+// lifetime (physics.ts: OCCUPANT_GROUP_INDEX + the occupant category/mask bits registered in
+// vehicle/tuning.ts), colliding with the car's interior shells/glass/world (and, once ejected, the
+// panels) from the first step, so there is no "re-enable once clear of an AABB" moment anymore.
+// (Door-window note kept for the record: the Mustang asset's door glass is baked into the door
+// PANEL meshes, so the two pane shapes -- 'Windshield' incl. the front quarter glass, and
+// 'RearWindow' -- are the only dedicated panes; a side ejection exits through the genuinely open
+// window aperture between the pillars.)

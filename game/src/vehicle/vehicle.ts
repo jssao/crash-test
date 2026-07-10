@@ -12,7 +12,7 @@
 
 import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
 import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
-import { buildCabinShapes, buildChassisHullPoints, solveChassisDensities } from './geometry';
+import { buildCabinShapes, buildChassisHullPoints, buildGlassPaneShapes, solveChassisDensities, type GlassPaneKey } from './geometry';
 import {
 	add,
 	clamp,
@@ -65,6 +65,8 @@ import {
 	LATERAL_GRIP_MIN_SPEED_MS,
 	LATERAL_GRIP_PEAK_G,
 	LATERAL_GRIP_RAMP_EXPONENT,
+	EJECTED_ONLY_OCCUPANT_CATEGORY_BITS,
+	OCCUPANT_TRANSPARENT_CATEGORY_BITS,
 	REVERSE_ENGAGE_SPEED_MS,
 	REVERSE_MAX_SPEED_MS,
 	REVERSE_MAX_DRIVE_TORQUE_NM,
@@ -114,6 +116,36 @@ export const CAR_ENTITY_ID = {
 	chassis: 1,
 	wheel: { fl: 2, fr: 3, rl: 4, rr: 5 } as Record<WheelKey, number>,
 } as const;
+
+/**
+ * Entity ids tagged on the two GLASS PANE shapes (Tier-3 Stage 2, geometry.ts buildGlassPaneShapes())
+ * -- shape-level userData, which hit events report INSTEAD of the owning chassis body's tag (see
+ * src/ts/events.ts), so the damage system's central drain (game/src/damage/system.ts) can tell "a
+ * pane was struck" apart from "the hull was struck" and route the hit to the glass-shatter model
+ * (emit glassShattered + destroy the pane) instead of the crumple/weld models. 11-12 extends the
+ * car's reserved id range (chassis/wheels 1-5, panels 6-10 -- same disjoint-by-convention scheme as
+ * CAR_ENTITY_ID's doc comment).
+ */
+export const GLASS_ENTITY_ID: Record<GlassPaneKey, number> = {
+	windshield: 11,
+	rearWindow: 12,
+} as const;
+
+/** The visual glass mesh node (car-map.ts glassMeshNodes) each pane corresponds to -- system.ts uses
+ * this to mark the matching registered glass deformable shattered so the browser's material swap +
+ * telemetry stay in sync with the physical pane. */
+export const GLASS_MESH_NODE: Record<GlassPaneKey, string> = {
+	windshield: 'Windshield',
+	rearWindow: 'RearWindow',
+} as const;
+
+/** One destroyable glass pane on the chassis: `shape` is null once shattered (the aperture is then
+ * genuinely open -- nothing occupies that collision space until a full car repair rebuilds the
+ * vehicle). */
+export interface GlassPaneHandle {
+	key: GlassPaneKey;
+	shape: Shape | null;
+}
 
 interface WheelDef {
 	key: WheelKey;
@@ -198,6 +230,9 @@ export interface Vehicle {
 	 * function's doc comment) -- createVehicle() itself never reads these back. Mass/COM/inertia are
 	 * hard-set via setMassData() to the pre-Tier-3 single-hull values, so no ballast shape is needed. */
 	chassisShapes: { cabin: Shape[] };
+	/** Tier-3 Stage 2: the 2 destroyable solid glass panes (windshield/rear window) on the chassis --
+	 * see GLASS_ENTITY_ID's doc comment. The damage system nulls a pane's shape when it shatters. */
+	glass: Record<GlassPaneKey, GlassPaneHandle>;
 	wheels: Record<WheelKey, WheelHandle>;
 	/** The 5 damage-system panel bodies (game/src/damage/panels.ts), rigidly welded to the chassis --
 	 * see that module's createPanels() doc comment for why panels are part of the core assembly. */
@@ -378,17 +413,61 @@ export function createVehicle(
 	// overridden below); only geometry matters. enableHitEvents on every shape so a crash contacting ANY
 	// exterior face drives the damage system's plastic crumple exactly as the single hull did (they carry
 	// no own userData, so hit events fall back to the chassis body's CAR_ENTITY_ID.chassis tag).
-	// groupIndex CAR_GROUP_INDEX so no cabin shape self-collides with wheels/panels/occupants.
+	// groupIndex CAR_GROUP_INDEX so no cabin shape self-collides with wheels/panels.
+	//
+	// Tier-3 STAGE 2 (filter path): the solid NOSE and TAIL crush volumes and the FLOORPAN get
+	// OCCUPANT_TRANSPARENT_CATEGORY_BITS -- seated front occupants' legs/feet live inside the nose,
+	// rear occupants' torsos/heads inside the tail, and BOTH rows' lower legs dangle BELOW the
+	// floorpan's top face by construction (measured, hull-cabin-tub/occupants probes: feet y -0.16..
+	// -0.26 vs floor top 0.06), so the floorpan's rear face is otherwise a 13cm wall square in front
+	// of the rear shins -- ordinary bump/cornering lurches arrested against it pumped 19.5kN
+	// single-step spikes through the rear belts (measured). Occupant capsules therefore pass through
+	// these three volumes while genuinely colliding with the UPPER interior shells (sills/roof/
+	// pillars, which keep the default category); a body that slips below the cabin falls out under
+	// the wreck, which reads naturally. Masks stay default, so world contacts / rays / hit events
+	// against nose/tail/floorpan are byte-identical.
+	const OCCUPANT_TRANSPARENT_CABIN_SHAPES = new Set(['nose', 'tail', 'floorpan']);
 	const cabinShapes: Shape[] = buildCabinShapes().map((def) =>
 		chassis.createHullShape(def.points, {
 			density: solved.hullDensity,
 			friction: 0.8,
 			enableHitEvents: true,
 			groupIndex: CAR_GROUP_INDEX,
+			...(OCCUPANT_TRANSPARENT_CABIN_SHAPES.has(def.name) ? { categoryBits: OCCUPANT_TRANSPARENT_CATEGORY_BITS } : {}),
 		}),
 	);
+	// Tier-3 STAGE 2: the 2 solid glass panes (windshield/rear window), created BEFORE the mass-parity
+	// stamp below so setMassData() overrides their nominal mass contribution too. Ejected-only occupant
+	// category (see below), CAR_GROUP_INDEX (never self-collides with car parts), and their own
+	// shape-level GLASS_ENTITY_ID + enableHitEvents so the damage system's central drain can consume a
+	// pane strike as a glass-shatter event (system.ts). Both panes sit fully INSIDE the nose/tail crush
+	// volumes (geometry.ts's Stage-2 section doc), so the outside world never reaches them -- only
+	// occupants (and debris that has already penetrated the hull deeply) can.
+	const glassPanePoints = buildGlassPaneShapes();
+	const glass = {} as Record<GlassPaneKey, GlassPaneHandle>;
+	for (const key of Object.keys(glassPanePoints) as GlassPaneKey[]) {
+		glass[key] = {
+			key,
+			shape: chassis.createHullShape(glassPanePoints[key], {
+				density: solved.hullDensity,
+				friction: 0.2,
+				enableHitEvents: true,
+				groupIndex: CAR_GROUP_INDEX,
+				// EJECTED-only occupant collision (same word as the damage panels): a SEATED occupant
+				// never touches a pane -- a soft-belted torso lurching into the pane band mid-flick got
+				// solver-squeezed between belt and pane for crash-magnitude belt spikes and would
+				// false-shatter the windshield during hard driving (measured, sim/diag/stage2 probes) --
+				// while an EJECTED body (belt broken, genuinely flying) punches it, shatters it, and
+				// exits through the open aperture. See tuning.ts's OCCUPANT_EJECTED_COLLIDABLE_BIT doc.
+				categoryBits: EJECTED_ONLY_OCCUPANT_CATEGORY_BITS,
+				userData: GLASS_ENTITY_ID[key],
+			}),
+		};
+	}
 	// Stamp mass parity. setMassData is retained as long as no shape is added/removed afterward -- wheels
-	// and panels below are SEPARATE bodies, so this holds for the chassis body's whole lifetime.
+	// and panels below are SEPARATE bodies, so this holds for the chassis body's whole lifetime... with
+	// ONE deliberate exception: shattering a glass pane destroys that shape with updateBodyMass=false
+	// (system.ts), which box3d treats as "no mass recompute", so the parity mass data survives.
 	chassis.setMassData(massParity);
 
 	const wheels = {} as Record<WheelKey, WheelHandle>;
@@ -421,6 +500,11 @@ export function createVehicle(
 			// wheels/panels -- upgrades the previous collideConnected:false on the wheel joint below,
 			// which only ever covered THIS wheel's own joint pair, not e.g. wheel-vs-wheel.
 			groupIndex: CAR_GROUP_INDEX,
+			// Tier-3 STAGE 2: occupant-transparent (occupant capsules left the shared car group to gain
+			// real interior collision, and a spinning wheel sphere is nothing an occupant should ever
+			// contact -- see tuning.ts's OCCUPANT_TRANSPARENT_CATEGORY_BITS doc). Mask stays default, so
+			// ground/world contact is byte-identical.
+			categoryBits: OCCUPANT_TRANSPARENT_CATEGORY_BITS,
 		});
 
 		const suspensionHertz = def.steered ? SUSPENSION_HERTZ_FRONT : SUSPENSION_HERTZ_REAR;
@@ -456,6 +540,7 @@ export function createVehicle(
 		world,
 		chassis,
 		chassisShapes: { cabin: cabinShapes },
+		glass,
 		wheels,
 		panels,
 		gearbox: createGearboxState(),
@@ -516,6 +601,13 @@ export function destroyVehicle(vehicle: Vehicle): void {
 		}
 	}
 	for (const s of vehicle.chassisShapes.cabin) s.destroy(false);
+	// A shattered pane's shape was already destroyed (and nulled) by the damage system.
+	for (const pane of Object.values(vehicle.glass)) {
+		if (pane.shape) {
+			pane.shape.destroy(false);
+			pane.shape = null;
+		}
+	}
 	vehicle.chassis.destroy();
 }
 

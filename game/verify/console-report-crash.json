@@ -3,50 +3,50 @@
   "consoleWarnings": [],
   "pageErrors": [],
   "telemetryBefore": {
-    "speedKmh": 1.1036039159914695,
+    "speedKmh": 0,
     "gear": 1,
     "rpm": 900,
     "wheelOmegas": {
-      "fl": 0.0012710167793557048,
-      "fr": 0.0011669158702716231,
-      "rl": 0.00011502862616907805,
-      "rr": 0.00014554815425071865
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
     },
     "slipHints": {
-      "fl": 0.0033501315241183786,
-      "fr": 0.0033095321695755867,
-      "rl": 0.0028986059726185797,
-      "rr": 0.0029103254714019297
+      "fl": 0,
+      "fr": 0,
+      "rl": 0,
+      "rr": 0
     },
-    "steeringAngle": 2.716750771014631e-7,
+    "steeringAngle": -5.960465188081798e-8,
     "chassisPos": {
-      "x": -0.0000016370554476452526,
-      "y": 0.3746289014816284,
-      "z": -0.00004031136631965637
+      "x": 0,
+      "y": 0.30000001192092896,
+      "z": 0
     },
     "chassisQuat": {
-      "x": -0.00008458522643195465,
-      "y": -6.673906227661064e-8,
-      "z": -0.0000016337891111106728,
+      "x": 0,
+      "y": 0,
+      "z": 0,
       "w": 1
     },
-    "rollAngleRad": -0.000003267566931949771,
-    "yawRateRadS": -0.000003602533195943039,
-    "upDot": 0.9999999856853404,
+    "rollAngleRad": 0,
+    "yawRateRadS": 0,
+    "upDot": 1,
+    "groundedWheelCount": 4,
+    "assistAuthority": 1,
     "damage": {
       "panelStates": {
         "hood": "attached",
         "doorL": "attached",
         "doorR": "attached",
-        "hatch": "attached",
-        "roof": "attached"
+        "trunk": "attached"
       },
       "stressLevels": {
         "hood": 0,
         "doorL": 0,
         "doorR": 0,
-        "hatch": 0,
-        "roof": 0
+        "trunk": 0
       },
       "wheelStates": {
         "fl": "attached",
@@ -59,50 +59,50 @@
     }
   },
   "telemetryAfter": {
-    "speedKmh": 0.0000014703222266752958,
+    "speedKmh": 0.0005615943666491667,
     "gear": 1,
     "rpm": 900,
     "wheelOmegas": {
-      "fl": 1.875926258776417e-8,
-      "fr": 5.8254880030972345e-8,
-      "rl": 1.5664615204968868e-7,
-      "rr": -2.2889662432135083e-7
+      "fl": 0.00009982016490539536,
+      "fr": 0.00008232401160057634,
+      "rl": 0.00009701067756395787,
+      "rr": 0.00008024444105103612
     },
     "slipHints": {
-      "fl": 3.449766320935787e-7,
-      "fr": 3.603799228964299e-7,
-      "rl": 3.978126420714311e-7,
-      "rr": 2.49764215944952e-7
+      "fl": 0.000042677065391925414,
+      "fr": 0.000037253257867431513,
+      "rl": 0.00004180612431607979,
+      "rr": 0.000036608590997074046
     },
-    "steeringAngle": 0.00043177520274184644,
+    "steeringAngle": 0.000014942605957912747,
     "chassisPos": {
-      "x": -0.01967758871614933,
-      "y": 0.3878551125526428,
-      "z": 22.182476043701172
+      "x": 0.04127618297934532,
+      "y": 0.1800912320613861,
+      "z": 22.153715133666992
     },
     "chassisQuat": {
-      "x": -0.045584362000226974,
-      "y": 0.004651939962059259,
-      "z": -0.000022434964193962514,
-      "w": 0.9989497065544128
+      "x": -0.0016957807820290327,
+      "y": 0.002749955514445901,
+      "z": 0.00003631545769167133,
+      "w": 0.9999948143959045
     },
-    "rollAngleRad": -0.0004689342494502858,
-    "yawRateRadS": -1.2233940558681996e-7,
-    "upDot": 0.9958441308754092,
+    "rollAngleRad": 0.00006330389536478664,
+    "yawRateRadS": -0.000004414049223298418,
+    "upDot": 0.9999942460174537,
+    "groundedWheelCount": 4,
+    "assistAuthority": 1,
     "damage": {
       "panelStates": {
-        "hood": "broken",
-        "doorL": "loosened",
-        "doorR": "loosened",
-        "hatch": "attached",
-        "roof": "loosened"
+        "hood": "loosened",
+        "doorL": "attached",
+        "doorR": "attached",
+        "trunk": "attached"
       },
       "stressLevels": {
-        "hood": 128.36008488548111,
-        "doorL": 67.45862146083759,
-        "doorR": 30.392649838607074,
-        "hatch": 6.208712216614106,
-        "roof": 35.83348988987505
+        "hood": 89.45141099062724,
+        "doorL": 1.2097298033724313,
+        "doorR": 0.5857204071462394,
+        "trunk": 0
       },
       "wheelStates": {
         "fl": "attached",
@@ -110,10 +110,12 @@
         "rl": "attached",
         "rr": "attached"
       },
-      "dentedVertexCount": 6301,
-      "glassShattered": []
+      "dentedVertexCount": 4962,
+      "glassShattered": [
+        "glass-Cube012_1-38"
+      ]
     }
   },
   "damageOccurred": true,
-  "timestamp": "2026-07-09T06:19:57.248Z"
+  "timestamp": "2026-07-10T19:53:53.259Z"
 }

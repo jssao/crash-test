@@ -37,18 +37,33 @@
 // in-place settle the first time the game renders, which is imperceptible and matches "let them settle
 // for a few warmup steps" without touching anyone else's fixed-step bookkeeping.
 //
-// COLLISION FILTERING: seated occupant capsules use CAR_GROUP_INDEX (imported read-only from vehicle/
-// tuning.ts, the SAME shared group every chassis/wheel/panel shape already uses) so they never fight
-// the chassis hull, wheels, or damage panels (a same-negative-group pair never collides, box3d/box2d
-// convention -- also suppresses occupant-vs-occupant self-collision, since every occupant shares this
-// one group). The seat pan is left at the DEFAULT (neutral, groupIndex 0) filter instead: its own weld
-// joint's default collideConnected:false already keeps it off the chassis specifically, and it's sized/
-// placed well clear of the wheels/panels' bounding volumes (no shared joint needed there -- verified
-// via the settle/stability sim test seeing no NaN/divergence). Because the seat pan's group (0) differs
-// from the occupant's group (-1), they fall through to ordinary category/mask filtering (both default
-// all-bits) and DO collide -- which is exactly what lets the pelvis rest on the seat via real contact.
-// On ejection, the newly-free capsule's filter flips to the SAME neutral (groupIndex 0) filter
-// breakPanelWeld() uses for a broken panel, "so it can now hit the car and the world".
+// COLLISION FILTERING (Tier-3 STAGE 2, the FILTER PATH -- see vehicle/tuning.ts's collision-filter
+// bit registry and docs/build-log/specs/compound-hull-design.md): occupant capsules carry ONE honest
+// filter for their whole lifetime --
+//   categoryBits = OCCUPANT_CATEGORY_BIT (their only bit; rays that must never hit a ragdoll, e.g.
+//                  active.ts's ground raycast, mask it out),
+//   maskBits     = seated:  OCCUPANT_COLLIDABLE_BIT | SEAT_PAN_CATEGORY_BITS[own seat] (own pan
+//                           ONLY -- the other three rigid pans are transparent, tuning.ts seat-pan doc)
+//                  ejected: OCCUPANT_COLLIDABLE_BIT | OCCUPANT_EJECTED_COLLIDABLE_BIT
+//                  so they REALLY collide with the cabin interior shells (floorpan/sills/roof/
+//                  pillars) and the whole world; the car volumes that would fight the seated pose
+//                  -- the solid NOSE/TAIL crush volumes (front legs/feet live inside the nose, rear
+//                  torsos inside the tail; measured), the wheels, and the cardetail parts -- cleared
+//                  those bits from their categories (OCCUPANT_TRANSPARENT_CATEGORY_BITS) and are
+//                  permanently occupant-transparent. The damage PANELS + the GLASS PANES are
+//                  ejected-only (EJECTED_ONLY_OCCUPANT_CATEGORY_BITS): a corpse rests ON the hood
+//                  from outside and an ejectee punches THROUGH the windshield pane, but a seated
+//                  torso never fights the hood's cowl edge, the door boxes' window band, or the
+//                  pane band from inside (measured spikes -- see vehicle/tuning.ts's
+//                  OCCUPANT_EJECTED_COLLIDABLE_BIT doc),
+//   groupIndex   = OCCUPANT_GROUP_INDEX (-2): a shared negative group of occupants' OWN, preserving
+//                  the no-self-collision + no-occupant-vs-occupant suppression the old shared car
+//                  group provided, while car-vs-occupant pairs now fall through to category/mask.
+// On ejection the mask swaps own-pan bit -> panel bit (a body flying across the cabin must not be
+// arrested by a rigid-welded pan, but must land on the hood outside); the ejectee then punches the
+// SOLID windshield pane -- a real contact whose hit event the damage system consumes (glassShattered
+// + destroy the pane, system.ts) -- and exits through the genuinely open aperture. The seat pan
+// keeps its neutral group + SEAT_PAN_CATEGORY_BIT-only category exactly as before.
 //
 // CHASSIS-ATTACHED-JOINT LIFECYCLE HAZARD: a full car repair (main.ts's doCarRepair()) destroys the
 // OLD chassis body outright (vehicle.ts's destroyVehicle()) before this feature's reset() ever runs --
@@ -66,8 +81,6 @@
 import {
 	Body,
 	BodyType,
-	DEFAULT_CATEGORY_BITS,
-	DEFAULT_MASK_BITS,
 	forgetHandle,
 	RevoluteJoint,
 	Shape,
@@ -77,13 +90,14 @@ import {
 	type Quat,
 } from '../../../../../src/ts/index.js';
 import { add, length, multiplyQuat, rotateVector, sub, type Q4 as MQ4, type V3 } from '../../../vehicle/mathUtil';
-import { CAR_GROUP_INDEX } from '../../../vehicle/tuning';
+import { FIXED_DT, GRAVITY_MAG, OCCUPANT_CATEGORY_BIT, OCCUPANT_COLLIDABLE_BIT, OCCUPANT_EJECTED_COLLIDABLE_BIT, OCCUPANT_ENTITY_ID_BASE } from '../../../vehicle/tuning';
 import {
 	ATTACH,
 	BALL_SPRING_DAMPING,
 	BALL_SPRING_HERTZ,
 	EJECTED_FRICTION,
 	EJECTION_KICK_NS,
+	OCCUPANT_GROUP_INDEX,
 	HINGE_LOWER_RAD,
 	HINGE_SPRING_DAMPING,
 	HINGE_SPRING_HERTZ,
@@ -103,11 +117,13 @@ import {
 	RESTRAINT_ARM_STEPS,
 	RESTRAINT_BREACH_STEPS,
 	RESTRAINT_CONE_RAD,
-	RESTRAINT_INSTANT_BREAK_FACTOR,
+	RESTRAINT_ACCEL_WINDOW_POLLS,
+	RESTRAINT_BREAK_MIN_CHASSIS_ACCEL_G,
 	RESTRAINT_FORCE_THRESHOLD_N,
 	RESTRAINT_TWIST_RAD,
+	SEAT_KEYS,
 	SEAT_LOCAL,
-	SEAT_PAN_CATEGORY_BIT,
+	SEAT_PAN_CATEGORY_BITS,
 	SEAT_PAN_DROP_M,
 	SEAT_PAN_FRICTION,
 	SEAT_PAN_HALF_EXTENTS,
@@ -210,6 +226,18 @@ export interface OccupantJoints {
 export interface Occupant {
 	seatKey: SeatKey;
 	seatIndex: number;
+	/** The chassis body this occupant is belted to -- read by pollOccupantRestraint()'s crash-gate
+	 * (chassis deceleration). Only dereferenced while restraintJoint is non-null, which a car repair
+	 * nulls (teardownOccupant) before the chassis body is ever stale. */
+	chassis: Body;
+	/** Ring of the chassis velocity at each of the last RESTRAINT_ACCEL_WINDOW_POLLS restraint polls
+	 * -- pollOccupantRestraint()'s crash-gate memory: the gate reads the mean chassis acceleration
+	 * across the whole window, which (a) still sees a yank-style crash whose one-step velocity jump
+	 * precedes the belt-force peak by a few steps, and (b) is blind to one-step chassis jolts from an
+	 * occupant limb's own contact spike (measured: a 30kN single-step limb arrest jerks the 1300kg
+	 * chassis >2.5g for exactly one poll, but moves its velocity only ~0.4m/s -- a real crash moves
+	 * it 8-19m/s). */
+	chassisVelRing: V3[];
 	parts: Record<PartKey, OccupantPartBody>;
 	/** Internal ragdoll joints (spine/neck/2x shoulder/2x elbow/2x hip/2x knee = 10) -- never touch the
 	 * chassis, always safe to .destroy() normally. */
@@ -247,13 +275,29 @@ function buildHingeFrames(parentOffset: MQ4, childOffset: MQ4): { frameA: MQ4; f
 	};
 }
 
-/** Base entity-id tag for occupant N's (0-3) 11 parts -- purely for debugging/telemetry; no shared
- * system currently consumes it (occupants don't feed the damage system: no enableHitEvents). */
+/** Entity-id tag for occupant N's (0-3) 11 parts, inside the registered occupant band
+ * (vehicle/tuning.ts's OCCUPANT_ENTITY_ID_BASE..END) -- the damage system's central drain uses the
+ * band to keep occupant-sourced interior hit events out of the crumple/weld models
+ * (game/src/damage/system.ts), and glass-pane hits carry it as the striking side. */
 function entityIdFor(seatIndex: number, partIndex: number): number {
-	return 1000 + seatIndex * 100 + partIndex;
+	return OCCUPANT_ENTITY_ID_BASE + seatIndex * 100 + partIndex;
 }
 
-function addCapsuleShape(body: Body, partKey: PartKey, friction: number, entityId: number): Shape {
+// PAN-SUPPORT NOTE: every part's SEATED mask includes the occupant's OWN seat-pan bit -- narrowing
+// to pelvis/thighs (and then pelvis/thighs/shins) was TRIED and reverted: the seated rest pose
+// genuinely leans limbs on the pan (rear shins prop on the bench edge, forearms rest near the lap),
+// and removing those props left the arms in perpetual slow swing + the feet chattering on the world
+// ground plane -- idle head/torso sway RMS (escalation-1's bar) went 0.02 -> 0.09-0.11 rad/s,
+// measured per-part in sim/diag/stage2-idle-sway-probe.mjs. The wedge spikes that motivated the
+// narrowing (a limb pinched between its own pan and the sill mid-flick) are defused at the EJECTION
+// mechanism instead (pollOccupantRestraint()'s crash-gate: a wedge spike arrives under an
+// ordinary-driving chassis and can no longer break the belt).
+
+/** One occupant part capsule with the Stage-2 lifetime filter (module doc, COLLISION FILTERING):
+ * `seated` only decides the mask's third bit -- the occupant's OWN seat pan while seated (other
+ * seats' pans stay transparent, tuning.ts seat-pan doc), panels once ejected -- everything else is
+ * identical seated vs ejected. */
+function addCapsuleShape(body: Body, partKey: PartKey, friction: number, entityId: number, seatIndex: number, seated: boolean): Shape {
 	const dims = PART_DIMS[baseOf(partKey)];
 	const massKg = MASS_FRACTION[partKey] * OCCUPANT_MASS_KG;
 	const density = massKg / capsuleVolume(dims.radius, dims.halfLen);
@@ -265,19 +309,23 @@ function addCapsuleShape(body: Body, partKey: PartKey, friction: number, entityI
 		friction,
 		restitution: OCCUPANT_RESTITUTION,
 		rollingResistance: OCCUPANT_ROLLING_RESISTANCE,
-		groupIndex: CAR_GROUP_INDEX,
+		categoryBits: OCCUPANT_CATEGORY_BIT,
+		maskBits: seated
+			? OCCUPANT_COLLIDABLE_BIT | SEAT_PAN_CATEGORY_BITS[seatIndex]
+			: OCCUPANT_COLLIDABLE_BIT | OCCUPANT_EJECTED_COLLIDABLE_BIT,
+		groupIndex: OCCUPANT_GROUP_INDEX,
 		userData: entityId,
 	});
 }
 
-function createCapsulePart(world: World, partKey: PartKey, center: V3, rotation: MQ4, entityId: number): OccupantPartBody {
+function createCapsulePart(world: World, partKey: PartKey, center: V3, rotation: MQ4, entityId: number, seatIndex: number): OccupantPartBody {
 	const body = world.createBody({
 		type: BodyType.Dynamic,
 		position: center,
 		rotation: rotation as Quat,
 		userData: entityId,
 	});
-	const shape = addCapsuleShape(body, partKey, OCCUPANT_FRICTION, entityId);
+	const shape = addCapsuleShape(body, partKey, OCCUPANT_FRICTION, entityId, seatIndex, true);
 	return { body, shape };
 }
 
@@ -302,7 +350,7 @@ export function createOccupant(
 		const base = baseOf(key);
 		const worldRot = multiplyQuat(chassisRot, REST_OFFSET[base]);
 		const worldPos = add(chassisPos, rotateVector(chassisRot, centers[key]));
-		parts[key] = createCapsulePart(world, key, worldPos, worldRot, entityIdFor(seatIndex, i));
+		parts[key] = createCapsulePart(world, key, worldPos, worldRot, entityIdFor(seatIndex, i), seatIndex);
 	});
 
 	const internalJoints: (SphericalJoint | RevoluteJoint)[] = [];
@@ -377,6 +425,8 @@ export function createOccupant(
 	return {
 		seatKey,
 		seatIndex,
+		chassis,
+		chassisVelRing: [],
 		parts,
 		internalJoints,
 		joints,
@@ -388,69 +438,77 @@ export function createOccupant(
 	};
 }
 
-/**
- * MEASURED FINDING (features-occupants.test.mjs's ejection test, first attempt): flipping an ejected
- * occupant to the SAME neutral (groupIndex 0) filter breakPanelWeld() uses for a broken panel -- i.e.
- * making it collide with the chassis hull -- backfires. The chassis's collision hull (vehicle.ts's
- * buildChassisHullPoints()) is one SOLID convex volume approximating the car's exterior shell; it has
- * no window/door cutout, and an occupant's rest pose sits INSIDE that volume. The instant the filter
- * flips, the solver finds the capsule deeply interpenetrating the hull and just presses it back against
- * the (nearest) hull surface -- the ejected body ends up pinned within ~1m of the chassis indefinitely
- * (measured directly: pelvis-to-chassis separation barely changed over 3s of a 70km/h wall crash),
- * instead of flying clear. So this deliberately does NOT re-enable hull/wheel/panel collision on
- * ejection (an ejected occupant stays excluded from those, same CAR_GROUP_INDEX as while seated --
- * effectively "flies out through" the invisible collision hull, a stylized simplification consistent
- * with the windshield glass being a separate, purely-visual deformable mesh anyway) -- it keeps flying
- * clear via inertia once freed from the restraint, which is what the ejection test actually measures.
- * shape.setFilter() is still exercised (the task's explicit ask) via a harmless MARKER bit cleared from
- * categoryBits (maskBits/groupIndex unchanged, so no collision outcome changes) -- readable back via
- * Shape.getFilter() to identify "this occupant part has been ejected" from outside this module.
- */
-export const EJECTED_MARKER_BIT = 1n << 3n; // exported: active.ts's ground raycast masks to this bit so it can never hit ejected ragdoll capsules
-
 /** Polls the lap-restraint's constraint force (AFTER world.step(), matching game/src/damage/welds.ts's
  * own polled-force pattern -- avoids the joint-break-EVENT path's documented sleeping-joint gotcha
- * entirely). On threshold breach: destroys the restraint joint, marks every one of this occupant's 11
- * shapes ejected (see EJECTED_MARKER_BIT's doc comment for why this does NOT re-enable chassis/wheel/
- * panel collision), and swaps each shape to EJECTED_FRICTION (see tuning.ts's doc comment: measured
- * directly that the seated-grippy friction otherwise glues a freed occupant to the seat pan instead of
- * letting it separate). Shape swap mirrors game/src/damage/panels.ts's breakPanelWeld() (destroy the
- * old shape with updateBodyMass=false, create a same-geometry/mass replacement, since a capsule shape
- * has no runtime friction setter -- see Shape.ts). Returns true the step ejection actually happens. */
+ * entirely). On threshold breach: ejectOccupant() below. Returns true the step ejection happens.
+ *
+ * EJECTION GATING (Tier-3 Stage-2 recalibration -- measured bands in tuning.ts's doc comments):
+ *   (1) ARMED only after RESTRAINT_ARM_STEPS (spawn/reset settle transient can never eject);
+ *   (2) CRASH-BREAK: force over threshold WHILE the CHASSIS itself is undergoing a crash-magnitude
+ *       velocity change (mean acceleration across the RESTRAINT_ACCEL_WINDOW_POLLS-poll window >=
+ *       RESTRAINT_BREAK_MIN_CHASSIS_ACCEL_G) -> break NOW. This is the real-crash path: an
+ *       over-threshold belt force during a multi-g chassis deceleration is the body's own inertia
+ *       loading the restraint (the exact question "would a real belt/seat-grip have held this?").
+ *       Contact-era solver spikes (a limb catching the sill, the torso arrested by interior
+ *       geometry mid-flick) reach 3x+ threshold for a single step -- force MAGNITUDE cannot
+ *       separate the regimes (measured: driving artifacts 3.1-3.4x vs honest 70km/h crash loads
+ *       1.9-2.1x, INVERTED) -- and such a 30kN one-step spike even jerks the 1300kg chassis itself
+ *       past 2.5g for ONE poll, so the gate reads the MEAN acceleration over the window: a real
+ *       crash moves the chassis 8-19m/s across it (6-11g mean), a limb spike ~0.4m/s (~0.2g). Same
+ *       doctrine as the damage system's impact-gated wheel detach (game/src/damage/welds.ts).
+ *   (3) SUSTAIN fallback (ungated): force over threshold RESTRAINT_BREACH_STEPS consecutive polls --
+ *       covers slow-crush/pinned loads with no crash deceleration; driving spikes last 1-2 polls.
+ * The chassis-velocity ring is updated EVERY poll -- a yank-style crash puts the whole velocity jump
+ * on one step while the belt force peaks a few steps later as the spring loads, so the gate needs
+ * this short memory, not an instantaneous read.
+ */
 export function pollOccupantRestraint(occupant: Occupant): boolean {
 	if (!occupant.restraintJoint || occupant.ejected) return false;
-	// EJECTION GATING (see tuning.ts's doc comment): (1) disarmed during the spawn/reset settle
-	// transient, (2) breach must be SUSTAINED for RESTRAINT_BREACH_STEPS consecutive polls -- both
-	// measured against the solver's single-step force spikes (a 30km/h bump and even the settle drop
-	// alone spiked past the rear threshold for exactly one step; a real crash holds it for many).
 	occupant.restraintPollCount++;
+	// Crash-gate memory update (every poll, armed or not, so the gate is warm the moment arming ends).
+	const cv = occupant.chassis.getLinearVelocity();
+	occupant.chassisVelRing.push(cv);
+	if (occupant.chassisVelRing.length > RESTRAINT_ACCEL_WINDOW_POLLS) occupant.chassisVelRing.shift();
 	if (occupant.restraintPollCount <= RESTRAINT_ARM_STEPS) return false;
 	const forceMag = length(occupant.restraintJoint.getConstraintForce());
 	if (forceMag <= occupant.restraintThresholdN) {
 		occupant.restraintBreachRun = 0;
 		return false;
 	}
-	// Gross overload (>= RESTRAINT_INSTANT_BREAK_FACTOR x threshold) snaps the belt THIS step -- the
-	// occupant still carries full fly-through velocity. A marginal breach must instead be sustained.
-	if (forceMag < occupant.restraintThresholdN * RESTRAINT_INSTANT_BREAK_FACTOR) {
-		occupant.restraintBreachRun++;
-		if (occupant.restraintBreachRun < RESTRAINT_BREACH_STEPS) return false;
-	}
+	occupant.restraintBreachRun++;
+	const ring = occupant.chassisVelRing;
+	const oldest = ring[0];
+	const windowAccelG =
+		ring.length > 1
+			? Math.hypot(cv.x - oldest.x, cv.y - oldest.y, cv.z - oldest.z) / ((ring.length - 1) * FIXED_DT) / GRAVITY_MAG
+			: 0;
+	const crashing = windowAccelG >= RESTRAINT_BREAK_MIN_CHASSIS_ACCEL_G;
+	if (!crashing && occupant.restraintBreachRun < RESTRAINT_BREACH_STEPS) return false;
 
-	occupant.restraintJoint.destroy();
-	occupant.restraintJoint = null;
+	ejectOccupant(occupant);
+	return true;
+}
+
+/** The ejection state change itself (belt gone, ejected friction/filter swap, release kick), shared
+ * by pollOccupantRestraint()'s force-breach path and scripted test scenarios that need a
+ * deterministic ejected occupant without manufacturing a crash (e.g. the corpse-on-the-hood rest
+ * test, game/sim/occupants-escalation.test.mjs). The friction/filter swap mirrors game/src/damage/
+ * panels.ts's breakPanelWeld() shape-swap pattern (destroy the old shape with updateBodyMass=false,
+ * create a same-geometry/mass replacement -- a capsule has no runtime friction setter, see Shape.ts);
+ * EJECTED_FRICTION because the seated-grippy friction otherwise glues a freed occupant to the seat
+ * pan (measured, tuning.ts). Idempotent. */
+export function ejectOccupant(occupant: Occupant): void {
+	if (occupant.ejected) return;
+	if (occupant.restraintJoint) {
+		occupant.restraintJoint.destroy();
+		occupant.restraintJoint = null;
+	}
 	occupant.ejected = true;
 	PART_KEYS.forEach((key, partIndex) => {
 		const part = occupant.parts[key];
 		const entityId = entityIdFor(occupant.seatIndex, partIndex);
 		part.shape.destroy(false);
-		part.shape = addCapsuleShape(part.body, key, EJECTED_FRICTION, entityId);
-		part.shape.setFilter(
-			// maskBits drops SEAT_PAN_CATEGORY_BIT: an ejected body must not be arrested by the
-			// rigid-welded seat pans on its way out of the cabin (see tuning.ts's doc comment).
-			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS & ~SEAT_PAN_CATEGORY_BIT, groupIndex: CAR_GROUP_INDEX },
-			false,
-		);
+		part.shape = addCapsuleShape(part.body, key, EJECTED_FRICTION, entityId, occupant.seatIndex, false);
 	});
 	// EJECTION_KICK_NS release impulse -- see tuning.ts's doc comment.
 	const pelvisBody = occupant.parts.pelvis.body;
@@ -460,7 +518,6 @@ export function pollOccupantRestraint(occupant: Occupant): boolean {
 		const dir = { x: v.x / speed, y: v.y / speed, z: v.z / speed };
 		pelvisBody.applyLinearImpulseToCenter({ x: dir.x * EJECTION_KICK_NS, y: dir.y * EJECTION_KICK_NS, z: dir.z * EJECTION_KICK_NS });
 	}
-	return true;
 }
 
 /**
@@ -479,35 +536,30 @@ export function setOccupantLimp(occupant: Occupant): void {
 	if (occupant.restraintJoint) occupant.restraintJoint.enableSpring(false);
 }
 
-/**
- * Re-enables occupant<->car collision on an already-ejected occupant by flipping every part's shape
- * from CAR_GROUP_INDEX (-1, never collides with any car body) back to the neutral group 0 (falls
- * through to ordinary category/mask filtering, so it DOES collide with the chassis hull / wheels /
- * panels again). Keeps the EJECTED_MARKER_BIT cleared so "this part is ejected" stays externally
- * readable. CALLER CONTRACT (active.ts): only ever call this once the occupant's whole body has
- * cleared the chassis hull AABB + margin -- flipping it while any part is still INSIDE the convex hull
- * is the explosive-depenetration hazard this feature is built to avoid (see the EJECTED_MARKER_BIT doc
- * comment). Idempotent-safe to call, but active.ts latches it to fire once. */
-export function enableOccupantCarCollision(occupant: Occupant): void {
-	for (const key of PART_KEYS) {
-		occupant.parts[key].shape.setFilter(
-			// Seat pans stay masked out (SEAT_PAN_CATEGORY_BIT): once outside, nothing should ever pin
-			// a ragdoll against an interior pan it might get thrown back onto.
-			{ categoryBits: DEFAULT_CATEGORY_BITS & ~EJECTED_MARKER_BIT, maskBits: DEFAULT_MASK_BITS & ~SEAT_PAN_CATEGORY_BIT, groupIndex: 0 },
-			false,
-		);
-	}
-}
+// RETIRED (Tier-3 Stage 2): enableOccupantCarCollision() + EJECTED_MARKER_BIT are gone -- an ejected
+// occupant's lifetime filter (module doc, COLLISION FILTERING) already collides with the interior
+// shells/glass/panels/world from the moment the belt breaks, so there is no deferred "re-enable once
+// clear of the hull AABB" moment (and no marker bit for the ground ray, which now masks out
+// OCCUPANT_CATEGORY_BIT directly -- see active.ts's sampleGroundY()).
 
 /** Sets every seated (non-ejected) part's linear velocity -- used by crash-test setup (headless sim +
  * browser verify hooks) to put the occupant "already riding along" at the chassis's velocity BEFORE a
  * wall impact, avoiding an artificial t=0 relative-velocity spike across the restraint (mirrors
- * game/src/damage/scenario.ts's crashSetup() doc comment, extended to occupants). */
+ * game/src/damage/scenario.ts's crashSetup() doc comment, extended to occupants). Also SEEDS the
+ * restraint crash-gate's chassis-velocity ring with the injected velocity (and clears any breach
+ * run): "already riding along" means no crash has happened yet, so the teleport-style speed
+ * injection must be invisible to the gate's windowed chassis-acceleration read (measured: an
+ * unseeded ring saw the 0->19.4m/s injection as a 12g "crash" and, combined with the injection's own
+ * 1-2 step belt transient, ejected the rears 20m before the wall) -- while everything AFTER the
+ * injection (the wall impact, or a scripted yank to zero) still registers at full magnitude. */
 export function matchOccupantVelocity(occupant: Occupant, velocity: V3): void {
 	for (const key of PART_KEYS) {
 		occupant.parts[key].body.setLinearVelocity(velocity);
 		occupant.parts[key].body.setAngularVelocity({ x: 0, y: 0, z: 0 });
 	}
+	occupant.chassisVelRing.length = 0;
+	for (let i = 0; i < RESTRAINT_ACCEL_WINDOW_POLLS; i++) occupant.chassisVelRing.push({ x: velocity.x, y: velocity.y, z: velocity.z });
+	occupant.restraintBreachRun = 0;
 }
 
 /** Same as matchOccupantVelocity() but for a seat pan -- ALSO required for the same reason: a seat pan
@@ -551,13 +603,15 @@ export function createSeatPan(world: World, chassis: Body, seatKey: SeatKey, cha
 		density: massKg / volume,
 		friction: SEAT_PAN_FRICTION,
 		// Deliberately NEUTRAL (default, group 0) group, not CAR_GROUP_INDEX -- see this module's
-		// COLLISION FILTERING doc comment: the seat pan needs to actually collide with the
-		// (CAR_GROUP_INDEX) occupant capsules resting on it. categoryBits reduced to the dedicated
-		// pan bit so EJECTED occupants (which drop that bit from their mask) fly straight through
-		// pans instead of being lethally arrested by a rigid-welded box mid-cabin -- see
-		// SEAT_PAN_CATEGORY_BIT's doc comment (everything else's default mask still includes the
-		// bit, so ground/wall/seated-occupant collisions are unchanged).
-		categoryBits: SEAT_PAN_CATEGORY_BIT,
+		// COLLISION FILTERING doc comment: the seat pan needs to actually collide with the occupant
+		// capsules resting on it. categoryBits reduced to THIS SEAT's dedicated pan bit so only the
+		// occupant seated ON this pan collides with it -- EJECTED occupants (which drop all pan bits
+		// from their mask) fly straight through pans instead of being lethally arrested by a
+		// rigid-welded box mid-cabin, and OTHER seated occupants sliding across the cabin under
+		// braking/cornering pass through it too instead of taking crash-magnitude arrest spikes --
+		// see tuning.ts's seat-pan doc comment (everything else's default mask still includes the
+		// bit, so ground/wall collisions are unchanged).
+		categoryBits: SEAT_PAN_CATEGORY_BITS[SEAT_KEYS.indexOf(seatKey)],
 	});
 	const weldJoint = world.createWeldJoint(chassis, body, {
 		frameA: { position: localCenter, rotation: { x: 0, y: 0, z: 0, w: 1 } },
