@@ -1,0 +1,41 @@
+{
+  "screenshots": {
+    "apron": "/Users/jesuscalderon/Documents/crash test/game/verify/surface-grip-apron.png",
+    "asphaltCornerEnd": "/Users/jesuscalderon/Documents/crash test/game/verify/surface-grip-asphalt-corner.png",
+    "dirtLoop": "/Users/jesuscalderon/Documents/crash test/game/verify/surface-grip-dirt-loop.png",
+    "dirtDrift": "/Users/jesuscalderon/Documents/crash test/game/verify/surface-grip-dirt-drift.png"
+  },
+  "cornering": {
+    "asphalt": {
+      "peakLatG": 1.1205126718915244,
+      "reached55": true,
+      "sampleCount": 240
+    },
+    "dirt": {
+      "peakLatG": 0.6110706565190708,
+      "reached55": true,
+      "sampleCount": 240
+    }
+  },
+  "braking": {
+    "asphalt": 12.359600231378451,
+    "dirt": 21.870533031196466
+  },
+  "notes": [],
+  "dirtPos": {
+    "x": -6.086189270019531,
+    "y": 0.17289216816425323,
+    "z": 111.7325210571289
+  },
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-10T09:57:04.613Z",
+  "gate": {
+    "reachedBoth": true,
+    "corneringDirectionOk": true,
+    "brakingOk": true,
+    "noErrors": true,
+    "pass": true
+  }
+}

@@ -11,12 +11,40 @@
 
 import { BodyType, type Body, type World } from '../../../../src/ts/index.js';
 import { GROUND_FRICTION } from '../../vehicle/tuning';
-import { TERRAIN_COUNT, TERRAIN_HALF_M, TERRAIN_SCALE, buildTerrainHeights } from './heightfield';
+import {
+  DIRT_MATERIAL,
+  NATURAL_MATERIAL,
+  TERRAIN_COUNT,
+  TERRAIN_HALF_M,
+  TERRAIN_SCALE,
+  buildTerrainHeights,
+  buildTerrainMaterialIndices,
+  type TerrainSurfaceMaterial,
+} from './heightfield';
 
-/** Creates the game's terrain ground: one static height-field body centred on the world origin. */
+/** Concrete per-zone materials, indexed by SURFACE_ASPHALT/DIRT/NATURAL (heightfield.ts). Asphalt
+ * reuses GROUND_FRICTION verbatim (the SAME number the flat headless-harness ground already used
+ * uniformly) so the compound apron/kicker/every existing drive test's feel is EXACTLY unchanged --
+ * only the dirt road and forest-floor/meadow zones actually differ now. Index order MUST match
+ * SURFACE_ASPHALT=0/SURFACE_DIRT=1/SURFACE_NATURAL=2. */
+const TERRAIN_SURFACE_MATERIALS: readonly TerrainSurfaceMaterial[] = [
+  { friction: GROUND_FRICTION, restitution: 0, rollingResistance: 0 }, // SURFACE_ASPHALT
+  DIRT_MATERIAL, // SURFACE_DIRT
+  NATURAL_MATERIAL, // SURFACE_NATURAL
+];
+
+/** Creates the game's terrain ground: one static height-field body centred on the world origin, with
+ * per-triangle (per-cell) surface materials assigned from the SAME zone masks the visuals blend on
+ * (asphalt apron / packed dirt road / forest-floor+meadow -- see heightfield.ts's "Per-zone surface
+ * materials" section). */
 export function createTerrainGroundBody(world: World): Body {
   const ground = world.createBody({ type: BodyType.Static, position: { x: -TERRAIN_HALF_M, y: 0, z: -TERRAIN_HALF_M } });
   const heights = buildTerrainHeights();
-  ground.createHeightFieldShape(heights, TERRAIN_COUNT, TERRAIN_COUNT, TERRAIN_SCALE, { friction: GROUND_FRICTION });
+  const materialIndices = buildTerrainMaterialIndices();
+  ground.createHeightFieldShape(heights, TERRAIN_COUNT, TERRAIN_COUNT, TERRAIN_SCALE, {
+    friction: GROUND_FRICTION, // fallback base material; every cell is actually covered by materials[] below
+    materials: TERRAIN_SURFACE_MATERIALS as TerrainSurfaceMaterial[],
+    materialIndices,
+  });
   return ground;
 }
