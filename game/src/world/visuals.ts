@@ -104,7 +104,7 @@ export function buildDestructibleVisuals(world: DestructibleWorld): Destructible
 }
 
 function buildRampMesh(ramp: RampBody, materials: DestructibleMaterialSets): THREE.Mesh {
-	const flat = wedgeHullPoints(ramp.width, ramp.length, ramp.height);
+	const flat = wedgeHullPoints(ramp.width, ramp.length, ramp.height, ramp.backSlopeLength);
 	const points: THREE.Vector3[] = [];
 	for (let i = 0; i < flat.length; i += 3) points.push(new THREE.Vector3(flat[i], flat[i + 1], flat[i + 2]));
 	const geometry = new ConvexGeometry(points);

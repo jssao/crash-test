@@ -88,6 +88,10 @@ export interface RampBody {
 	readonly length: number;
 	readonly height: number;
 	readonly position: V3;
+	/** Down-slope length on the exit side (0 = the original sheer knife-edge drop) -- see
+	 * wedgeHullPoints()'s doc comment. Carried on the record (not just used locally in buildRamps())
+	 * so visuals.ts's buildRampMesh() can build the EXACT same point cloud the physics hull uses. */
+	readonly backSlopeLength: number;
 }
 
 export interface DestructibleWorld {
@@ -119,17 +123,34 @@ function ngonArea(sides: number, radius: number): number {
 	return (sides / 2) * radius * radius * Math.sin((2 * Math.PI) / sides);
 }
 
-/** Wedge hull points (local space: X lateral, Y up, Z = direction of travel, rising with +Z): a flat
- * bottom rectangle at y=0 plus a raised ridge line at z=length, giving a single inclined ramp face
- * from (z=0,y=0) up to (z=length,y=height) at atan(height/length). Exported so the visuals layer
- * (game/src/world/visuals.ts) can build a ConvexGeometry from the EXACT same point cloud the physics
- * hull uses, guaranteeing the render mesh matches the collision shape precisely. */
-export function wedgeHullPoints(width: number, length: number, height: number): Float32Array {
+/** Wedge/roof hull points (local space: X lateral, Y up, Z = direction of travel, rising with +Z): a
+ * flat bottom rectangle at y=0 plus a raised ridge at z=upLength, giving an inclined UP face from
+ * (z=0,y=0) to (z=upLength,y=height) at atan(height/upLength), THEN (if `downLength` > 0) a second
+ * inclined DOWN face back to the ground at z=upLength+downLength -- a continuous "roof" rather than a
+ * knife-edge ridge with a sheer drop. `downLength` defaults to 0 (backward compatible with every
+ * existing caller / the original knife-edge wedge -- with downLength=0 the "down face" collapses to a
+ * zero-width vertical drop at z=upLength, byte-identical to the original 6-point wedge). Exported so
+ * the visuals layer (game/src/world/visuals.ts) can build a ConvexGeometry from the EXACT same point
+ * cloud the physics hull uses, guaranteeing the render mesh matches the collision shape precisely.
+ *
+ * KICKER-BEACHING FIX HISTORY (tuning.ts's KICKER_ANGLE_DEG/KICKER_BACK_SLOPE_LENGTH_M doc comment has
+ * the full measurement writeup): the `downLength` roof shape here was explored as a candidate fix (a
+ * knife-edge ridge with nothing supporting a short-of-launch-speed wheel is a real hazard -- box3d has
+ * no stable contact normal there, and vehicle.ts's updateGroundAuthority() cuts drive-torque to ~0 the
+ * instant <3 wheels are grounded, so a car straddling that edge has NO way to power itself out). Measured
+ * in the real browser build, though, a roof down-slope did NOT fix the kicker's actual stall rate on its
+ * own (still ~60-70% at the original 30deg angle) and it interferes with a genuinely-airborne car's free
+ * flight (a low/slow launch can clip the down-slope mid-arc). The fix that actually shipped is gentling
+ * the up-face angle itself (tuning.ts) -- `downLength` is kept here as inert, available infrastructure
+ * (both ramps currently pass 0) in case a future ramp genuinely wants a supported back-slope, not because
+ * the kicker needs it today. */
+export function wedgeHullPoints(width: number, upLength: number, height: number, downLength = 0): Float32Array {
 	const hw = width / 2;
+	const backZ = upLength + downLength;
 	// prettier-ignore
 	return new Float32Array([
-		-hw, 0, 0,       hw, 0, 0,       hw, 0, length,       -hw, 0, length,
-		-hw, height, length,   hw, height, length,
+		-hw, 0, 0,       hw, 0, 0,       hw, 0, backZ,       -hw, 0, backZ,
+		-hw, height, upLength,   hw, height, upLength,
 	]);
 }
 
@@ -269,11 +290,12 @@ function buildPoles(world: World): DestructibleBody[] {
 function buildRamps(world: World): RampBody[] {
 	const out: RampBody[] = [];
 	for (const cfg of RAMP_CONFIGS) {
-		const points = wedgeHullPoints(cfg.width, cfg.length, cfg.height);
+		const backSlopeLength = cfg.backSlopeLength ?? 0;
+		const points = wedgeHullPoints(cfg.width, cfg.length, cfg.height, backSlopeLength);
 		const position: V3 = { x: cfg.centerX, y: 0, z: cfg.backZ };
 		const body = world.createBody({ type: BodyType.Static, position, rotation: IDENTITY_Q });
 		const shape = body.createHullShape(points, { density: 1, friction: RAMP_FRICTION });
-		out.push({ id: cfg.id, body, shape, angleDeg: cfg.angleDeg, width: cfg.width, length: cfg.length, height: cfg.height, position });
+		out.push({ id: cfg.id, body, shape, angleDeg: cfg.angleDeg, width: cfg.width, length: cfg.length, height: cfg.height, position, backSlopeLength });
 	}
 	return out;
 }

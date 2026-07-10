@@ -18,7 +18,7 @@
 // on flat floor) adds depth through the fog.
 
 import { IDENTITY_Q, type Q4, type V3 } from '../../../vehicle/mathUtil';
-import { forestMask } from '../../terrain/heightfield';
+import { forestMask, DIRT_SPUR } from '../../terrain/heightfield';
 
 export { IDENTITY_Q };
 export type { Q4, V3 };
@@ -63,8 +63,30 @@ function heroApproachPhantoms(): TreeSiteXZ[] {
 	return pts;
 }
 
+// CORRIDOR-CLEARANCE FIX (playtest MAJOR "second snag" -- a car driving straight north from spawn on
+// the x=0 line permanently stalls again around x~1-3, z~155-156, well past the kicker): root cause was
+// that the ONLY clearing carved for the straight-north driveway is the physical dirt-road mask itself
+// (heightfield.ts's DIRT_SPUR, which stops at zEnd=100, plus wherever the loop road band happens to
+// cross x=0). Past the spur's end, x=0 continues straight into the LOOP's own donut-hole interior
+// (centred z=125) before reaching the loop's north arc (~z=170) -- that interior is genuine forest
+// (forestMask==1, not carved by any road), so the ordinary Poisson/backdrop scatter can (and, measured,
+// did: a backdrop 'far-large' static trunk landed at (1.72, 157.99), see game/verify/playtest-r3/
+// long-session-soak-samples.json t=120..300/570..750) drop an immovable trunk directly in the
+// straight-ahead driving line. Fix: reject any candidate site within a corridor around the SAME x=0
+// line the spur already keeps clear, extended all the way out past the forest ring (so the "drive
+// straight ahead out the gate" line the compound's driveway sets up stays clear for its entire length,
+// not just the maintained/paved portion) -- same half-width as the spur itself, so it reads as one
+// continuous cleared aisle rather than a paved bit followed by an ambush.
+const NORTH_CORRIDOR_HALF_WIDTH_M = DIRT_SPUR.halfWidth;
+const NORTH_CORRIDOR_Z_MAX = 220; // past the forest ring's outer edge -- harmless once outside forestMask anyway
+
+function inNorthCorridor(x: number, z: number): boolean {
+	return z >= DIRT_SPUR.zStart && z <= NORTH_CORRIDOR_Z_MAX && Math.abs(x - DIRT_SPUR.cx) < NORTH_CORRIDOR_HALF_WIDTH_M;
+}
+
 /** Poisson-disc scatter confined to the flat forest RING (forestMask>=0.985), keeping HERO approach
- * corridors clear. Deterministic (fixed seed). */
+ * corridors AND the straight-north drive corridor (see inNorthCorridor() above) clear. Deterministic
+ * (fixed seed). */
 function scatterForestRing(count: number): TreeSiteXZ[] {
 	const rng = scatterRng(0xf0e57); // 'FOREST'
 	const xMin = -152, xMax = 152, zMin = -122, zMax = 182;
@@ -78,6 +100,7 @@ function scatterForestRing(count: number): TreeSiteXZ[] {
 		const x = xMin + rng() * (xMax - xMin);
 		const z = zMin + rng() * (zMax - zMin);
 		if (forestMask(x, z) < 0.985) continue; // flat forest floor only (h~=0, off compound/road/meadow)
+		if (inNorthCorridor(x, z)) continue; // keep the straight-north drive-out line clear (see above)
 		let ok = true;
 		for (const p of accepted) {
 			if ((p.x - x) ** 2 + (p.z - z) ** 2 < minDist2) { ok = false; break; }
@@ -92,7 +115,8 @@ function scatterForestRing(count: number): TreeSiteXZ[] {
 
 /** Backdrop treeline: a sparse ring of trees near the OUTER flat edge of the forest (still on hard-flat
  * floor -- gated on the same forestMask) for depth through the fog. `centerZ` matches the forest ring's
- * slight northward shift. Deterministic angular sweep. */
+ * slight northward shift. Deterministic angular sweep. Also respects inNorthCorridor() -- see that
+ * function's doc comment (this is exactly where the confirmed corridor-snag trunk was coming from). */
 function farRing(count: number, radius: number, angleOffset: number): TreeSiteXZ[] {
 	const pts: TreeSiteXZ[] = [];
 	const centerZ = 20;
@@ -101,6 +125,7 @@ function farRing(count: number, radius: number, angleOffset: number): TreeSiteXZ
 		const x = Math.cos(a) * radius;
 		const z = centerZ + Math.sin(a) * radius;
 		if (forestMask(x, z) < 0.985) continue;
+		if (inNorthCorridor(x, z)) continue;
 		pts.push({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100 });
 	}
 	return pts;

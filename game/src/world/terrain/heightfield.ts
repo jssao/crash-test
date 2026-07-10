@@ -242,17 +242,46 @@ function meadowUndulation(x: number, z: number): number {
 }
 
 // --------------------------------------------------------------------------------------------------
+// CONTAINMENT BERM (world-edge freefall fix): the heightfield's outer ~3 grid cells are raised into a
+// steep enclosing ridge so driving off the far edge of the 800m field is physically impossible instead
+// of an infinite accelerating fall into the void (repro: game/verify/playtest-r3/diag-topspeed.mjs
+// measured 668km/h at y=-3969 driving straight out past +-400m). This is layer (a) of the two-layer
+// containment fix -- layer (b) is main.ts's kill-plane (chassis y < -10 -> automatic resetCar()),
+// a last-resort safety net for this or any FUTURE escape.
+//
+// Only the outermost BERM_WIDTH_M band rises (everything further in -- meadow, forest, roads -- is
+// completely unaffected, verified by game/sim/terrain.test.mjs's flatness/site-placement checks, which
+// never sample anywhere near +-400m); `d` is the distance to the NEAREST of the 4 edges, so the ridge
+// wraps the entire perimeter and miters naturally at the 4 corners (same rounded-rect-adjacent idea as
+// this file's other masks, just edge-relative instead of center-relative). t*t (an extra ease on top of
+// the smoothstep already inside it) keeps the rise flush with the meadow until deep into the last
+// stretch, then climbs hard -- reads as a natural earthwork embankment, not a sudden wall, while still
+// being FAR too steep (average slope BERM_HEIGHT_M/BERM_WIDTH_M ~ 70+deg) for any car to climb.
+// Additive on top of the existing profile (not folded into the flat-zone fade above) so it can never be
+// masked out by a future flat-zone change -- deterministic, pure function of (x,z) like everything else
+// here, so buildTerrainHeights()/the physics body/the visual mesh all pick it up identically for free.
+export const BERM_WIDTH_M = TERRAIN_CELL_M * 3; // ~4.7m -- "the outer ~3 cells" per the containment fix brief
+export const BERM_HEIGHT_M = 14; // unclimbable at any speed; comfortably taller than any observed runaway could loft
+
+function bermRise(x: number, z: number): number {
+  const distToEdge = Math.min(TERRAIN_HALF_M - Math.abs(x), TERRAIN_HALF_M - Math.abs(z));
+  const t = 1 - smoothstep(0, BERM_WIDTH_M, distToEdge);
+  return t * t * BERM_HEIGHT_M;
+}
+
+// --------------------------------------------------------------------------------------------------
 // Master height function -- the single source of truth for physics AND visuals.
 // --------------------------------------------------------------------------------------------------
 
 export function terrainHeight(x: number, z: number): number {
   const flat = flatMask(x, z);
-  if (flat >= 0.9999) return 0;
+  const berm = bermRise(x, z); // always 0 except within BERM_WIDTH_M of the +-400m field edge (see above)
+  if (flat >= 0.9999) return berm;
   const loopW = loopRoadWeight(x, z);
   const spurW = spurRoadWeight(x, z);
   const natural = meadowUndulation(x, z) + dirtRoadProfile(x, z, loopW, spurW);
   // Fade the natural relief to 0 as we enter any hard-flat zone (apron/forest/buildings).
-  return natural * (1 - flat);
+  return natural * (1 - flat) + berm;
 }
 
 /** Terrain surface slope at (x,z) in DEGREES (central-difference of terrainHeight). Used by the

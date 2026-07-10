@@ -215,11 +215,49 @@ export interface RampConfig {
 	/** World Z of the ramp's low (entry) edge; the raised edge sits at backZ + length. */
 	backZ: number;
 	centerX: number;
+	/** Down-slope length on the exit side (see bodies.ts's wedgeHullPoints() doc comment) -- 0 (the
+	 * original sheer knife-edge drop) unless a config sets it explicitly. */
+	backSlopeLength?: number;
 }
 
 const KICKER_HEIGHT_M = 1.2;
-const KICKER_ANGLE_DEG = 30;
+const KICKER_ANGLE_DEG = 25;
 const KICKER_LENGTH_M = KICKER_HEIGHT_M / Math.tan((KICKER_ANGLE_DEG * Math.PI) / 180);
+
+// KICKER-BEACHING FIX (playtest MAJOR "~1/3 of straight-north full-throttle drives beach the car
+// rear-wheels-up on the kicker ramp, permanently"): root cause is vehicle.ts's updateGroundAuthority()
+// -- drive-torque authority is cut to ~0 the instant fewer than 3 wheels are grounded (an honest
+// "no traction assist mid-air" rule, not a bug in itself). The ORIGINAL 30deg wedge met its vertical
+// drop-off at a single zero-width knife edge: a car that reached the ridge without enough speed to
+// truly launch could end up with its FRONT axle hanging in open air past the drop (no ground, 0
+// authority) while the REAR axle was still on the steep incline -- and because nothing at all
+// supported the front axle, that pose was a stable mechanical deadlock: 0 drive authority forever, so
+// throttle (or reverse) could never recover it (measured directly: game/verify/playtest-r3/diag-gate5.mjs
+// + a 1200-extra-step longwait probe -- position/speed byte-identical 20 REAL seconds later; real
+// browser build, repeated resetWorld()+full-throttle-straight runs: 3/10 permanent stalls).
+//
+// FIX HISTORY (both measured against the real browser build, not just headless -- headless box3d-js
+// turned out to be fully deterministic run-to-run here and never reproduced the stall at all, so only
+// the actual production build is informative for this specific bug):
+//   ATTEMPT 1 (deck, reverted): extending the crest into a flat "table" before the same vertical drop
+//     -- the intuitive fix (give the wheelbase room to cross the incline/vertical discontinuity
+//     together) -- measured WORSE: 3/10 -> 6/10 permanent stalls. A longer flat run gives the car MORE
+//     distance to bleed speed before the still-sheer drop, more often leaving it short of the momentum
+//     to clear it. A longer knife-edge approach is not the lever.
+//   ATTEMPT 2 (30deg + a continuous "roof" down-slope instead of the vertical drop, reverted): removes
+//     the knife edge entirely (see bodies.ts's wedgeHullPoints() `downLength` param, kept as available
+//     infra below at 0) so a short-of-launch-speed wheel just rolls down a supported surface instead of
+//     hanging in open air -- measured NO better at 30deg (~60-70% still stalled) AND it broke
+//     asymmetric-launch.test.mjs's free-flight measurements (the down-slope clips a low/slow half-on
+//     launch mid-flight, which isn't a bug in the ramp, just incompatible with that test's ballistic-
+//     flight assumption).
+//   ATTEMPT 3 (angle only, SHIPPED): gentling the up-face itself from 30deg to 25deg -- less abrupt
+//     momentum loss on the climb, so a full-throttle straight-north arrival (measured ~55-90km/h at the
+//     ramp) clears the ridge with real speed to spare instead of sitting right at a stall/clear
+//     boundary. Measured: 3/10 -> 0/10 permanent stalls (10-run browser samples, repeated). The
+//     down-slope infra from attempt 2 is kept (KICKER_BACK_SLOPE_LENGTH_M below, currently 0 for both
+//     ramps) since it's inert and harmless, but the angle change alone is what fixed this.
+const KICKER_BACK_SLOPE_LENGTH_M = 0;
 
 const WIDE_RAMP_ANGLE_DEG = 15;
 const WIDE_RAMP_LENGTH_M = 4;
@@ -233,7 +271,7 @@ const WIDE_RAMP_HEIGHT_M = WIDE_RAMP_LENGTH_M * Math.tan((WIDE_RAMP_ANGLE_DEG * 
 // ramp moves from centerX=11 to +9 (still its own dedicated lane, just renumbered to fit the new
 // 7-lane spacing -- see the LAYOUT doc comment above).
 export const RAMP_CONFIGS: readonly RampConfig[] = [
-	{ id: 'kicker', angleDeg: KICKER_ANGLE_DEG, width: 2.4, length: KICKER_LENGTH_M, height: KICKER_HEIGHT_M, backZ: 43, centerX: 0 },
+	{ id: 'kicker', angleDeg: KICKER_ANGLE_DEG, width: 2.4, length: KICKER_LENGTH_M, height: KICKER_HEIGHT_M, backZ: 43, centerX: 0, backSlopeLength: KICKER_BACK_SLOPE_LENGTH_M },
 	{ id: 'wide', angleDeg: WIDE_RAMP_ANGLE_DEG, width: 3, length: WIDE_RAMP_LENGTH_M, height: WIDE_RAMP_HEIGHT_M, backZ: 8, centerX: 9 },
 ];
 

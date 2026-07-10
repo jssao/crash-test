@@ -68,6 +68,11 @@ function ensureStyles(): void {
 		.hud-help-card.hud-hidden { opacity: 0; pointer-events: none; }
 		.hud-help-key { display: inline-block; min-width: 1.4em; background: rgba(255,255,255,0.14); border-radius: 4px;
 			padding: 0 5px; font-weight: 700; margin-right: 5px; }
+		.hud-toast { left: 50%; top: 140px; transform: translateX(-50%); background: rgba(10,14,18,0.65);
+			border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+			backdrop-filter: blur(2px); opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+			z-index: 10; }
+		.hud-toast.hud-toast-visible { opacity: 1; }
 	`;
 	document.head.appendChild(style);
 }
@@ -84,6 +89,11 @@ export interface HudController {
 	 * any drive input is actually pressed. */
 	onInput(input: VehicleInput): void;
 	toggleHelpCard(): void;
+	/** Briefly shows a small centered toast message (fades in, holds, fades out) -- used by main.ts's
+	 * kill-plane safety net ('recovered') so an automatic recovery is visibly communicated to the
+	 * player, not silent. Calling again while one is already showing restarts the hold/fade timer with
+	 * the new message (never stacks multiple toasts). */
+	showToast(message: string, durationMs?: number): void;
 }
 
 export function createHud(mount: HTMLElement): HudController {
@@ -109,6 +119,7 @@ export function createHud(mount: HTMLElement): HudController {
 			<div class="hud-wheel-row" id="hud-wheel-row"></div>
 		</div>
 		<div class="hud-panel hud-perf" id="hud-perf"></div>
+		<div class="hud-panel hud-toast" id="hud-toast"></div>
 		<div class="hud-panel hud-help-card" id="hud-help-card">
 			<div><span class="hud-help-key">WASD</span>drive &nbsp; <span class="hud-help-key">Space</span>handbrake</div>
 			<div><span class="hud-help-key">R</span>repair car &nbsp; <span class="hud-help-key">Shift+R</span>repair + reset world</div>
@@ -124,6 +135,7 @@ export function createHud(mount: HTMLElement): HudController {
 	const rpmFillEl = mount.querySelector('#hud-rpm-fill') as HTMLElement;
 	const perfEl = mount.querySelector('#hud-perf') as HTMLElement;
 	const helpCardEl = mount.querySelector('#hud-help-card') as HTMLElement;
+	const toastEl = mount.querySelector('#hud-toast') as HTMLElement;
 	const qualityValueEl = mount.querySelector('#hud-quality-value')!;
 	const panelRowEl = mount.querySelector('#hud-panel-row')!;
 	const wheelRowEl = mount.querySelector('#hud-wheel-row')!;
@@ -154,6 +166,7 @@ export function createHud(mount: HTMLElement): HudController {
 
 	let helpVisible = true;
 	let hasSeenInput = false;
+	let toastHideTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function setHelpVisible(visible: boolean): void {
 		helpVisible = visible;
@@ -202,6 +215,15 @@ export function createHud(mount: HTMLElement): HudController {
 		},
 		toggleHelpCard() {
 			setHelpVisible(!helpVisible);
+		},
+		showToast(message, durationMs = 2200) {
+			toastEl.textContent = message;
+			toastEl.classList.add('hud-toast-visible');
+			if (toastHideTimer !== null) clearTimeout(toastHideTimer);
+			toastHideTimer = setTimeout(() => {
+				toastEl.classList.remove('hud-toast-visible');
+				toastHideTimer = null;
+			}, durationMs);
 		},
 	};
 }

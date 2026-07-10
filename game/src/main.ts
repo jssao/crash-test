@@ -164,6 +164,12 @@ declare global {
       /** VERIFY HOOK: mirrors the M key (mute toggle) without needing a synthetic keydown -- returns
        * the new muted state. */
       toggleMute: () => boolean;
+      /** DIAGNOSTIC HOOK (test-only): teleports the chassis straight down to (x,-50,z) with zero
+       * velocity -- exists purely so a scripted verify run can exercise the kill-plane's "chassis y <
+       * -10 -> automatic resetCar() + HUD toast" safety net (main.ts's doFixedStep()) without needing to
+       * actually reproduce an escape from the terrain's containment berm. See
+       * game/verify/playtest-r3/verify-safety-net.mjs. */
+      debugForceFreefall: () => void;
     };
   }
 }
@@ -416,6 +422,23 @@ async function main() {
   }
 
   function doCarRepair(): void {
+    // RESET-RELIABILITY ROOT-CAUSE NOTE (containment-fix brief, item 3 -- "resetCar() sometimes leaves
+    // the car within 1m of its wedged position"): this function does a FULL teardown+recreate of every
+    // car body (destroyVehicle() below, then createVehicle() at the fixed SPAWN_POS/SPAWN_ROT) -- there
+    // is no early-return/conditional path here that could skip the rebuild, and createVehicle() always
+    // places the fresh chassis/wheels at the exact spawn pose. Re-auditing the long-session-soak data
+    // that prompted this item (game/verify/playtest-r3/long-session-soak-samples.json): the samples
+    // that LOOKED like "reset left the car near its wedge" never actually had a reset run in between
+    // (no 'repair'/'kicker-laps' segment fired between those two samples) -- the car was simply still
+    // sitting wherever an EARLIER stall had left it. The segments that DID call resetCar() and then
+    // drive north (t=120, t=570) landed the car back in the same z~156 neighborhood because that is a
+    // real, deterministic environmental hazard (a tree sitting on the straight-north corridor -- see
+    // world/features/trees/tuning.ts's inNorthCorridor() fix) that gets hit again on the very next
+    // identical drive, not a reset defect. This function was already an unconditional, absolute
+    // teleport; game/sim/containment.test.mjs's wedged-start case is the automated proof. The explicit
+    // zero-velocity/awake calls below are added anyway as cheap, harmless defense-in-depth -- makes the
+    // "settled" contract explicit here rather than only implicit in createVehicle()'s body defaults.
+    //
     // Restore all deformed mesh geometry to cached base positions BEFORE the old vehicle (and its
     // panels record) goes away -- resetCrumpleRegistry() mutates the SAME DeformableMeshHandle
     // objects carDeformables.bindings already reference, in place (see crumple.ts's doc comment), so
@@ -424,6 +447,14 @@ async function main() {
 
     destroyVehicle(vehicle);
     vehicle = createVehicle(world, SPAWN_POS, SPAWN_ROT);
+    vehicle.chassis.setLinearVelocity({ x: 0, y: 0, z: 0 });
+    vehicle.chassis.setAngularVelocity({ x: 0, y: 0, z: 0 });
+    vehicle.chassis.setAwake(true);
+    for (const w of Object.values(vehicle.wheels)) {
+      w.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
+      w.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
+      w.body.setAwake(true);
+    }
     // Reuse the SAME registry (see createDamageSystem()'s doc comment) -- fresh emitter/telemetry/
     // wheel-debounce-counters, but the crumple mesh handles + their now-repaired geometry persist.
     damageSystem = createDamageSystem(vehicle, damageSystem.registry);
@@ -475,12 +506,26 @@ async function main() {
   let physicsMsAccum = 0;
   let physicsStepsAccum = 0;
 
+  // KILL-PLANE (world-containment fix, layer b): the terrain's containment berm (world/terrain/
+  // heightfield.ts's bermRise()) is layer (a) -- this is the last-resort safety net so NOTHING,
+  // including any future bug, can leave the player in an infinite fall (measured pre-fix: 668km/h at
+  // y=-3969 driving straight past the old +-400m edge, game/verify/playtest-r3/diag-topspeed.mjs).
+  // -10m is comfortably below every legitimate terrain feature (deepest pothole ~-0.35m) so it can only
+  // ever trigger on a genuine escape, never normal driving.
+  const KILL_PLANE_Y_M = -10;
+
   function doFixedStep() {
     stepVehicle(vehicle, currentInput(), FIXED_DT);
     const physT0 = performance.now();
     world.step(FIXED_DT, FIXED_SUBSTEPS);
     physicsMsAccum += performance.now() - physT0;
     physicsStepsAccum++;
+    if (vehicle.chassis.getPosition().y < KILL_PLANE_Y_M) {
+      // Recover via the SAME absolute teleport 'R' uses, immediately, before anything downstream this
+      // step (damage/audio/visual sampling) reads the falling vehicle's pose.
+      doCarRepair();
+      hud.showToast('recovered');
+    }
     stepDamageSystem(damageSystem, world, FIXED_DT);
     audioSystem.armShapes(collectCarShapes(vehicle, damageSystem));
     audioSystem.processStep(world, vehicle, FIXED_DT);
@@ -644,6 +689,25 @@ async function main() {
     },
     audioDebug: () => audioSystem.debugSnapshot(),
     toggleMute: () => audioSystem.toggleMute(),
+    debugForceFreefall: () => {
+      // Moves the WHOLE vehicle (chassis + wheels), not just the chassis: a chassis-only teleport
+      // leaves the wheel bodies behind at their old positions, and box3d's suspension joints then try
+      // to resolve a ~50m-in-one-step stretch, an unrelated wasm/audio-crashing artifact (measured
+      // directly: the audio engine's per-step distance/velocity computation went non-finite) that has
+      // nothing to do with the kill-plane this hook exists to test.
+      const p = vehicle.chassis.getPosition();
+      const dy = -50 - p.y;
+      const rot = vehicle.chassis.getRotation();
+      vehicle.chassis.setTransform({ x: p.x, y: p.y + dy, z: p.z }, rot);
+      vehicle.chassis.setLinearVelocity({ x: 0, y: 0, z: 0 });
+      vehicle.chassis.setAwake(true);
+      for (const w of Object.values(vehicle.wheels)) {
+        const wp = w.body.getPosition();
+        w.body.setTransform({ x: wp.x, y: wp.y + dy, z: wp.z }, w.body.getRotation());
+        w.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
+        w.body.setAwake(true);
+      }
+    },
   };
 
   resize();
