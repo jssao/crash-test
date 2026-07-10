@@ -1238,6 +1238,55 @@ uint64_t b3js_Shape_GetMeshSurfaceMaterial( uint64_t shapeId64, int32_t index, f
 	return m.userMaterialId;
 }
 
+// ---- Runtime shape geometry mutation (b3Shape_SetHull / b3Shape_SetMesh, box3d.h). Available at our
+// pin but previously unwired (see docs/build-log/specs/upstream-delta.md section (d)). Lets an
+// existing hull/mesh shape swap its collision geometry in place -- no destroy/recreate, existing
+// contacts/filters/material preserved, bodies re-woken so collision immediately follows the new
+// geometry. Used by the crush architecture's collision-follows-dents path (crush-architecture.md B).
+
+// Replace shapeId's convex hull with one built from a flat (x,y,z)-tuple point buffer (pointsPtr has
+// 3*pointCount floats). b3Shape_SetHull clones the hull by content into the world's hull database
+// (b3AddHullToDatabase, same as b3CreateHullShape), so we free our temporary immediately after.
+void b3js_Shape_SetHull( uint64_t shapeId64, const float* pointsPtr, int pointCount )
+{
+	// b3Vec3 is exactly 3 contiguous floats, so the flat point buffer can be reinterpreted directly.
+	const b3Vec3* points = (const b3Vec3*)pointsPtr;
+	b3HullData* hull = b3CreateHull( points, pointCount, 255 );
+	if ( hull == NULL )
+	{
+		return;
+	}
+	b3Shape_SetHull( b3LoadShapeId( shapeId64 ), hull );
+	b3DestroyHull( hull );
+}
+
+// Replace shapeId's triangle-mesh geometry from flat vertex/index buffers (verticesPtr: 3*vertexCount
+// floats; indicesPtr: 3*triangleCount int32s) plus a per-axis scale. Unlike SetHull, b3Shape_SetMesh
+// stores the b3MeshData blob BY POINTER (the shape takes ownership and frees it on the next
+// shape-change/destroy), exactly as b3CreateMeshShape does -- so we do NOT free `mesh` here.
+void b3js_Shape_SetMesh( uint64_t shapeId64, const float* verticesPtr, int vertexCount,
+						 const int32_t* indicesPtr, int triangleCount, float sx, float sy, float sz )
+{
+	b3MeshDef meshDef = { 0 };
+	meshDef.vertices = (b3Vec3*)(uintptr_t)verticesPtr;
+	meshDef.indices = (int32_t*)(uintptr_t)indicesPtr;
+	meshDef.materialIndices = NULL;
+	meshDef.weldTolerance = 0.0f;
+	meshDef.vertexCount = vertexCount;
+	meshDef.triangleCount = triangleCount;
+	meshDef.weldVertices = false;
+	meshDef.useMedianSplit = false;
+	meshDef.identifyEdges = false;
+
+	b3MeshData* mesh = b3CreateMesh( &meshDef, NULL, 0 );
+	if ( mesh == NULL )
+	{
+		return;
+	}
+	b3Vec3 scale = { sx, sy, sz };
+	b3Shape_SetMesh( b3LoadShapeId( shapeId64 ), mesh, scale );
+}
+
 // ---- Manifold readback (b3Shape_GetContactData, box3d.h) -- the solver's actual per-contact-point
 // normal/friction/rolling impulses (b3Manifold, types.h), as opposed to the approachSpeed heuristic
 // hit events carry. Query-time only (not drained per-step like move/hit/joint events): caller must

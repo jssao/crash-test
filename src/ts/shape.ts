@@ -3,7 +3,7 @@
 import type { Native } from "./native.js";
 import type { World } from "./world.js";
 import { registerHandle, unregisterHandle } from "./registry.js";
-import { withFloatOutBuffer } from "./scratch.js";
+import { withFloatOutBuffer, withInputFloatBuffer, withInputInt32Buffer } from "./scratch.js";
 import { DEFAULT_CATEGORY_BITS, DEFAULT_MASK_BITS, VEC3_ZERO, type Vec3 } from "./math.js";
 
 /** Mirrors b3Filter (box3d/types.h): categoryBits/maskBits (uint64) + groupIndex (int32). */
@@ -210,6 +210,35 @@ export class Shape {
 			maskBits: this.native._b3js_Shape_GetFilterMaskBits( this.handle ),
 			groupIndex: this.native._b3js_Shape_GetFilterGroupIndex( this.handle ),
 		};
+	}
+
+	/**
+	 * Replaces this hull shape's collision geometry in place from a flat (x,y,z)-tuple point array
+	 * (b3Shape_SetHull, box3d.h). Box3D computes the convex hull of the points; the shape's contacts,
+	 * filter, and material are preserved and attached bodies are re-woken so collision immediately
+	 * follows the new geometry -- no destroy/recreate. The point buffer is cloned by content into the
+	 * world's hull database, so it need not outlive this call. Cheap enough for rate-limited runtime
+	 * dent-following (crush-architecture.md B), not per-frame. Only valid on a hull shape.
+	 */
+	setHull( points: Float32Array ): void {
+		const pointCount = points.length / 3;
+		withInputFloatBuffer( this.native, points, ( ptr ) =>
+			this.native._b3js_Shape_SetHull( this.handle, ptr, pointCount ) );
+	}
+
+	/**
+	 * Replaces this mesh shape's triangle geometry in place (b3Shape_SetMesh, box3d.h). `vertices` is
+	 * a flat (x,y,z)-tuple array, `indices` a flat (i0,i1,i2)-per-triangle array. Like setHull() this
+	 * preserves contacts/filter/material and re-wakes bodies; the new mesh blob is owned by the shape
+	 * thereafter. Intended for the same rate-limited runtime-mutation use as setHull(), on a mesh shape.
+	 */
+	setMesh( vertices: Float32Array, indices: Int32Array, scale: Vec3 = { x: 1, y: 1, z: 1 } ): void {
+		const vertexCount = vertices.length / 3;
+		const triangleCount = indices.length / 3;
+		withInputFloatBuffer( this.native, vertices, ( vptr ) =>
+			withInputInt32Buffer( this.native, indices, ( iptr ) =>
+				this.native._b3js_Shape_SetMesh(
+					this.handle, vptr, vertexCount, iptr, triangleCount, scale.x, scale.y, scale.z ) ) );
 	}
 
 	/** Runtime friction setter (b3Shape_SetFriction, box3d.h) -- distinct from setSurfaceMaterial()

@@ -129,6 +129,9 @@ export interface Native {
 	_b3js_Shape_AreSensorEventsEnabled( shapeId: bigint ): number;
 	_b3js_Shape_SetFilter( shapeId: bigint, categoryBits: bigint, maskBits: bigint, groupIndex: number,
 		invokeContacts: number ): void;
+	_b3js_Shape_SetHull( shapeId: bigint, pointsPtr: number, pointCount: number ): void;
+	_b3js_Shape_SetMesh( shapeId: bigint, verticesPtr: number, vertexCount: number, indicesPtr: number,
+		triangleCount: number, sx: number, sy: number, sz: number ): void;
 	_b3js_Shape_GetFilterCategoryBits( shapeId: bigint ): bigint;
 	_b3js_Shape_GetFilterMaskBits( shapeId: bigint ): bigint;
 	_b3js_Shape_GetFilterGroupIndex( shapeId: bigint ): number;

@@ -78,6 +78,8 @@
   "_b3js_Shape_EnableSensorEvents",
   "_b3js_Shape_AreSensorEventsEnabled",
   "_b3js_Shape_SetFilter",
+  "_b3js_Shape_SetHull",
+  "_b3js_Shape_SetMesh",
   "_b3js_Shape_GetFilterCategoryBits",
   "_b3js_Shape_GetFilterMaskBits",
   "_b3js_Shape_GetFilterGroupIndex",
