@@ -118,9 +118,16 @@ LANDED THIS RUN-3 ARC (all committed + gated): Stage 2 glass-contact ejection (6
 (5f1ae71 + PATCHES.md), setHull/SetMesh shim (a3023a0), segment mass-parity math + drive-suite
 risk retirement (635663b).
 
-REMAINING (fully specified, resumable): crush M1-M3 per docs/build-log/specs/crush-m1m3-brief.md +
-crush-architecture.md (WIP in stash — a fresh session applies the stash or restarts M1 from the
-brief); then final full soak + adversarial gate + run close. File upstream issues when GitHub creds
-exist. Deploy still user-blocked (DEPLOY.md).
+[SUPERSEDED 2026-07-10 later: crush M1-M3 LANDED after resume — c3b4a0e (M1+M2: 9 welded segment
+bodies + recessed crush cores, mass parity exact 1156+135=1291, directional crash-gate yield w/
+energy accounting, offset-aware L/R cores, mechanical crush 0.247/0.382/0.456/0.542/0.580m
+monotonic in reference bands, intrusion metric live in lab; lab guide force-feed artifact fixed
+97.7g→49.5g) + 83a16c6 (M3: rate-limited setHull panel refresh, dented-vertex-mean following,
+car-inward hit-normal fix — panels no longer bulge toward strikers). Suites 81 files/225 + 25/47,
+bench 0.14ms, crash-lab 17/17. Remaining truly open: file upstream issues when GitHub creds exist;
+deploy user-blocked (DEPLOY.md); occupant injury model at lab speeds (future).]
+
+| W14 crush | M1+M2 (c3b4a0e) + M3 (83a16c6) landed by FABLE resume-from-stash (predecessor's M2 claims audited FALSE and rebuilt) | fable | **done** | 546,530 (+217,287 opus prefix +154,814 died-at-report M0 worker) | see superseded-note above for numbers |
+| W15 final | Final soak (a9f22b2: 50/50 pristine, 0 errors, 10-min handles NET DECREASE) + gate | sonnet + verifier | soak done; GATE FAIL pass 1 | 389,009 | Gate FAIL causes: (1) STALE LEDGER (this file said crush 'REMAINING' after it landed — fixed in this commit); (2) +6-handle/50-cycle creep graded minor by soak (long-session counter-evidence) but escalated by gate → arbitration soak dispatched (100+ cycles); (3) r3-battery script false positives (reverse assertion mis-scoped — arbitrated PASS by direct reverse-check re-run; large-tree/shed = documented drive-convergence flakiness) → script fixes dispatched. Re-gate = pass 2 of 3. |
 
 ## Pass log
