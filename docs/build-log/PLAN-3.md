@@ -132,4 +132,21 @@ deploy user-blocked (DEPLOY.md); occupant injury model at lab speeds (future).]
 
 | W16 arbitration | Handle-drift arbitration (orchestrator-direct after 2 worker dispatch failures) | fable inline | **done** | ~0 (local scripts) | 150-cycle browser soak: +5 total, all on crush-offset, no plateau BUT: 20-cycle headless offset create/destroy probe (new _registrySnapshotForTests hook) = registry returns to ZERO every cycle; headless crash→repair = flat (handle-stability green); 10-min browser continuous = handles NET DECREASE. VERDICT: browser-only JS-registry bookkeeping drift, ~0.03 entries/cycle, no native leak, no functional impact at any real session length — MINOR-CLOSED w/ monitoring (snapshot hook retained for future in-browser attribution). r3-battery script false-positives (reverse mis-scoped assert; tree/shed drive-convergence flakiness) documented here as known script debt — product features independently verified by their own suites. |
 
+## RUN 3 COMPLETE — 2026-07-10 · GATE PASS (pass 2 of 3)
+
+All condition items 1-8 (incl. 6b/6c) YES; all pass-1 gate causes resolved with evidence; PLAN-2's
+12 RUN-2 items regression-clean. Final state: root 25 files/47 tests + game 81 files/225 tests
+green; crash-lab 17/17; bench 0.14ms avg (<8ms); 150-cycle soak pristine w/ handle drift
+minor-closed (headless paths proven zero-leak); 10-min continuous clean. ~45 worker dispatches
+across RUN 3 (fable×5, opus×15, sonnet remainder, verifier gates ×5); ~14M RUN-3 subagent tokens;
+session total ≈41M ≈ 53-54% weekly usage (user /usage calibration 0.76M/1%) — inside the 80% cap.
+Escalation ladder exercised end-to-end (sonnet→opus→fable, incl. one honest infeasibility proof
+that redirected Stage 2 to the filter path, and a fable audit that rebuilt a predecessor's false
+M2 claims). Known open items (not blockers): file 2 drafted upstream issues + deploy (both need
+GitHub creds); occupant injury model at lab speeds; r3-battery script debt; monitor handle drift
+via the registry snapshot hook.
+
 ## Pass log
+
+- 2026-07-10 · RUN-CLOSE GATE · FAIL (pass 1: stale ledger, handle-drift escalation, script false positives) → all three resolved with evidence.
+- 2026-07-10 · RUN-CLOSE GATE · PASS (pass 2): items 1-8 YES, RUN-2 regression clean. RUN COMPLETE.
