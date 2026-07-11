@@ -377,3 +377,27 @@ export const CRUMPLE_PERF_NEAREST_EXEMPT_COUNT = 2;
 export const HULL_REBUILD_DENT_VOLUME_THRESHOLD = 0.02; // m^3 equivalent accumulated-displacement proxy
 export const HULL_REBUILD_MIN_INTERVAL_S = 2;
 export const HULL_REBUILD_MAX_COUNT = 3;
+
+// ---------------------------------------------------------------------------------------------
+// CRUSH M3 -- collision follows the dents (crush-architecture.md §B): rate-limited panel collision
+// hull refresh from the deformed panel mesh (Shape.setHull, the M0b runtime-geometry machinery).
+// ---------------------------------------------------------------------------------------------
+
+/** A panel's collision hull is rebuilt once its deformed-mesh AABB has moved this far (max single
+ * face component, m) since the hull's last rebuild (spec §B's ~0.06m max-vertex delta). */
+export const PANEL_HULL_REFRESH_DELTA_M = 0.06;
+/** Minimum fixed steps between one panel's hull rebuilds (spec §B: >=30 steps apart; additionally
+ * at most ONE panel is rebuilt per fixed step). */
+export const PANEL_HULL_REFRESH_MIN_STEPS = 30;
+/** Once a panel has rebuilt at least once, follow-up rebuilds track the still-deepening dent at
+ * this finer residual (still >=PANEL_HULL_REFRESH_MIN_STEPS apart) so the hull CONVERGES to the
+ * final dent instead of freezing one threshold-crossing behind it (measured: a 0.12m dent's first
+ * rebuild landed at the 0.06 crossing and the remaining growth never re-crossed a full 0.06). */
+export const PANEL_HULL_REFRESH_FOLLOWUP_DELTA_M = 0.02;
+/** A rebuilt face may bulge OUTWARD at most this far past the pristine collision box (dents pull
+ * faces inward; ripple bulges are real but bounded -- an unbounded outward rebuild could grow the
+ * collision proxy into neighbors). */
+export const PANEL_HULL_GROW_CAP_M = 0.05;
+/** Per-axis half-extent floor for a rebuilt hull (a fully-pancaked axis still needs a sliver of
+ * collision thickness for stable contacts). */
+export const PANEL_HULL_MIN_HALF_M = 0.01;

@@ -22,6 +22,11 @@ import {
 } from './crumple';
 import {
 	GLASS_PANE_SHATTER_MIN_APPROACH_MS,
+	PANEL_HULL_GROW_CAP_M,
+	PANEL_HULL_MIN_HALF_M,
+	PANEL_HULL_REFRESH_DELTA_M,
+	PANEL_HULL_REFRESH_FOLLOWUP_DELTA_M,
+	PANEL_HULL_REFRESH_MIN_STEPS,
 	PANEL_DESPAWN_AFTER_S,
 	PANEL_DESPAWN_DISTANCE_M,
 	PANEL_HIT_EVENTS_DISABLE_AFTER_S,
@@ -100,6 +105,14 @@ export interface DamageSystem {
 	 * foreignMassForHit() + welds.ts's massAwareDamageFactor().
 	 */
 	readonly foreignMasses: Map<number, number>;
+	/** @internal crush M3 (crush-architecture.md §B) panel hull-refresh bookkeeping -- see
+	 * refreshPanelHulls(). `refreshes` doubles as the observable "collision followed the dents"
+	 * counter the sim test asserts. */
+	readonly panelHull: {
+		fixedStep: number;
+		perPanel: Record<PanelKey, { lastRefreshStep: number; meshAabb0: { min: V3; max: V3 } | null; aabbAtRefresh: { min: V3; max: V3 } | null }>;
+		refreshes: Record<PanelKey, number>;
+	};
 }
 
 /** Registers (or updates) a foreign body's effective mass so contacts against it attenuate car damage.
@@ -181,6 +194,12 @@ export function createDamageSystem(
 	const carMassKg = vehicle.chassis.getMass() + totalPanelMassKg(vehicle.panels) + Object.values(vehicle.wheels).reduce((sum, w) => sum + w.body.getMass(), 0);
 	const wheelOverThresholdSteps = {} as Record<WheelKey, number>;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) wheelOverThresholdSteps[key] = 0;
+	const perPanel = {} as DamageSystem['panelHull']['perPanel'];
+	const refreshes = {} as Record<PanelKey, number>;
+	for (const key of PANEL_KEYS) {
+		perPanel[key] = { lastRefreshStep: -Infinity, meshAabb0: null, aabbAtRefresh: null };
+		refreshes[key] = 0;
+	}
 	return {
 		vehicle,
 		panels: vehicle.panels,
@@ -190,6 +209,7 @@ export function createDamageSystem(
 		timeSec: 0,
 		wheelOverThresholdSteps,
 		foreignMasses,
+		panelHull: { fixedStep: 0, perPanel, refreshes },
 	};
 }
 
@@ -243,6 +263,117 @@ function shatterGlassPane(system: DamageSystem, paneKey: GlassPaneKey, viaCrumpl
 }
 
 /** Advances the damage system by one fixed step. Call AFTER stepVehicle()+world.step(). */
+// ---------------------------------------------------------------------------------------------
+// CRUSH M3 -- collision follows the dents (crush-architecture.md §B): once a panel's accumulated
+// cosmetic crumple has moved its deformed-mesh AABB far enough (the TRIGGER -- the collision-visible
+// part of the spec's max-vertex delta; purely in-plane vertex slide leaves any convex proxy
+// unchanged and is correctly ignored), rebuild that panel's collision hull in place via Shape.setHull
+// (M0b machinery). REBUILD RULE (measured evolution from the spec's AABB sketch): the slab follows
+// the mean deflection of the DENTED vertices per axis -- the pristine box's faces each shift by the
+// mean offset component over vertices that have genuinely moved (>1cm). A convex hull cannot hold a
+// bowl: rebuilding from the raw deformed AABB only THICKENS the slab toward the dent (the rim pins
+// the far face -- measured: a 0.12m hood dent left the top face byte-identical and a probe rested
+// at the pristine height), and an ALL-vertex mean is diluted to nothing by the undented rim
+// (measured -0.011m for a 12/36-vertex dent). The dented-region mean (measured -0.033m for the
+// same dent) is what the contact patch on the crushed region actually feels, so debris/bodies
+// genuinely rest INTO dented panels (sim/panel-hull-refresh.test.mjs) at the cost of the undented
+// rim's collision sinking by the same bounded amount -- the right trade for a 5cm cosmetic slab.
+// Rate limits per spec §B: a panel rebuilds >=PANEL_HULL_REFRESH_MIN_STEPS apart and at most ONE
+// panel rebuilds per fixed step. Outward growth capped, per-axis extent floored (tuning constants).
+// setHull never recomputes body mass, so panel mass/inertia stay stable.
+// ---------------------------------------------------------------------------------------------
+function refreshPanelHulls(system: DamageSystem): void {
+	const step = system.panelHull.fixedStep;
+	for (const key of PANEL_KEYS) {
+		const panel = system.panels[key];
+		if (panel.despawned || !panel.shape.isValid()) continue;
+		const st = system.panelHull.perPanel[key];
+		if (step - st.lastRefreshStep < PANEL_HULL_REFRESH_MIN_STEPS) continue;
+		// Deformed-mesh AABB (trigger) + mean offset per axis (rebuild), panel-local -- panel meshes
+		// register in their own body's space.
+		let count = 0;
+		let dentedCount = 0;
+		const min = { x: Infinity, y: Infinity, z: Infinity };
+		const max = { x: -Infinity, y: -Infinity, z: -Infinity };
+		const meanOff = { x: 0, y: 0, z: 0 };
+		for (const mesh of system.registry.meshes) {
+			if (mesh.kind !== 'panel' || mesh.attachedTo !== key) continue;
+			for (let v = 0; v < mesh.vertexCount; v++) {
+				const ox = mesh.offsets[v * 3];
+				const oy = mesh.offsets[v * 3 + 1];
+				const oz = mesh.offsets[v * 3 + 2];
+				const x = mesh.basePositions[v * 3] + ox;
+				const y = mesh.basePositions[v * 3 + 1] + oy;
+				const z = mesh.basePositions[v * 3 + 2] + oz;
+				if (x < min.x) min.x = x;
+				if (y < min.y) min.y = y;
+				if (z < min.z) min.z = z;
+				if (x > max.x) max.x = x;
+				if (y > max.y) max.y = y;
+				if (z > max.z) max.z = z;
+				if (ox * ox + oy * oy + oz * oz > 0.0001) {
+					meanOff.x += ox;
+					meanOff.y += oy;
+					meanOff.z += oz;
+					dentedCount++;
+				}
+				count++;
+			}
+		}
+		if (count === 0) continue;
+		if (dentedCount > 0) {
+			meanOff.x /= dentedCount;
+			meanOff.y /= dentedCount;
+			meanOff.z /= dentedCount;
+		}
+		if (!st.meshAabb0) {
+			// First sighting = the pristine mesh AABB (deltas are measured against this) -- captured
+			// lazily so the browser's real GLB meshes and the sim harness's grid proxies both work.
+			st.meshAabb0 = { min: { ...min }, max: { ...max } };
+			st.aabbAtRefresh = { min: { ...min }, max: { ...max } };
+			continue;
+		}
+		const ref = st.aabbAtRefresh!;
+		const deltaSinceRefresh = Math.max(
+			Math.abs(min.x - ref.min.x), Math.abs(min.y - ref.min.y), Math.abs(min.z - ref.min.z),
+			Math.abs(max.x - ref.max.x), Math.abs(max.y - ref.max.y), Math.abs(max.z - ref.max.z),
+		);
+		const triggerM = system.panelHull.refreshes[key] > 0 ? PANEL_HULL_REFRESH_FOLLOWUP_DELTA_M : PANEL_HULL_REFRESH_DELTA_M;
+		if (deltaSinceRefresh < triggerM) continue;
+		// Rebuild: pristine collision box, each axis' faces shifted by the mesh's MEAN offset along
+		// that axis (see the section doc), shift capped at the outward-growth bound.
+		const he = panel.halfExtents;
+		const clampShift = (v: number): number => Math.max(-PANEL_HULL_GROW_CAP_M - 2 * he.y, Math.min(PANEL_HULL_GROW_CAP_M + 2 * he.y, v));
+		const lo = {
+			x: -he.x + clampShift(meanOff.x),
+			y: -he.y + clampShift(meanOff.y),
+			z: -he.z + clampShift(meanOff.z),
+		};
+		const hi = {
+			x: he.x + clampShift(meanOff.x),
+			y: he.y + clampShift(meanOff.y),
+			z: he.z + clampShift(meanOff.z),
+		};
+		for (const axis of ['x', 'y', 'z'] as const) {
+			if (hi[axis] - lo[axis] < 2 * PANEL_HULL_MIN_HALF_M) {
+				const mid = (hi[axis] + lo[axis]) / 2;
+				lo[axis] = mid - PANEL_HULL_MIN_HALF_M;
+				hi[axis] = mid + PANEL_HULL_MIN_HALF_M;
+			}
+		}
+		const pts = new Float32Array(24);
+		let i = 0;
+		for (const x of [lo.x, hi.x]) for (const y of [lo.y, hi.y]) for (const z of [lo.z, hi.z]) {
+			pts[i++] = x; pts[i++] = y; pts[i++] = z;
+		}
+		panel.shape.setHull(pts);
+		st.lastRefreshStep = step;
+		st.aabbAtRefresh = { min: { ...min }, max: { ...max } };
+		system.panelHull.refreshes[key]++;
+		return; // <=1 panel per fixed step
+	}
+}
+
 export function stepDamageSystem(system: DamageSystem, world: World, dt: number): void {
 	system.timeSec += dt;
 
@@ -292,11 +423,21 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 				else if (REAR_CHAIN_IDS.has(id)) coreHits.rearChain = true;
 			}
 		}
+		// CRUSH M3 MEASURED CORRECTION: box3d reports the manifold normal shape-A -> shape-B. The
+		// crumple model's displacement convention is "+normal caves the car INWARD", which holds when
+		// the CAR is shape B (the calibrated wall path: a frontal wall reports (0,0,-1) into the
+		// nose). When the car is shape A the raw normal points OUT of the car -- a box dropped ON the
+		// hood reported a=hood b=box n=(0,+1,0) and the unconditional +normal BULGED the panel upward
+		// 0.12m toward its striker (measured, crush-panel-refresh diag). Orient once here, at the
+		// single drain, so every downstream consumer sees a car-inward normal. (welds.ts only ever
+		// reads |normal.y|, so this flip cannot shift the direction-aware panel logic.)
+		const carIsA = CAR_ENTITY_IDS.has(c.userDataA) && !CAR_ENTITY_IDS.has(c.userDataB);
+		const nSign = carIsA ? -1 : 1;
 		hits.push({
 			userDataA: c.userDataA,
 			userDataB: c.userDataB,
 			point: { x: c.point.x, y: c.point.y, z: c.point.z },
-			normal: { x: c.normal.x, y: c.normal.y, z: c.normal.z },
+			normal: { x: c.normal.x * nSign, y: c.normal.y * nSign, z: c.normal.z * nSign },
 			approachSpeed: c.approachSpeed,
 			// Resolved ONCE here (the single hit drain) so crumple (below) and weld stress
 			// (stepWeldsAndWheels) weight this contact by the identical mass ratio. Undefined for a
@@ -360,6 +501,10 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	for (const ev of stepSegmentYield(world, system.vehicle.chassis, system.vehicle.segments, coreHits)) {
 		system.emitter.emit({ type: 'segmentTorn', weld: ev.weld });
 	}
+
+	// ---- Crush M3: panel collision follows the dents (refreshPanelHulls' doc above). ----
+	system.panelHull.fixedStep++;
+	refreshPanelHulls(system);
 
 	// ---- Broken-panel lifecycle: disable hit events after N seconds, despawn after M seconds or
 	// beyond D meters from the chassis. ----
