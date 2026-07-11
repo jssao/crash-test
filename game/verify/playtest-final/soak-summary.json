@@ -1,0 +1,23 @@
+{
+  "seed": 4276993709,
+  "cyclesRun": 50,
+  "cyclesRequested": 50,
+  "wasmDead": false,
+  "baselineFeatureBodyCount": 747,
+  "handleSeriesFirst": 2417,
+  "handleSeriesLast": 2423,
+  "handleNetGrowth": 6,
+  "handleSlopePerCycle": 0.14458583433373348,
+  "monotonicGrowth": true,
+  "totalConsoleErrors": 0,
+  "totalPageErrors": 0,
+  "findings": [
+    {
+      "severity": "major",
+      "issue": "liveHandleCount grew monotonically across the 50-cycle soak and never came back down (segment-weld churn leak candidate)",
+      "first": 2417,
+      "last": 2423,
+      "netGrowth": 6
+    }
+  ]
+}

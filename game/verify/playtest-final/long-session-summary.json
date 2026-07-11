@@ -1,0 +1,20 @@
+{
+  "totalMsRequested": 600000,
+  "actualDurationMs": 600013,
+  "sampleCount": 20,
+  "wasmDead": false,
+  "wasmError": null,
+  "anyNaN": false,
+  "heapFirstMB": 48.21861171722412,
+  "heapLastMB": 50.30549430847168,
+  "heapSlopePerSecMB": 0.0035384755624565563,
+  "handlesFirst": 2408,
+  "handlesLast": 2352,
+  "handleSlopePerSec": -0.10095238095238095,
+  "fpsFirst": 10,
+  "fpsLast": 11,
+  "totalConsoleErrors": 0,
+  "totalConsoleWarnings": 0,
+  "totalPageErrors": 0,
+  "findings": []
+}

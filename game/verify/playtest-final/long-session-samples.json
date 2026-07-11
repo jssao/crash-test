@@ -1,0 +1,382 @@
+[
+  {
+    "tSec": 30,
+    "segment": "crush-frontal",
+    "speedKmh": 0.000001752750943438316,
+    "chassisPos": {
+      "x": 0.004718908108770847,
+      "y": 0.18155844509601593,
+      "z": 17.26350975036621
+    },
+    "finite": true,
+    "liveHandles": 2408,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 48.21861171722412,
+    "frontCrushM": 0.15028080986049308,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 60,
+    "segment": "slalom",
+    "speedKmh": 0.10294049330633794,
+    "chassisPos": {
+      "x": -0.001038957852870226,
+      "y": 0.1859050840139389,
+      "z": 17.35416030883789
+    },
+    "finite": true,
+    "liveHandles": 2406,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 48.499573707580566,
+    "frontCrushM": 0.15028080986049308,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 90,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.4549383762555258,
+    "chassisPos": {
+      "x": -0.0016245481092482805,
+      "y": 0.18977820873260498,
+      "z": 17.353910446166992
+    },
+    "finite": true,
+    "liveHandles": 2406,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 48.59544086456299,
+    "frontCrushM": 0.15028080986049308,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 120,
+    "segment": "slalom",
+    "speedKmh": 0.1324317385766724,
+    "chassisPos": {
+      "x": -0.0031210279557853937,
+      "y": 0.18829530477523804,
+      "z": 17.35401153564453
+    },
+    "finite": true,
+    "liveHandles": 2406,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 48.685139656066895,
+    "frontCrushM": 0.15028080986049308,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 150,
+    "segment": "repair-world",
+    "speedKmh": 94.3914666561266,
+    "chassisPos": {
+      "x": -24.235855102539062,
+      "y": 0.21435534954071045,
+      "z": 227.8372039794922
+    },
+    "finite": true,
+    "liveHandles": 2407,
+    "featureBodies": 747,
+    "fps": 15,
+    "heapMB": 49.11160087585449,
+    "frontCrushM": 0.18303710384591643,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 180,
+    "segment": "repair-world",
+    "speedKmh": 124.29249774611134,
+    "chassisPos": {
+      "x": -85.04271697998047,
+      "y": 0.20131942629814148,
+      "z": 358.50006103515625
+    },
+    "finite": true,
+    "liveHandles": 2401,
+    "featureBodies": 747,
+    "fps": 16,
+    "heapMB": 49.315839767456055,
+    "frontCrushM": 0.000174962647712551,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 210,
+    "segment": "crush-offset",
+    "speedKmh": 0.0000012931085906240555,
+    "chassisPos": {
+      "x": -5.388928413391113,
+      "y": 0.9645336866378784,
+      "z": 18.911865234375
+    },
+    "finite": true,
+    "liveHandles": 2350,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 49.56791877746582,
+    "frontCrushM": 0.1495169296521629,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 240,
+    "segment": "repair-car",
+    "speedKmh": 0.0000025130230088364767,
+    "chassisPos": {
+      "x": 0.23683719336986542,
+      "y": 0.18533213436603546,
+      "z": 17.217741012573242
+    },
+    "finite": true,
+    "liveHandles": 2385,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 49.68535041809082,
+    "frontCrushM": 0.2613660804615504,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 270,
+    "segment": "crush-frontal",
+    "speedKmh": 0.004943636319756778,
+    "chassisPos": {
+      "x": 0.49552983045578003,
+      "y": 0.14621122181415558,
+      "z": 15.433465957641602
+    },
+    "finite": true,
+    "liveHandles": 2364,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 49.7763614654541,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 300,
+    "segment": "crush-offset",
+    "speedKmh": 6.928683477058065e-7,
+    "chassisPos": {
+      "x": 1.2066771984100342,
+      "y": 0.1316688060760498,
+      "z": 18.489360809326172
+    },
+    "finite": true,
+    "liveHandles": 2358,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 49.889230728149414,
+    "frontCrushM": 0.41885609802143065,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 330,
+    "segment": "repair-car",
+    "speedKmh": 0.015618564600892457,
+    "chassisPos": {
+      "x": 0.4650361239910126,
+      "y": 0.18607859313488007,
+      "z": 17.201276779174805
+    },
+    "finite": true,
+    "liveHandles": 2383,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 49.96938896179199,
+    "frontCrushM": 0.2625492373470759,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 360,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.07979731371119188,
+    "chassisPos": {
+      "x": 0.12170945107936859,
+      "y": 0.2152823954820633,
+      "z": 17.305612564086914
+    },
+    "finite": true,
+    "liveHandles": 2381,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 50.03266716003418,
+    "frontCrushM": 0.2625492373470759,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 390,
+    "segment": "crush-offset",
+    "speedKmh": 1.778950004511098e-7,
+    "chassisPos": {
+      "x": -0.0549839548766613,
+      "y": 0.13164383172988892,
+      "z": 17.204666137695312
+    },
+    "finite": true,
+    "liveHandles": 2354,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 50.065317153930664,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 420,
+    "segment": "repair-car",
+    "speedKmh": 0.13104596488039444,
+    "chassisPos": {
+      "x": -0.16896086931228638,
+      "y": 0.18909454345703125,
+      "z": 17.29254722595215
+    },
+    "finite": true,
+    "liveHandles": 2386,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 50.11128044128418,
+    "frontCrushM": 0.26191573332349144,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 450,
+    "segment": "repair-car",
+    "speedKmh": 0.20603512506413607,
+    "chassisPos": {
+      "x": -0.14003455638885498,
+      "y": 0.18842345476150513,
+      "z": 17.3038330078125
+    },
+    "finite": true,
+    "liveHandles": 2386,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 50.12020301818848,
+    "frontCrushM": 0.26191573332349144,
+    "intrusionM": 0,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 480,
+    "segment": "crush-offset",
+    "speedKmh": 0.0000013049998076210797,
+    "chassisPos": {
+      "x": -6.258616924285889,
+      "y": 0.17342551052570343,
+      "z": 15.116926193237305
+    },
+    "finite": true,
+    "liveHandles": 2355,
+    "featureBodies": 747,
+    "fps": 10,
+    "heapMB": 50.20401191711426,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 510,
+    "segment": "slalom",
+    "speedKmh": 0.00000574631215451075,
+    "chassisPos": {
+      "x": -70.04492950439453,
+      "y": 0.1733035147190094,
+      "z": -39.324275970458984
+    },
+    "finite": true,
+    "liveHandles": 2352,
+    "featureBodies": 747,
+    "fps": 11,
+    "heapMB": 50.26234245300293,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 540,
+    "segment": "slalom",
+    "speedKmh": 0.00000759695207919762,
+    "chassisPos": {
+      "x": -70.04547882080078,
+      "y": 0.173322856426239,
+      "z": -39.324737548828125
+    },
+    "finite": true,
+    "liveHandles": 2352,
+    "featureBodies": 747,
+    "fps": 11,
+    "heapMB": 50.26165962219238,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 570,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.06964523668339759,
+    "chassisPos": {
+      "x": -69.9256820678711,
+      "y": 0.17028895020484924,
+      "z": -40.0105094909668
+    },
+    "finite": true,
+    "liveHandles": 2352,
+    "featureBodies": 747,
+    "fps": 11,
+    "heapMB": 50.27776527404785,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  },
+  {
+    "tSec": 600,
+    "segment": "perimeter-fast",
+    "speedKmh": 0.051750318559117055,
+    "chassisPos": {
+      "x": -69.93531036376953,
+      "y": 0.17023614048957825,
+      "z": -40.284690856933594
+    },
+    "finite": true,
+    "liveHandles": 2352,
+    "featureBodies": 747,
+    "fps": 11,
+    "heapMB": 50.30549430847168,
+    "frontCrushM": 0.58,
+    "intrusionM": 0.17,
+    "consoleErrorsCum": 0,
+    "consoleWarningsCum": 0
+  }
+]

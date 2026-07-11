@@ -1,0 +1,2128 @@
+[
+  {
+    "cycle": 0,
+    "kind": "shed",
+    "scenarioResult": {
+      "kind": "shed",
+      "steps": 300
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00016034112515184162,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 1,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 60,
+      "steerSign": -1,
+      "steps": 224
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012494175660116014,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 2,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 495
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012471095127875031,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 3,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 385
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012545221590487543,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 4,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 370
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001294243602414369,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 5,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 496
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013325439276723472,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 6,
+    "kind": "barrels",
+    "scenarioResult": {
+      "kind": "barrels",
+      "steps": 256
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012644119290916578,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 7,
+    "kind": "barrels",
+    "scenarioResult": {
+      "kind": "barrels",
+      "steps": 253
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001299032941548539,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 8,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 62
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010631539091798814,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 9,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 240
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2417,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012744409514198196,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 10,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 69,
+      "steerSign": 1,
+      "steps": 232
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012545221590487543,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 11,
+    "kind": "barrels",
+    "scenarioResult": {
+      "kind": "barrels",
+      "steps": 257
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012948927928202458,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 12,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 493
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013277210528483963,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 13,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 59
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001306452301745864,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 14,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 242
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012991813906815253,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 15,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 495
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010290136639179437,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 16,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 65
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001306091932224973,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 17,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 63
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001319855447361462,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 18,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 70,
+      "steerSign": -1,
+      "steps": 249
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2418,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001283859281469013,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 19,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 72,
+      "steerSign": -1,
+      "steps": 243
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2419,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012762913086961092,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 20,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 69,
+      "steerSign": 1,
+      "steps": 233
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2419,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001298033036074564,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 21,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 65,
+      "steerSign": -1,
+      "steps": 244
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010384419853393112,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 22,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 70,
+      "steerSign": -1,
+      "steps": 225
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001317829772811141,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 23,
+    "kind": "shed",
+    "scenarioResult": {
+      "kind": "shed",
+      "steps": 300
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012869904749357453,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 24,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 79
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013000318599454275,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 25,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 62
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012656727517246225,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 26,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 68,
+      "steerSign": -1,
+      "steps": 228
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2420,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.00496253123597393,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012644119290916578,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 27,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 496
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010489609845620862,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 28,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 69
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012991813906815253,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 29,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 66,
+      "steerSign": 1,
+      "steps": 229
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012656727517246225,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 30,
+    "kind": "shed",
+    "scenarioResult": {
+      "kind": "shed",
+      "steps": 300
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010456069343067753,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 31,
+    "kind": "kicker",
+    "scenarioResult": {
+      "kind": "kicker",
+      "steps": 381
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012905218164727117,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 32,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 244
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012449748504317348,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 33,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 241
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013380683806252236,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 34,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 243
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013276893036184845,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 35,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 240
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012402933015520645,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 36,
+    "kind": "shed",
+    "scenarioResult": {
+      "kind": "shed",
+      "steps": 300
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010749295572010098,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 37,
+    "kind": "tree",
+    "scenarioResult": {
+      "kind": "tree",
+      "steps": 491
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2421,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010541419548015796,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 38,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 68,
+      "steerSign": 1,
+      "steps": 238
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2422,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013184171911095888,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 39,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 65,
+      "steerSign": -1,
+      "steps": 500
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2422,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012930375824149465,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 40,
+    "kind": "barrels",
+    "scenarioResult": {
+      "kind": "barrels",
+      "steps": 258
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2422,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001040295936634017,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 41,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 59
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2422,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.0001527925061675095,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 42,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 57,
+      "steerSign": 1,
+      "steps": 231
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013130301262820332,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 43,
+    "kind": "crush-offset",
+    "scenarioResult": {
+      "kind": "crush-offset",
+      "kmh": 70,
+      "steerSign": -1,
+      "steps": 230
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012872504749417146,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 44,
+    "kind": "brick",
+    "scenarioResult": {
+      "kind": "brick",
+      "steps": 238
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012976790617802436,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 45,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 68
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013101483467137243,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 46,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 71
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013130301262820332,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 47,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 79
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00010062727499127178,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 48,
+    "kind": "barrels",
+    "scenarioResult": {
+      "kind": "barrels",
+      "steps": 263
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00012991813906815253,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  },
+  {
+    "cycle": 49,
+    "kind": "crush-frontal",
+    "scenarioResult": {
+      "kind": "crush-frontal",
+      "kmh": 71
+    },
+    "resetOk": true,
+    "resetErr": null,
+    "liveHandles": 2423,
+    "featureBodies": 747,
+    "ejectedCount": 0,
+    "detachedCount": 0,
+    "maxDisp": 0.000001869618016728197,
+    "segmentsAfterReset": {
+      "frontCrushM": 0.00013065163356884568,
+      "rearCrushM": 0,
+      "intrusionM": 0,
+      "coreRetreatM": {
+        "front": 0,
+        "rear": 0
+      },
+      "coreRetreatFrontM": {
+        "pos": 0,
+        "neg": 0
+      },
+      "weldCrushM": {
+        "cradle": 0,
+        "cellRL": 0,
+        "cellRR": 0,
+        "cellFL": 0,
+        "cellFR": 0,
+        "beam": 0,
+        "trunk": 0,
+        "rearL": 0,
+        "rearR": 0
+      },
+      "tornWelds": []
+    },
+    "newConsoleErrors": 0,
+    "telemetryFinite": true
+  }
+]
