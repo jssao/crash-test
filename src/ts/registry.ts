@@ -63,6 +63,12 @@ export function liveHandleCount(): number {
 }
 
 /** @internal test-only escape hatch. */
+/** TEST/DIAG HOOK: snapshot of live registry keys ("kind:handle") -- pairs with
+ * _clearRegistryForTests() for leak attribution (diff two snapshots to see WHAT leaked). */
+export function _registrySnapshotForTests(): string[] {
+	return [ ...registry.keys() ];
+}
+
 export function _clearRegistryForTests(): void {
 	registry.clear();
 }
