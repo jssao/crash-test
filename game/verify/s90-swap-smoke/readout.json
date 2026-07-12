@@ -1,0 +1,76 @@
+{
+  "readout": {
+    "crush": {
+      "front": {
+        "depthM": 0.40390676259994507,
+        "dentedCount": 42712
+      },
+      "rear": {
+        "depthM": 0,
+        "dentedCount": 0
+      },
+      "left": {
+        "depthM": 0.0002768838603515178,
+        "dentedCount": 18717
+      },
+      "right": {
+        "depthM": 0,
+        "dentedCount": 16905
+      }
+    },
+    "mechCrushFrontM": 0.41328591135044346,
+    "mechCrushRearM": 0,
+    "intrusionM": 0,
+    "panelStates": {
+      "hood": "loosened",
+      "doorL": "attached",
+      "doorR": "attached",
+      "doorRL": "attached",
+      "doorRR": "attached",
+      "trunk": "attached"
+    },
+    "wheelStates": {
+      "fl": "attached",
+      "fr": "attached",
+      "rl": "attached",
+      "rr": "attached"
+    },
+    "dentedVertexCount": 49173,
+    "chassisPeakDecelG": 91.71366373519123,
+    "occupants": [
+      {
+        "seatKey": "frontLeft",
+        "alive": false,
+        "ejected": false,
+        "state": "dead",
+        "peakAccelG": 73.654760802333
+      },
+      {
+        "seatKey": "frontRight",
+        "alive": false,
+        "ejected": false,
+        "state": "dead",
+        "peakAccelG": 76.13219830689532
+      },
+      {
+        "seatKey": "rearLeft",
+        "alive": false,
+        "ejected": true,
+        "state": "dead",
+        "peakAccelG": 76.95640641374364
+      },
+      {
+        "seatKey": "rearRight",
+        "alive": false,
+        "ejected": true,
+        "state": "dead",
+        "peakAccelG": 76.43202879161376
+      }
+    ]
+  },
+  "runState": "settled",
+  "structM": 0.49959770319992114,
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-12T00:41:18.120Z"
+}

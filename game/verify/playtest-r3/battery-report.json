@@ -1,70 +1,70 @@
 {
   "baseline": {
-    "featureBodyCount": 759,
-    "liveHandleCount": 2413,
+    "featureBodyCount": 747,
+    "liveHandleCount": 2417,
     "destructibleBodyCount": 132
   },
   "scenarioResults": {
     "yard-tour": {
       "legs": [
         {
-          "steps": 258,
+          "steps": 255,
           "finalPos": {
-            "x": -11.739102363586426,
-            "y": 0.15919291973114014,
-            "z": 26.754364013671875
+            "x": -11.582545280456543,
+            "y": 0.1627809703350067,
+            "z": 26.98419189453125
           },
-          "speedKmh": 39.667355429105
-        },
-        {
-          "steps": 393,
-          "finalPos": {
-            "x": -14.767687797546387,
-            "y": 0.1655721813440323,
-            "z": 18.725696563720703
-          },
-          "speedKmh": 39.76643792089962
+          "speedKmh": 39.664914720755746
         },
         {
           "steps": 500,
           "finalPos": {
-            "x": -32.95779037475586,
-            "y": 0.1858365535736084,
-            "z": 26.12894058227539
+            "x": -31.114791870117188,
+            "y": 0.18414318561553955,
+            "z": 33.96794128417969
           },
-          "speedKmh": 39.98355216996258
+          "speedKmh": 0.00002521341797008802
         },
         {
-          "steps": 336,
+          "steps": 500,
           "finalPos": {
-            "x": 5.391503810882568,
-            "y": 0.16324466466903687,
-            "z": 46.1214485168457
+            "x": -31.115192413330078,
+            "y": 0.1844053864479065,
+            "z": 33.96891784667969
           },
-          "speedKmh": 40.13097561675006
+          "speedKmh": 0.000005064584818985324
+        },
+        {
+          "steps": 500,
+          "finalPos": {
+            "x": -18.330354690551758,
+            "y": 0.1574135720729828,
+            "z": 24.471939086914062
+          },
+          "speedKmh": 35.0670933030885
         }
       ],
       "finite": true,
-      "newConsoleErrors": 1
+      "newConsoleErrors": 0
     },
     "gate-dirt-loop": {
       "gateCrossed": true,
-      "deflRange": 0.37396569025981785,
+      "deflRange": 0.1432565329390361,
       "finalPos": {
-        "x": 7.533524036407471,
-        "y": -0.11058561503887177,
-        "z": 75.4248275756836
+        "x": 4.405097961425781,
+        "y": 0.45290040969848633,
+        "z": 95.20394134521484
       },
       "loopLeg": {
         "steps": 700,
         "finalPos": {
-          "x": 7.535142421722412,
-          "y": -0.11102937906980515,
-          "z": 75.42761993408203
+          "x": 130.91348266601562,
+          "y": 0.14733478426933289,
+          "z": 119.11915588378906
         },
-        "maxSpeedKmh": 0.18096131773603075
+        "maxSpeedKmh": 67.74509779818193
       },
-      "reachedLoop": true,
+      "reachedLoop": false,
       "samples": [
         {
           "i": 0,
@@ -72,58 +72,58 @@
           "z": 0,
           "speed": 2.3,
           "defl": {
-            "fl": 0.11831196546439048,
-            "fr": 0.11835871924571041,
-            "rl": 0.14308110951703829,
-            "rr": 0.14314614363601813
+            "fl": 0.11868525039801688,
+            "fr": 0.11893954149585644,
+            "rl": 0.14329250251969786,
+            "rr": 0.14318229989474712
           }
         },
         {
           "i": 15,
           "x": 0.01,
           "z": 0.3,
-          "speed": 5.7,
+          "speed": 6,
           "defl": {
-            "fl": 0.10948460188369108,
-            "fr": 0.11282436661449127,
-            "rl": 0.13820780241668165,
-            "rr": 0.1426363165431717
+            "fl": 0.11057470248201412,
+            "fr": 0.11606509684118613,
+            "rl": 0.13685193694010608,
+            "rr": 0.14296602762618874
           }
         },
         {
           "i": 30,
           "x": 0.04,
           "z": 0.8,
-          "speed": 8.8,
+          "speed": 9,
           "defl": {
-            "fl": 0.10913552667442755,
-            "fr": 0.1030441865887371,
-            "rl": 0.13942299076820563,
-            "rr": 0.13765020164255085
+            "fl": 0.10946428867104319,
+            "fr": 0.10768045601644483,
+            "rl": 0.13509761822673297,
+            "rr": 0.1412018508894263
           }
         },
         {
           "i": 45,
           "x": 0.09,
           "z": 1.5,
-          "speed": 12,
+          "speed": 11.7,
           "defl": {
-            "fl": 0.10142340327610662,
-            "fr": 0.10585157529186127,
-            "rl": 0.14079993607295316,
-            "rr": 0.1395797941465564
+            "fl": 0.10664678861662591,
+            "fr": 0.1010050598603576,
+            "rl": 0.13700337754347058,
+            "rr": 0.13726392224306297
           }
         },
         {
           "i": 60,
           "x": 0.17,
-          "z": 2.4,
-          "speed": 15.1,
+          "z": 2.5,
+          "speed": 14.8,
           "defl": {
-            "fl": 0.10265101988681422,
-            "fr": 0.10155309890591392,
-            "rl": 0.1370090583328527,
-            "rr": 0.14103659159741405
+            "fl": 0.1035037158405667,
+            "fr": 0.09709077089794843,
+            "rl": 0.14039110309981429,
+            "rr": 0.13705532691216166
           }
         }
       ],
@@ -132,114 +132,115 @@
     "forest-slalom-trees": {
       "slalom": {
         "pos": {
-          "x": -56.901695251464844,
-          "y": 0.15606985986232758,
-          "z": 154.2197265625
+          "x": -53.097312927246094,
+          "y": 0.18150874972343445,
+          "z": 138.0550994873047
         },
-        "speedKmh": 54.83193755069155,
-        "maxSpeedKmh": 55.449982189667836,
+        "speedKmh": 9.030919779444728,
+        "maxSpeedKmh": 57.373872798788774,
         "samples": [
           {
             "i": 0,
             "x": 0,
             "z": 0,
-            "speed": 2.5
+            "speed": 2.8
           },
           {
             "i": 60,
-            "x": -0.7,
+            "x": -0.6,
             "z": 2,
-            "speed": 13.2
+            "speed": 12.8
           },
           {
             "i": 120,
-            "x": -4.1,
-            "z": 6.3,
-            "speed": 26.2
+            "x": -3.9,
+            "z": 6.1,
+            "speed": 25.2
           },
           {
             "i": 180,
-            "x": -11.8,
-            "z": 10.5,
-            "speed": 39
+            "x": -11.4,
+            "z": 10.6,
+            "speed": 37.7
           },
           {
             "i": 240,
-            "x": -23.9,
-            "z": 13.8,
-            "speed": 54.2
+            "x": -23.1,
+            "z": 14.1,
+            "speed": 52.5
           },
           {
             "i": 300,
-            "x": -38.3,
-            "z": 17.9,
-            "speed": 54.9
+            "x": -37.6,
+            "z": 18.2,
+            "speed": 55.9
           },
           {
             "i": 360,
-            "x": -51,
-            "z": 26.1,
-            "speed": 54.9
+            "x": -50.6,
+            "z": 25.3,
+            "speed": 54.2
           },
           {
             "i": 420,
-            "x": -58.3,
-            "z": 39.2,
-            "speed": 54
+            "x": -60.5,
+            "z": 35.1,
+            "speed": 53.8
           },
           {
             "i": 480,
-            "x": -60.2,
-            "z": 54.3,
-            "speed": 54.9
-          },
-          {
-            "i": 540,
-            "x": -65.3,
-            "z": 68.6,
-            "speed": 54.9
-          },
-          {
-            "i": 600,
-            "x": -69.1,
-            "z": 83.3,
-            "speed": 54.8
-          },
-          {
-            "i": 660,
-            "x": -65.9,
-            "z": 98,
-            "speed": 55.1
-          },
-          {
-            "i": 720,
-            "x": -57.1,
-            "z": 110.5,
-            "speed": 55.1
-          },
-          {
-            "i": 780,
-            "x": -51.5,
-            "z": 124.5,
+            "x": -67.4,
+            "z": 47.5,
             "speed": 55
           },
           {
+            "i": 540,
+            "x": -72.4,
+            "z": 61.8,
+            "speed": 55
+          },
+          {
+            "i": 600,
+            "x": -74.5,
+            "z": 75.9,
+            "speed": 54.9
+          },
+          {
+            "i": 660,
+            "x": -72.6,
+            "z": 90.3,
+            "speed": 55
+          },
+          {
+            "i": 720,
+            "x": -66.8,
+            "z": 103.1,
+            "speed": 54.3
+          },
+          {
+            "i": 780,
+            "x": -59.5,
+            "z": 115.8,
+            "speed": 54.8
+          },
+          {
             "i": 840,
-            "x": -53.2,
-            "z": 139.5,
-            "speed": 55.1
+            "x": -55.3,
+            "z": 130.4,
+            "speed": 54.9
           }
         ]
       },
       "saplingsBroken": 0,
       "midsBroken": 0,
       "largeBranchesBroken": 0,
-      "speedBeforeLarge": 0.0000023440219877716243,
-      "speedAfterLarge": 0.000003689994397166893,
-      "stageMidSteps": 1206,
+      "largeContactConfirmed": false,
+      "speedBeforeLarge": 0.00022328715565437848,
+      "speedAfterLarge": 0.00015025734634786846,
+      "stageMidSteps": 1400,
       "feMidSteps": 700,
       "stageLargeSteps": 1200,
-      "feLargeSteps": 500,
+      "feLargeSteps": 300,
       "newConsoleErrors": 0
     },
     "shed-collapse": {
@@ -248,10 +249,11 @@
         "collapsing": 0
       },
       "atImpact": {
-        "collapsing": 16,
-        "broken": 14
+        "collapsing": 20,
+        "broken": 16
       },
-      "maxDisp": 26.26380975057447,
+      "maxDisp": 98.56317095459784,
+      "shedContactConfirmed": true,
       "newConsoleErrors": 0
     },
     "brick-wall-stages": {
@@ -259,68 +261,70 @@
         {
           "label": "nudge",
           "capKmh": 20,
-          "impactSpeedKmh": 20.19217155406301,
+          "impactSpeedKmh": 20.195364947850813,
           "before": {
             "broken": 0
           },
-          "brokenAfter": 33,
+          "brokenAfter": 37,
           "yieldedAfter": 0,
-          "maxDisp": 4.419698219401511
+          "maxDisp": 3.897592739238058
         },
         {
           "label": "moderate-70",
           "capKmh": 70,
-          "impactSpeedKmh": 52.837592155614445,
+          "impactSpeedKmh": 51.9323545157155,
           "before": {
             "broken": 0
           },
-          "brokenAfter": 115,
+          "brokenAfter": 102,
           "yieldedAfter": 0,
-          "maxDisp": 14.974584487938046
+          "maxDisp": 15.229736232584852
         },
         {
           "label": "fast-uncapped",
           "capKmh": 400,
-          "impactSpeedKmh": 53.29140626210002,
+          "impactSpeedKmh": 53.298838463917576,
           "before": {
             "broken": 0
           },
-          "brokenAfter": 79,
+          "brokenAfter": 98,
           "yieldedAfter": 0,
-          "maxDisp": 19.575705040107337
+          "maxDisp": 17.546395951492595
         }
       ],
       "newConsoleErrors": 0
     },
     "barrel-chain": {
-      "impactSpeedKmh": 58.71458306135633,
+      "impactSpeedKmh": 58.8615474233826,
       "maxDispBefore": 0.000001869618016728197,
-      "maxDispAfter": 30.96664890683474,
-      "bigMovers": 9,
+      "maxDispAfter": 27.578138198486958,
+      "bigMovers": 10,
       "audioBefore": {
         "contextState": "running",
         "masterVolume": 0.7,
         "muted": false,
-        "liveNodeCount": 9,
+        "liveNodeCount": 12,
         "engineHz": 42,
-        "scrapeActive": false,
-        "scrapeContactCount": 0,
+        "scrapeActive": true,
+        "scrapeContactCount": 1,
         "skidActive": false,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       },
       "audioMidChain": {
-        "maxNodes": 97,
+        "maxNodes": 47,
         "sawImpact": true,
         "last": {
           "contextState": "running",
           "masterVolume": 0.7,
           "muted": false,
           "liveNodeCount": 12,
-          "engineHz": 46.426555046962704,
+          "engineHz": 62.11331244672144,
           "scrapeActive": true,
-          "scrapeContactCount": 4,
-          "skidActive": false,
-          "lastImpactVoicesSpawned": 0
+          "scrapeContactCount": 9,
+          "skidActive": true,
+          "lastImpactVoicesSpawned": 0,
+          "duplicateOnendedCount": 0
         }
       },
       "audioAfter": {
@@ -330,9 +334,10 @@
         "liveNodeCount": 9,
         "engineHz": 42,
         "scrapeActive": true,
-        "scrapeContactCount": 4,
+        "scrapeContactCount": 8,
         "skidActive": false,
-        "lastImpactVoicesSpawned": 0
+        "lastImpactVoicesSpawned": 0,
+        "duplicateOnendedCount": 0
       },
       "newConsoleErrors": 0
     },
@@ -352,30 +357,30 @@
       "brokenPanels": [
         "hood"
       ],
-      "ejected": 4,
+      "ejected": 2,
       "engineBefore": "attached",
       "engineAfter": "attached",
       "newConsoleErrors": 0
     },
     "asymmetric-ramp-roll": {
       "launched": true,
-      "maxRoll": 0.12093017496996623,
-      "minUpDotAirborne": 0.8679715676562014,
+      "maxRoll": 0.12082600804831561,
+      "minUpDotAirborne": 0.919404436961464,
       "recovered": true,
-      "landedUpDot": 0.9357863660874093,
+      "landedUpDot": 0.9984324429741738,
       "newConsoleErrors": 0
     },
     "reverse-maneuvering": {
-      "straightBack": -0.60809919152807,
-      "manLateral": -0.006132975220680237,
-      "endSpeedAfterFwd": 9.178465710581376,
+      "straightBack": -5.147716244343255,
+      "manLateral": -0.7801431007683277,
+      "endSpeedAfterFwd": 18.767555147734683,
       "wheelOmegasAfterFwd": {
-        "fl": 8.005876541137695,
-        "fr": 8.235905647277832,
-        "rl": 0,
-        "rr": 8.642285346984863
+        "fl": 16.730449676513672,
+        "fr": 16.960729598999023,
+        "rl": 53.645652770996094,
+        "rr": 35.410972595214844
       },
-      "finalUpDot": 0.9991080789439966,
+      "finalUpDot": 0.9998861113196826,
       "wheelStatesAfterStop": {
         "fl": "attached",
         "fr": "attached",
@@ -385,59 +390,53 @@
       "wheelStatesAfterReverse": {
         "fl": "attached",
         "fr": "attached",
-        "rl": "detached",
+        "rl": "attached",
         "rr": "attached"
       },
       "wheelStatesFinal": {
         "fl": "attached",
         "fr": "attached",
-        "rl": "detached",
+        "rl": "attached",
         "rr": "attached"
       },
       "newConsoleErrors": 0
     },
     "max-chaos": {
       "before": {
-        "featureBodyCount": 759,
+        "featureBodyCount": 747,
         "collapsingShed": 0,
         "seated": 4
       },
       "runup": {
-        "maxSpeedKmh": 61.23434098255194,
+        "maxSpeedKmh": 60.057892392343604,
         "finalPos": {
-          "x": 4.344857692718506,
-          "y": 0.16654136776924133,
-          "z": 46.137168884277344
+          "x": 3.8454649448394775,
+          "y": 0.1510009467601776,
+          "z": 46.20196533203125
         }
       },
       "toShedSteps": 1400,
-      "toBarrelsSteps": 1400,
+      "toBarrelsSteps": 489,
+      "shedContactConfirmed": true,
       "during": {
-        "collapsingShed": 0,
-        "maxDestructibleDisp": 75.05064731688583,
-        "peakRunupSpeedKmh": 61.23434098255194
+        "collapsingShed": 20,
+        "shedContactConfirmed": true,
+        "shedMaxDispAfterRam": 5.406040458996192,
+        "maxDestructibleDisp": 67.77510448437634,
+        "peakRunupSpeedKmh": 60.057892392343604
       },
       "after": {
-        "featureBodyCount": 759,
+        "featureBodyCount": 747,
         "collapsingShed": 0,
         "brokenShed": 0,
         "seated": 4,
         "destructibleDispMax": 0.000001869618016728197,
-        "liveHandleCount": 2413
+        "liveHandleCount": 2417
       },
       "newConsoleErrors": 0
     }
   },
   "findings": [
-    {
-      "scenario": "yard-tour",
-      "severity": "minor",
-      "issue": "console errors observed during scenario",
-      "count": 1,
-      "sample": [
-        "[audio-debug] DUPLICATE noiseSrc.onended fired"
-      ]
-    },
     {
       "scenario": "forest-slalom-trees",
       "severity": "minor",
@@ -455,93 +454,33 @@
         "leaning": false
       },
       "feMidFinalPos": {
-        "x": -74.3551254272461,
-        "y": 0.17164012789726257,
-        "z": -40.642730712890625
+        "x": -53.28390884399414,
+        "y": 0.18745724856853485,
+        "z": 138.71664428710938
       }
     },
     {
       "scenario": "forest-slalom-trees",
-      "severity": "major",
-      "issue": "large tree did not produce a hard stop",
-      "speedBeforeLarge": 0.0000023440219877716243,
-      "speedAfterLarge": 0.000003689994397166893
-    },
-    {
-      "scenario": "forest-slalom-trees",
       "severity": "minor",
-      "issue": "large-tree hit broke no branches",
-      "afterLarge": {
-        "id": "large-0",
-        "branchesBroken": 0,
-        "branchesDrooping": 0,
-        "branchesTotal": 3
-      }
-    },
-    {
-      "scenario": "brick-wall-stages",
-      "severity": "minor",
-      "issue": "fast tier broke meaningfully fewer joints than the moderate tier",
-      "moderate": {
-        "label": "moderate-70",
-        "capKmh": 70,
-        "impactSpeedKmh": 52.837592155614445,
-        "before": {
-          "broken": 0
-        },
-        "brokenAfter": 115,
-        "yieldedAfter": 0,
-        "maxDisp": 14.974584487938046
-      },
-      "fast": {
-        "label": "fast-uncapped",
-        "capKmh": 400,
-        "impactSpeedKmh": 53.29140626210002,
-        "before": {
-          "broken": 0
-        },
-        "brokenAfter": 79,
-        "yieldedAfter": 0,
-        "maxDisp": 19.575705040107337
+      "issue": "large-tree leg inconclusive -- scripted approach never confirmed contact with the hero trunk after retries (drive-convergence flakiness, not a confirmed game defect)",
+      "speedBeforeLarge": 0.00022328715565437848,
+      "speedAfterLarge": 0.00015025734634786846,
+      "feLargeSteps": 300,
+      "feLargeFinalPos": {
+        "x": -53.34054183959961,
+        "y": 0.1873416006565094,
+        "z": 138.58482360839844
       }
     },
     {
       "scenario": "asymmetric-ramp-roll",
       "severity": "minor",
       "issue": "off-centre ramp hit produced little/no roll in the air",
-      "maxRoll": 0.12093017496996623
-    },
-    {
-      "scenario": "reverse-maneuvering",
-      "severity": "blocker",
-      "issue": "rear wheel(s) detached from a plain brake-to-stop-then-reverse maneuver with no collision",
-      "wheelStatesAfterStop": {
-        "fl": "attached",
-        "fr": "attached",
-        "rl": "attached",
-        "rr": "attached"
-      },
-      "wheelStatesAfterReverse": {
-        "fl": "attached",
-        "fr": "attached",
-        "rl": "detached",
-        "rr": "attached"
-      },
-      "detachedAfterReverse": [
-        "rl"
-      ]
-    },
-    {
-      "scenario": "max-chaos",
-      "severity": "major",
-      "issue": "shed never actually flagged collapsing during max-chaos leg",
-      "collapsingShed": 0,
-      "maxDestructibleDisp": 75.05064731688583,
-      "peakRunupSpeedKmh": 61.23434098255194
+      "maxRoll": 0.12082600804831561
     }
   ],
   "wasmDead": false,
-  "totalConsoleErrors": 1,
+  "totalConsoleErrors": 0,
   "totalPageErrors": 0,
-  "timestamp": "2026-07-10T07:43:49.141Z"
+  "timestamp": "2026-07-11T01:10:47.606Z"
 }

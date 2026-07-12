@@ -22,20 +22,30 @@
       "label": "front crush within reference band [0.18, 0.50]",
       "pass": true,
       "detail": {
-        "depthM": 0.41671451926231384,
-        "dentedCount": 17746
+        "depthM": 0.4065151810646057,
+        "dentedCount": 11555
       }
     },
     {
-      "label": "hood shows damage (loosened or broken)",
+      "label": "hood LOOSENED (buckled, attached) at 56 -- not broken",
       "pass": true,
-      "detail": "broken"
+      "detail": "loosened"
+    },
+    {
+      "label": "structural crush visual applied to the shell (>0.25m at 56)",
+      "pass": true,
+      "detail": 0.46043399301970556
+    },
+    {
+      "label": "rendered geometry matches registry+structural field (<1mm)",
+      "pass": true,
+      "detail": 1.1841033811371729e-7
     },
     {
       "label": "neither door BREAKS/detaches (frontal, direction-aware weld model)",
       "pass": true,
       "detail": {
-        "hood": "broken",
+        "hood": "loosened",
         "doorL": "attached",
         "doorR": "attached",
         "trunk": "attached"
@@ -49,7 +59,7 @@
     {
       "label": "dented vertex count > 0",
       "pass": true,
-      "detail": 19839
+      "detail": 13395
     },
     {
       "label": "4 occupant seats reported",
@@ -59,12 +69,12 @@
     {
       "label": "mechanical front crush within [0.25, 0.52]",
       "pass": true,
-      "detail": 0.41909744166862783
+      "detail": 0.40266832139978903
     },
     {
       "label": "mechanical rear crush ~0 in a frontal",
       "pass": true,
-      "detail": 0.012437020632483753
+      "detail": 0.01375879485863174
     },
     {
       "label": "intrusion readout present and under the 0.15m leg-injury line at 56",
@@ -93,7 +103,7 @@
       "label": "offset64: struck-side core collapses (>0.15m)",
       "pass": true,
       "detail": {
-        "pos": 0.37658969131343045,
+        "pos": 0.3704117374292405,
         "neg": 0
       }
     },
@@ -101,7 +111,7 @@
       "label": "offset64: intact-side core stays (<0.05m)",
       "pass": true,
       "detail": {
-        "pos": 0.37658969131343045,
+        "pos": 0.3704117374292405,
         "neg": 0
       }
     },
@@ -109,8 +119,8 @@
       "label": "offset64: struck-side rail mechanically shortened (front cell >0.08m)",
       "pass": true,
       "detail": [
-        0.23658969131343044,
-        0.11658969131343044
+        0.23041173742924048,
+        0.11041173742924049
       ]
     },
     {
@@ -125,5 +135,5 @@
   "failed": [],
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-10T23:59:57.604Z"
+  "timestamp": "2026-07-11T09:55:24.807Z"
 }
