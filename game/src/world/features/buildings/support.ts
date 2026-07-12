@@ -194,10 +194,15 @@ export function pollStructureCollapse(structure: Structure, graph: SupportGraph)
 		return EMPTY_RESULT;
 	}
 
-	// Pass 2: wake every non-static body in a freshly-collapsing component.
+	// Pass 2: wake every non-static body in a freshly-collapsing component. FRACTURED pieces are
+	// skipped: their body was DESTROYED at fracture time (structures.ts's fracturePiece() -- the one
+	// exception to "bodies are never destroyed"), and setAwake() on a destroyed body is a wasm
+	// memory-access trap (feature.ts warning #1). graph.bodies is index-parallel to structure.pieces
+	// (makeGraph iterates pieces in order), so pieces[i].fractured is the authoritative dead flag.
 	const newlyUnsupported: bigint[] = [];
 	for (let i = 0; i < n; i++) {
 		if (isAnchor[i]) continue;
+		if (structure.pieces[i]?.fractured) continue;
 		if (!freshRoot.has(find(parent, i))) continue;
 		bodies[i].setAwake(true);
 		collapsed[i] = true;

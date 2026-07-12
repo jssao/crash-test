@@ -1,4 +1,4 @@
-// FINAL ENDURANCE PASS -- SOAK: 50 crash-reset cycles, seeded mix INCLUDING crush-heavy frontals (full
+// FINAL ENDURANCE PASS -- SOAK: crash-reset cycles, seeded mix INCLUDING crush-heavy frontals (full
 // NHTSA/IIHS band 56-80km/h straight walls) and offsets (constant-steer angled hits, see
 // playtest-final/battery.mjs's offset-64-wall for why a steer bias is how this API surface produces a
 // genuinely asymmetric hit), plus the r3 staples (brick/tree/kicker/shed/barrels), each followed by
@@ -6,6 +6,16 @@
 // destroy/recreate churn this wave's objective flags as the new leak candidate (segments.ts creates/
 // destroys weld constraints every yield step -- if any of those aren't released on resetWorld(), this
 // is where it would show up as a monotonic climb).
+//
+// HANDLE-LEAK ARBITRATION (2026-07): the original 50-cycle run above showed liveHandleCount +6 net
+// (six isolated +1 steps, 5/6 landing on crush-offset cycles), while a separate 10-min continuous
+// session showed handles NET DECREASING -- i.e. inconsistent with a steady per-event leak. Hypothesis:
+// a BOUNDED first-use allocation (some lazily-created pool/cache that grows once per *new* code path
+// hit, not once per event). CYCLES is now 150 (was 50) and SCENARIOS is re-weighted further toward
+// crush-offset (the kind most of the original +1 steps landed on) specifically to arbitrate: if the
+// hypothesis is right, per-cycle deltas should cluster in the EARLY cycles and the back half should run
+// dead flat regardless of how many more crush-offset cycles it sees. See the monotonic-growth/slope
+// checks + the new perCycleHandleDeltas curve in soak-summary.json for the verdict this run recorded.
 //
 // Usage: node verify/playtest-final/soak.mjs
 import path from 'node:path';
@@ -22,7 +32,10 @@ function writeJson(name, obj) {
 
 const PREVIEW_PORT = 4920;
 const CDP_PORT = 9920;
-const CYCLES = 50;
+// 150 cycles (up from the original 50) -- the handle-leak arbitration run: enough cycles for a bounded
+// first-use allocation to plateau and show a real flat tail, vs. an unbounded per-event leak to reveal
+// itself as sustained linear growth instead of front-loaded noise.
+const CYCLES = Number(process.env.SOAK_CYCLES || 150);
 const SEED = 0xfeedbead;
 
 function mulberry32(seed) {
@@ -36,9 +49,16 @@ function mulberry32(seed) {
   };
 }
 const rng = mulberry32(SEED);
-// crush-frontal (straight wall, NHTSA/IIHS band) and crush-offset (angled) are each given 2x weight
-// vs the r3 staples -- this soak's whole point is exercising the NEW segment-weld churn path.
-const SCENARIOS = ['crush-frontal', 'crush-frontal', 'crush-offset', 'crush-offset', 'brick', 'tree', 'kicker', 'shed', 'barrels'];
+// crush-offset-HEAVY weighting for the 150-cycle arbitration run: crush-offset gets 4x weight (up from
+// 2x), crush-frontal stays at 2x, the r3 staples get 1x each -- crush-offset is where 5/6 of the
+// original 50-cycle run's +1 handle steps landed, so this mix maximizes the arbitration run's power to
+// either surface a real per-event leak on that path or demonstrate the plateau holds even under heavier
+// exposure to it.
+const SCENARIOS = [
+  'crush-frontal', 'crush-frontal',
+  'crush-offset', 'crush-offset', 'crush-offset', 'crush-offset',
+  'brick', 'tree', 'kicker', 'shed', 'barrels',
+];
 
 async function main() {
   const h = await launchHarness({ previewPort: PREVIEW_PORT, cdpPort: CDP_PORT, label: 'playtest-final-soak' });
@@ -205,15 +225,55 @@ async function main() {
   }
   const handleSlopePerCycle = handleSeries.length >= 5 ? slope(handleSeries) : null;
   if (monotonicGrowth) {
-    findings.push({ severity: 'major', issue: 'liveHandleCount grew monotonically across the 50-cycle soak and never came back down (segment-weld churn leak candidate)', first: handleSeries[0], last: handleSeries[handleSeries.length - 1], netGrowth });
+    findings.push({ severity: 'major', issue: 'liveHandleCount grew monotonically across the soak and never came back down (segment-weld churn leak candidate)', first: handleSeries[0], last: handleSeries[handleSeries.length - 1], netGrowth });
   } else if (handleSlopePerCycle !== null && handleSlopePerCycle > 0.5) {
     findings.push({ severity: 'major', issue: 'liveHandleCount trended clearly upward (least-squares) across the soak even without being perfectly monotonic', handleSlopePerCycle, first: handleSeries[0], last: handleSeries[handleSeries.length - 1] });
+  }
+
+  // ---- Per-cycle handle-delta curve + plateau/bounded-vs-unbounded VERDICT (handle-leak arbitration) ----
+  // deltas[i] = handleSeries[i] - handleSeries[i-1] (delta *into* cycle i, i.e. deltas[0] corresponds to
+  // handleSeries[1]-handleSeries[0]). Recorded per-cycle (with the scenario kind) so a leak, if real, can
+  // be attributed to a scenario kind by inspecting which kinds carry the nonzero deltas.
+  const handleRows = rows.filter((r) => r.liveHandles !== null && r.liveHandles !== undefined);
+  const perCycleHandleDeltas = handleRows.slice(1).map((r, i) => ({
+    cycle: r.cycle, kind: r.kind, delta: r.liveHandles - handleRows[i].liveHandles,
+  }));
+  const nonzeroDeltas = perCycleHandleDeltas.filter((d) => d.delta !== 0);
+  const totalGrowth = netGrowth; // same quantity, kept as its own name for verdict clarity
+  const TAIL_N = 50;
+  const tail = perCycleHandleDeltas.slice(-TAIL_N);
+  const tailFlat = tail.length === TAIL_N && tail.every((d) => d.delta === 0);
+  // "creep concentrates early": at least half of all nonzero deltas occur in the first third of cycles.
+  const firstThirdCutoff = Math.floor(handleSeries.length / 3);
+  const nonzeroEarly = nonzeroDeltas.filter((d) => d.cycle < firstThirdCutoff).length;
+  const creepConcentratesEarly = nonzeroDeltas.length > 0 && nonzeroEarly / nonzeroDeltas.length >= 0.5;
+  const sublinear = totalGrowth !== null && totalGrowth <= 10;
+  let verdict;
+  if (totalGrowth === null) {
+    verdict = 'INCONCLUSIVE (no handle series collected)';
+  } else if (sublinear && (tailFlat || creepConcentratesEarly)) {
+    verdict = 'BOUNDED -- MINOR-CLOSED (creep plateaus: sublinear total growth with an early-concentrated and/or flat-tail curve, consistent with a bounded first-use allocation, not a per-event leak)';
+  } else {
+    verdict = 'UNBOUNDED -- MAJOR (growth did not plateau by the criteria; see kind attribution below for handoff)';
+    // Attribution: bisect by scenario kind since liveHandleCount() has no by-type breakdown (registry.ts
+    // exposes only total size -- see src/ts/registry.ts's liveHandleCount(), not modified here as it's
+    // outside this task's owned files). Sum deltas per kind as the best available signal without owning
+    // game code.
+    const byKind = {};
+    for (const d of perCycleHandleDeltas) byKind[d.kind] = (byKind[d.kind] || 0) + d.delta;
+    findings.push({
+      severity: 'major', issue: 'liveHandleCount growth did not plateau over 150 cycles -- unbounded leak candidate, not closeable as bounded first-use allocation',
+      totalGrowth, tailFlat, creepConcentratesEarly, deltaSumByKind: byKind,
+      handoff: 'game/src registry.ts has no by-type breakdown (kind is tracked internally but liveHandleCount() only returns registry.size) and this soak owns verify/playtest-final/** + verify/playtest-r3/battery.mjs only, NOT game/src -- attribution above is by scenario-kind bisection of this run\'s own deltas; a fix would need to inspect segments.ts\'s weld create/destroy pairing for the highest-summed kind above.',
+    });
   }
 
   const summary = {
     seed: SEED, cyclesRun: rows.length, cyclesRequested: CYCLES, wasmDead, baselineFeatureBodyCount,
     handleSeriesFirst: handleSeries[0] ?? null, handleSeriesLast: handleSeries[handleSeries.length - 1] ?? null,
     handleNetGrowth: netGrowth, handleSlopePerCycle, monotonicGrowth,
+    perCycleHandleDeltas, nonzeroDeltaCount: nonzeroDeltas.length, tailFlat, tailN: TAIL_N,
+    creepConcentratesEarly, sublinear, verdict,
     totalConsoleErrors: h.consoleErrors.length, totalPageErrors: h.pageErrors.length, findings,
   };
   writeJson('soak-rows.json', rows);

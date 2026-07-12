@@ -29,6 +29,7 @@ import {
   type WheelKey,
   type Telemetry,
 } from './vehicle/vehicle';
+import { rotateVector, scale, LOCAL_FORWARD } from './vehicle/mathUtil';
 import { createTerrainGroundBody } from './world/terrain/terrainBody';
 import { CHASSIS_ORIGIN_HEIGHT_M, FIXED_DT, FIXED_SUBSTEPS, VISUAL_RIDE_LIFT_M } from './vehicle/tuning';
 import { FixedStepAccumulator, InterpolatedTransform } from './core/loop';
@@ -46,6 +47,8 @@ import { installPointerInput, consumeDragDelta, consumeZoomDelta } from './input
 import { ChaseCamera } from './camera/chase';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageTelemetry, type DamageEvent } from './damage/system';
 import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBindings } from './scene/carDeformables';
+import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, type StructuralCrushState } from './scene/structuralCrush';
+import { getSegmentTelemetry, seedSegmentVelocities } from './vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from './scene/panelVisuals';
 import { resetCrumpleRegistry } from './damage/crumple';
 import { PANEL_KEYS, type PanelKey } from './damage/panels';
@@ -76,6 +79,13 @@ declare global {
       stepN: (n: number) => void;
       spawnTestWall: (distanceAhead?: number) => void;
       crash: (speedKmh: number) => void;
+      /** VERIFY HOOK (fracture eyes-on battery): sets the car's velocity to `speedKmh` IN PLACE,
+       * along its current heading -- no position change (see this hook's main.ts doc comment for why
+       * a position teleport is deliberately NOT done here: box3d treats Body.setTransform as a
+       * teleport and it produces a real, distance-scaled velocity explosion on the next step).
+       * Pairs with a short driven approach (setInput/stepN) to aim, then this to guarantee impact
+       * speed. */
+      boostTo: (speedKmh: number) => void;
       liveHandleCount: () => number;
       destructibleBodyCount: number;
       /** PLAYTEST HOOK (read-only): world-Y position of each wheel body -- lets a scripted playtest
@@ -240,6 +250,22 @@ async function main() {
   const destructibleVisuals: DestructibleVisualBundle = buildDestructibleVisuals(destructibleWorld);
   scene.add(destructibleVisuals.group);
 
+  // ---- Shared foreign-body mass registry (fracture spec §E): ONE Map instance created before both
+  // consumers -- world features register obstacle/fragment masses into it (FeatureContext.foreignMasses)
+  // and the damage system reads it for mass-aware damage attenuation (createDamageSystem below receives
+  // this same instance; doCarRepair() re-threads it so registrations survive car rebuilds -- exactly
+  // what createDamageSystem()'s foreignMasses doc comment prescribes). ----
+  const foreignMasses = new Map<number, number>();
+
+  // Legacy destructibles (§E item 3): wall blocks / crates / poles / barrels are tagged with entity ids
+  // at spawn now (world/bodies.ts) -- register each one's real mass so a 15kg crate no longer hits the
+  // car with wall-strength damage. Barrels were already tagged (BARREL_ENTITY_ID_BASE+i) but never
+  // registered; this loop covers them too via the same userData readback.
+  for (const b of destructibleWorld.bodies) {
+    const id = b.body.getUserData();
+    if (id !== 0) foreignMasses.set(id, b.body.getMass());
+  }
+
   // ---- World features (RUN 2): self-contained content modules (trees, buildings, occupants,
   // car-detail parts, ...) discovered from world/features/*/index.ts — see feature.ts's contract. ----
   const features: WorldFeatureSet = await createWorldFeatures({
@@ -248,6 +274,7 @@ async function main() {
     getVehicle: () => vehicle,
     carRoot: car.root,
     quality,
+    foreignMasses,
   });
 
   hud.setLoadingProgress(0.85, 'assembling damage system…');
@@ -258,8 +285,11 @@ async function main() {
   // are real GLB mesh geometry here (game/src/scene/carDeformables.ts) -- the headless sim tests use
   // synthetic grid-plane proxies instead (game/sim/damage-harness.mjs), since there's no GLTFLoader in
   // plain node, but both paths drive the exact same renderer-free crumple.ts/welds.ts/panels.ts code. ----
-  let damageSystem: DamageSystem = createDamageSystem(vehicle);
+  let damageSystem: DamageSystem = createDamageSystem(vehicle, undefined, foreignMasses);
   const carDeformables: CarDeformableBindings = registerCarDeformables(damageSystem, car.root, vehicle.panels);
+  // Structural-crush visual pass (scene/structuralCrush.ts): the rendered shell follows the
+  // MECHANICAL crush (segment telemetry), on top of the contact-dent crumple.
+  const structuralCrush: StructuralCrushState = createStructuralCrushState(damageSystem.registry.meshes);
 
   // ---- Crash audio (procedurally synthesized, no asset files -- see game/src/audio/engine.ts's
   // module doc): drains the newly-wired hit/contactBegin/contactEnd events + telemetry every fixed
@@ -454,7 +484,9 @@ async function main() {
     }
     // Reuse the SAME registry (see createDamageSystem()'s doc comment) -- fresh emitter/telemetry/
     // wheel-debounce-counters, but the crumple mesh handles + their now-repaired geometry persist.
-    damageSystem = createDamageSystem(vehicle, damageSystem.registry);
+    // Also reuse the SAME foreignMasses map (world obstacles' registrations must survive a car
+    // rebuild -- see createDamageSystem()'s foreignMasses parameter doc).
+    damageSystem = createDamageSystem(vehicle, damageSystem.registry, damageSystem.foreignMasses);
     damageSystem.emitter.on(handleDamageEvent);
 
     for (const key of PANEL_KEYS) {
@@ -465,7 +497,8 @@ async function main() {
       const mesh = findDeformableMesh(meshId);
       if (mesh) mesh.material = mat;
     }
-    syncCarDeformablesToThree(carDeformables, vehicle.panels);
+    resetStructuralCrush(structuralCrush);
+    syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
 
     const t = vehicle.chassis.getTransform();
     chassisTransform.sample(t.position, t.rotation);
@@ -526,7 +559,8 @@ async function main() {
     stepDamageSystem(damageSystem, world, FIXED_DT);
     audioSystem.armShapes(collectCarShapes(vehicle, damageSystem));
     audioSystem.processStep(world, vehicle, FIXED_DT);
-    syncCarDeformablesToThree(carDeformables, vehicle.panels);
+    updateStructuralCrush(structuralCrush, structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)));
+    syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
     sampleDestructibleVisuals(destructibleWorld, destructibleVisuals);
     features.afterFixedStep(FIXED_DT);
     const t = vehicle.chassis.getTransform();
@@ -593,6 +627,28 @@ async function main() {
     },
     crash: (speedKmh) => {
       crashSetup(vehicle, speedKmh);
+    },
+    // VERIFY HOOK (fracture eyes-on battery): sets the car's speed to `speedKmh` IN PLACE, along its
+    // CURRENT heading (chassis.getRotation()) -- no position change. Lets a verify script drive/steer
+    // a short controlled approach up to a target (fence span / tree / shed -- driving itself is fine
+    // and needed for aiming) and then guarantee a high impact speed the traction/drag-limited drive
+    // controller alone couldn't reliably reach (this is this codebase's "set velocity directly"
+    // convention -- damage/scenario.ts's crashSetup does exactly this, minus a position reset).
+    // NOTE: an earlier version of this hook also repositioned the car (teleporting to an arbitrary
+    // x/z via Body.setTransform, following resetVehicle/crashSetup's pattern) but that reintroduces a
+    // documented box3d caution (vendor/box3d/docs/simulation.md: "Box3D treats this as a teleport and
+    // may result in undesirable behavior") -- confirmed empirically here: ANY nonzero teleport
+    // distance from the car's current broadphase-registered position produced a huge spurious
+    // velocity spike on the very next step (scaling with distance -- a few km/h transient at 5m, over
+    // 1000km/h at 40m+), which does not happen when the position is left untouched. Position is
+    // therefore never touched by this hook -- only steer there normally, then boost.
+    boostTo: (speedKmh) => {
+      const rotation = vehicle.chassis.getRotation();
+      const velocity = scale(rotateVector(rotation, LOCAL_FORWARD), speedKmh / 3.6);
+      vehicle.chassis.setLinearVelocity(velocity);
+      for (const wheel of Object.values(vehicle.wheels)) wheel.body.setLinearVelocity(velocity);
+      for (const panel of Object.values(vehicle.panels)) panel.body.setLinearVelocity(velocity);
+      seedSegmentVelocities(vehicle.segments, velocity, vehicle.chassis);
     },
     liveHandleCount: () => liveHandleCount(),
     destructibleBodyCount: destructibleWorld.bodies.length,

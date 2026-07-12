@@ -46,6 +46,15 @@ export interface FeatureContext {
   carRoot: THREE.Object3D;
   /** Quality preset at startup (renderer-side quality changes do not re-notify features). */
   quality: QualityPreset;
+  /**
+   * Shared foreign-body mass registry (damage/system.ts's setForeignMass() store — the SAME Map
+   * instance main.ts hands to createDamageSystem()) — lets a feature register its own bodies' (and
+   * any runtime-spawned fracture fragments') masses so a car hit against them gets mass-aware damage
+   * attenuation instead of wall-equivalent damage (fracture spec §E). A feature must tag the body's
+   * userData with the SAME entity id it registers here (Body.setUserData()) — see fracture.ts's
+   * FractureIdAllocator / each feature's own entity-id-base constant.
+   */
+  foreignMasses: Map<number, number>;
 }
 
 export interface WorldFeature {

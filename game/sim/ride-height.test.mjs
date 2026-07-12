@@ -28,23 +28,38 @@ import { CHASSIS_ORIGIN_HEIGHT_M, VISUAL_RIDE_LIFT_M, SUSPENSION_UPPER_LIMIT_M }
 // cardetail/occupant feature placement (see world/features/*/tuning.ts): 4 occupants @55kg (2 front
 // seats z=+0.7, 2 rear bench z=-0.5) + ~40kg cardetail, engine-bay front-biased. Fore/aft (z)
 // distribution matters -- it sets the front/rear deflection split; total sets the sag.
+//
+// S90 SWAP RE-DERIVATION (2026-07-11): occupant z positions updated to match the re-derived
+// occupants/tuning.ts SEAT_LOCAL (frontLeft/frontRight z=0.35 -> 350mm, rearLeft/rearRight z=-0.75 ->
+// -750mm; x=+-0.40 -> 400mm). Cardetail cluster z positions scaled by the S90/Mustang length ratio
+// (1.0895), matching cardetail/tuning.ts's CAR_DETAIL_SPECS rescale.
 const mm = (fwd, up, right) => ({ x: right / 1000, y: up / 1000 - CHASSIS_ORIGIN_HEIGHT_M, z: fwd / 1000 });
 const LADEN_FEATURE_BALLAST = Object.freeze([
-  { massKg: 55, localCenterM: mm(700, 650, -380) }, // driver
-  { massKg: 55, localCenterM: mm(700, 650, 380) }, // passenger
-  { massKg: 55, localCenterM: mm(-500, 600, -350) }, // rear-left occupant
-  { massKg: 55, localCenterM: mm(-500, 600, 350) }, // rear-right occupant
-  { massKg: 22, localCenterM: mm(1300, 500, 0) }, // cardetail engine-bay cluster (front)
+  { massKg: 55, localCenterM: mm(350, 650, -400) }, // driver
+  { massKg: 55, localCenterM: mm(350, 650, 400) }, // passenger
+  { massKg: 55, localCenterM: mm(-750, 600, -400) }, // rear-left occupant
+  { massKg: 55, localCenterM: mm(-750, 600, 400) }, // rear-right occupant
+  { massKg: 22, localCenterM: mm(1416, 500, 0) }, // cardetail engine-bay cluster (front)
   { massKg: 10, localCenterM: mm(0, 350, 0) }, // cardetail mid (driveshaft/console)
-  { massKg: 8, localCenterM: mm(-1200, 300, 0) }, // cardetail rear (fuel tank/subframe)
+  { massKg: 8, localCenterM: mm(-1307, 300, 0) }, // cardetail rear (fuel tank/subframe)
 ]);
 
 // Render constants calibrated ONCE from game/verify/ride-height.mjs's in-browser front-wheel mesh-AABB
 // measurement (VISUAL_RIDE_LIFT_M=0.125, laden: rendered fenderMinY 0.79842 = chassisY(0.26100) -
 // CHASSIS_ORIGIN_HEIGHT_M + VISUAL_RIDE_LIFT_M + FENDER; rendered tireTop 0.77778 = wheelY(0.39377) +
 // TIRE_R). These fold the GLB-authored fender-arch height and the visual tire radius into the gap.
-const FRONT_FENDER_LOCAL_Y_M = 0.8024;
-const FRONT_TIRE_VISUAL_RADIUS_M = 0.384;
+//
+// S90 SWAP RE-DERIVATION (2026-07-11): FRONT_TIRE_VISUAL_RADIUS_M is now the directly measured S90
+// TireFL radius (car-map.ts wheels.frontLeft.radiusMm/1000 = 0.359m). FRONT_FENDER_LOCAL_Y_M has no
+// direct GLB node to measure (no "FenderArch" node) -- estimated by preserving the Mustang's measured
+// arch-clearance-above-static-tire-top (Mustang: fender 0.8024 - wheel top (centerY 0.308 + radius
+// 0.310 = 0.618) = 0.1844m of arch clearance) applied to the S90's own wheel top (centerY 0.363 +
+// radius 0.359 = 0.722): 0.722 + 0.1844 = 0.906. This is a STARTING estimate pending a genuine
+// in-browser re-measurement (game/verify/ride-height.mjs, S7 eyes-on) -- the assertions below are
+// inequality gates (>2cm / >0), not exact-value pins, so a reasonable estimate is safe here; re-tune
+// if the eyes-on screenshot shows the tire visibly through the fender.
+const FRONT_FENDER_LOCAL_Y_M = 0.906;
+const FRONT_TIRE_VISUAL_RADIUS_M = 0.359;
 
 /** Rendered vertical clearance (meters) between the front fender-arch lip and the front tire's top, as
  * a function of the laden physics rest state -- the exact quantity verify/ride-height.mjs measures from

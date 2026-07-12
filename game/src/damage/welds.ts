@@ -9,9 +9,11 @@
 import { length, sub, type Q4, type V3 } from '../vehicle/mathUtil';
 import { GRAVITY_MAG } from '../vehicle/tuning';
 import { CAR_ENTITY_ID, type Vehicle, type WheelKey } from '../vehicle/vehicle';
-import { SEGMENT_ENTITY_ID_SET } from '../vehicle/segments';
+import { getSegmentTelemetry, SEGMENT_ENTITY_ID_SET } from '../vehicle/segments';
 import {
+	HOOD_BREAK_MIN_FRONT_CRUSH_M,
 	PANEL_BREAK_FORCE_MULT,
+	PANEL_BREAK_S2_MULT,
 	PANEL_LOOSEN_FORCE_MULT,
 	PANEL_VULNERABILITY,
 	LOOSEN_DAMPING_RATIO,
@@ -177,13 +179,21 @@ export interface WeldStepArgs {
 export function stepWeldsAndWheels(args: WeldStepArgs): void {
 	const { vehicle, panels, hits, carMassKg, timeSec, wheelOverThresholdSteps, emit } = args;
 
+	// HOOD crush gate (damage-tuning.ts's HOOD_BREAK_MIN_FRONT_CRUSH_M doc): the hood may only BREAK
+	// once the front structure carrying its hinges+latch has mechanically collapsed past the gate --
+	// rig-independent physics truth, unlike accumulated stress (measured ~3x apart between the lab and
+	// the sim harness for the same nominal crash). Applied to BOTH break triggers (force spike below +
+	// accumulated stress), never to loosen.
+	const hoodMayBreak = getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushM > HOOD_BREAK_MIN_FRONT_CRUSH_M;
+
 	// ---- 1) Direct weld constraint-force spike ----
 	for (const key of PANEL_KEYS) {
 		const panel = panels[key];
 		if (panel.state === 'broken' || !panel.weldJoint) continue;
 		const forceMag = length(panel.weldJoint.getConstraintForce());
 		const weightN = panel.massKg * GRAVITY_MAG;
-		escalatePanel(panel, forceMag > PANEL_BREAK_FORCE_MULT * weightN, forceMag > PANEL_LOOSEN_FORCE_MULT * weightN, timeSec, emit);
+		const breakGate = key === 'hood' ? hoodMayBreak : true;
+		escalatePanel(panel, breakGate && forceMag > PANEL_BREAK_FORCE_MULT * weightN, forceMag > PANEL_LOOSEN_FORCE_MULT * weightN, timeSec, emit);
 	}
 
 	// ---- 2) Accumulated event-driven stress (nearby qualifying hits), now DIRECTION-AWARE ----
@@ -221,7 +231,8 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 	for (const key of PANEL_KEYS) {
 		const panel = panels[key];
 		if (panel.state === 'broken') continue;
-		escalatePanel(panel, panel.stress > STRESS_BREAK_S2, panel.stress > STRESS_LOOSEN_S1, timeSec, emit);
+		const breakGate = key === 'hood' ? hoodMayBreak : true;
+		escalatePanel(panel, breakGate && panel.stress > STRESS_BREAK_S2 * PANEL_BREAK_S2_MULT[key], panel.stress > STRESS_LOOSEN_S1, timeSec, emit);
 	}
 
 	// ---- 3) Wheel detach (impact-gated + debounced -- see WHEEL_DETACH_FORCE_MULT's doc comment) ----

@@ -40,10 +40,10 @@ import { CORE_ENTITY_ID, FRONT_CHAIN_HIT_IDS, getSegmentTelemetry, REAR_CHAIN_HI
 import { OCCUPANT_ENTITY_ID_BASE, OCCUPANT_ENTITY_ID_END } from '../vehicle/tuning';
 import type { GlassPaneKey } from '../vehicle/geometry';
 
-/** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-10, glass
- * panes 11-12, crush segments 13-21) -- the complement is "a foreign obstacle", whose mass (if a
- * registered dynamic body) attenuates car damage. Built once from the authoritative id tables so it
- * can never drift from them. */
+/** Every entity id the car itself tags onto a body/shape (chassis 1, wheels 2-5, panels 6-11, glass
+ * panes 12-13, crush segments 14-22, crush cores 23-25) -- the complement is "a foreign obstacle",
+ * whose mass (if a registered dynamic body) attenuates car damage. Built once from the authoritative
+ * id tables so it can never drift from them. */
 const CAR_ENTITY_IDS: ReadonlySet<number> = new Set<number>([
 	CAR_ENTITY_ID.chassis,
 	...Object.values(CAR_ENTITY_ID.wheel),

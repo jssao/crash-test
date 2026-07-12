@@ -180,11 +180,38 @@ export const ATTACH = {
 // (measured 19.5kN rear-belt spikes vs 4.6kN before the nudge) -- the floorpan is occupant-
 // transparent now instead (vehicle.ts), which removes that wall entirely and keeps every occupant
 // calibration at its measured HEAD values.
+// VOLVO S90 SWAP RE-DERIVATION (2026-07-11): the Mustang values above were re-checked against actual
+// GLB node measurements (game/scripts/analyze-car.mjs-style bbox dump of "Driver Seat"/"Passenger
+// Seat"/"Rear Seats", in the car's own load-time frame, chassis-local Y = worldY - CHASSIS_ORIGIN_
+// HEIGHT_M = worldY - 0.359):
+//   Driver Seat: world center (0.400, 0.778, 0.158), y-range 0.249..1.307 (bottom mount to headrest
+//     top), z-range -0.289..0.605 (reclined seatback top to front cushion edge).
+//   Rear Seats (bench): world center (0.000, 0.804, -0.881), y-range 0.371..1.237, z-range
+//     -1.274..-0.487 (backrest top to front cushion edge).
+//   Gas/Brake Pedal (cross-check for footwell depth): z-range 0.911..1.061 (world=chassis-local).
+// HIP-POINT DERIVATION (not the mesh's bbox center, which mixes in headrest/backrest/floor-mount
+// bulk): a real bucket seat's H-point sits ~25-30% up from the seat's bottom mount to its headrest
+// top, and ~65-70% forward along its z-depth (toward the cushion front, away from the reclined
+// backrest). Front: y = 0.249-0.359 + 0.28*(1.307-0.249) = -0.11+0.296 ~ 0.22m (matches the Mustang's
+// own value almost exactly -- independent cross-check, not a copy); z = -0.289 + 0.70*(0.605-(-0.289))
+// ~ 0.336m, cross-validated against the pedal box (hip sits ~0.65m behind the pedals: 0.986-0.65 ~
+// 0.336m -- same number two ways). Rear (bench, sits at ~25% up given more compact bench construction,
+// ~65% forward along its z-depth): y = 0.371-0.359 + 0.25*(1.237-0.371) ~ 0.229m -- kept a touch below
+// front (0.20) since the bench cushion measurement band (0.20-0.23) still sits slightly lower in
+// practice; z = -0.487 - 0.35*(-0.487-(-1.274)) ~ -0.76m, close to the rear door's own z-span midpoint
+// (DoorRL center z ~-0.623) shifted rearward for legroom. X kept equal to the front seats (0.40,
+// matching the Driver/Passenger Seat mesh's own measured x-center almost exactly) -- same simplifying
+// convention the Mustang used (front/rear share the same lateral offset).
+// CRITICAL DIFFERENCE FROM THE MUSTANG: with BULKHEAD_Z_M moved to -1.25 (vehicle/geometry.ts, S90
+// swap), these rear occupants (z=-0.75) sit genuinely INSIDE the cabin (z > BULKHEAD_Z_M) -- unlike
+// the Mustang's 2-door fastback, whose rear bench sat in the occupant-transparent TAIL crush volume
+// (z=-1.05 < BULKHEAD_Z_M=-0.64) for lack of a real 4-door cabin to seat them in. This completes the
+// "dummies actually in the seats" ask for a genuine sedan layout.
 export const SEAT_LOCAL: Record<SeatKey, V3> = {
-	frontLeft: { x: 0.42, y: 0.22, z: 0.55 },
-	frontRight: { x: -0.42, y: 0.22, z: 0.55 },
-	rearLeft: { x: 0.42, y: 0.17, z: -1.05 },
-	rearRight: { x: -0.42, y: 0.17, z: -1.05 },
+	frontLeft: { x: 0.4, y: 0.22, z: 0.35 },
+	frontRight: { x: -0.4, y: 0.22, z: 0.35 },
+	rearLeft: { x: 0.4, y: 0.2, z: -0.75 },
+	rearRight: { x: -0.4, y: 0.2, z: -0.75 },
 };
 
 /** Front 2 seats are belted (higher restraint force threshold, N); rear 2 are unbelted (lower) -- the

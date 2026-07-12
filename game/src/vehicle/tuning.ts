@@ -20,14 +20,23 @@ import { CAR_MAP } from '../assets/car-map';
  *
  * TUNING DELTA (G3 damage system): was 1350 pre-damage. The detachable panel bodies
  * (game/src/damage/panels.ts, welded to the chassis in vehicle.ts's createVehicle()) add their own
- * mass, carried as SEPARATE bodies rather than baked into this hull+ballast figure. The Mustang-65
- * hero-car swap uses a 4-panel set (hood + 2 doors + trunk lid, NO roof) totalling 59kg
- * (damage-tuning.ts's PANEL_MASS_KG: 13+16+16+14). Reduced by exactly that amount (1350 - 59 = 1291)
- * so the car's TOTAL mass (chassis + panels + 4*WHEEL_MASS_KG = 1291+59+88=1438kg) stays byte-identical
- * to the pre-swap total, keeping it inside the ~1350-1450kg band with minimal risk of perturbing the
- * drive tests (which were tuned against 1438kg).
+ * mass, carried as SEPARATE bodies rather than baked into this hull+ballast figure.
+ *
+ * RE-MASSED 2026-07-11 (Mustang -> Volvo S90 swap, orchestrator decision: "minimum-recalibration
+ * swap -- the damage/crush matrix stays valid; re-massing to a realistic ~1750kg is a LATER
+ * dedicated calibration pass"): the S90 is a 4-door sedan, adding 2 rear-door panels (doorRL/doorRR,
+ * ~15kg each) to the Mustang's 4-panel set. New panel total 89kg (damage-tuning.ts's PANEL_MASS_KG:
+ * 13+16+16+15+15+14). Reduced by exactly that amount (1350 - 89 = 1261) so the car's TOTAL mass
+ * (chassis + panels + 4*WHEEL_MASS_KG = 1261+89+88=1438kg) stays EXACTLY the same 1438kg the
+ * damage/crush test matrix was tuned against -- not a real S90 curb weight (~1750-1850kg), which is
+ * deliberately deferred (see this comment's TODO below).
+ *
+ * TODO (later dedicated calibration pass): re-mass the whole car to the S90's real ~1750kg curb
+ * weight. That's a bigger job than this swap's scope -- it would re-derive drivetrain torque/gearing,
+ * suspension spring rates, and every speed-dependent crush/stress threshold in damage-tuning.ts
+ * (which were calibrated against 1438kg), not just this one constant. Out of scope here.
  */
-export const CHASSIS_MASS_KG = 1291;
+export const CHASSIS_MASS_KG = 1261;
 
 /** Each wheel's rigid-body mass, kg. */
 export const WHEEL_MASS_KG = 22;
@@ -206,10 +215,20 @@ export const GROUND_CLEARANCE_M = 0.24;
  */
 export const HULL_BOTTOM_HALF_WIDTH_M = CAR_WIDTH_M / 2;
 export const HULL_BOTTOM_HALF_LENGTH_M = CAR_LENGTH_M / 2;
-export const HULL_TOP_HALF_WIDTH_M = 0.75;
-export const HULL_TOP_HALF_LENGTH_M = 0.95;
+/**
+ * RE-MEASURED 2026-07-11 (Mustang fastback -> Volvo S90 4-door sedan swap). The S90's greenhouse is a
+ * proper sedan roofline (roof spans over 4 real doors, not a 2-door fastback's rearward-biased taper):
+ * measured directly off the GLB (Windshield node header ~z0.95..1.0, RearWindow/QuarterGlass header
+ * ~z-1.07..-1.17 -- both in the car's own load-time frame, game/src/assets/car-map.ts axis convention),
+ * giving TOP_FRONT_Z ~0.95 and TOP_REAR_Z ~-1.17: HULL_TOP_HALF_LENGTH_M = (0.95-(-1.17))/2 = 1.06,
+ * HULL_TOP_CENTER_Z_M = (0.95+(-1.17))/2 = -0.11. Width kept at the Mustang's measured top/bottom-width
+ * RATIO (0.75/0.968 = 0.775, a sedan greenhouse tapers from the body similarly to a fastback's) applied
+ * to the S90's own HULL_BOTTOM_HALF_WIDTH_M (1.0055m): 0.775 * 1.0055 = 0.779.
+ */
+export const HULL_TOP_HALF_WIDTH_M = 0.78;
+export const HULL_TOP_HALF_LENGTH_M = 1.06;
 /** Roofline center is shifted slightly rearward of the footprint center (greenhouse behind the engine bay). */
-export const HULL_TOP_CENTER_Z_M = -0.15;
+export const HULL_TOP_CENTER_Z_M = -0.11;
 
 /**
  * Target center-of-mass height offset: ~0.25m BELOW the hull's geometric (volumetric) centroid,

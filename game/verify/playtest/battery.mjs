@@ -197,7 +197,7 @@ async function main() {
       const inRampWindow = res.samples.filter((s) => s.z >= 8 && s.z <= 10.5);
       const lateralMiss = inRampWindow.length ? Math.min(...inRampWindow.map((s) => Math.abs(s.x - -11))) : null;
       const entrySample = res.samples.find((s) => s.z >= 8) ?? res.samples[res.samples.length - 1];
-      const restY = 0.39; // ~WHEEL_RADIUS_FRONT_M = CHASSIS_ORIGIN_HEIGHT_M, see vehicle/tuning.ts
+      const restY = 0.359; // ~WHEEL_RADIUS_FRONT_M = CHASSIS_ORIGIN_HEIGHT_M, see vehicle/tuning.ts (S90 swap 2026-07-11: was 0.39)
       const maxChassisY = res.samples.length ? Math.max(...res.samples.map((s) => s.y)) : restY;
       const allWheelsAirborneSamples = res.samples.filter((s) => s.wh && Object.values(s.wh).every((y) => y > restY + 0.08));
       attempts.push({

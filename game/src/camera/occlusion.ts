@@ -15,7 +15,7 @@
 // physics setup, outside this module's ownership (camera/**), so this filters by ENTITY ID instead,
 // against the numeric convention that is ALREADY the single documented source of truth across the
 // codebase (see world/tuning.ts's BARREL_ENTITY_ID_BASE doc comment): chassis=1, wheels=2-5
-// (vehicle.ts's CAR_ENTITY_ID, imported directly), panels=6-9 (damage/panels.ts's PANEL_ENTITY_ID,
+// (vehicle.ts's CAR_ENTITY_ID, imported directly), panels=6-11 (damage/panels.ts's PANEL_ENTITY_ID,
 // imported directly -- UNCHANGED by breakPanelWeld()'s detach, so a just-detached hood/door still
 // resolves to its original id and stays filtered here, i.e. "detached debris near the car" is exactly
 // what a still-fresh detach looks like), occupants=1000-1399 (occupants/physics.ts's entityIdFor(),

@@ -1,6 +1,6 @@
 // DIAGNOSTIC ONLY, follow-up 2: direct hit-event evidence of panel<->ground contact during a 5s
 // straight-line full-throttle run (panels have enableHitEvents=true, ground has userData 0 (default),
-// panels have PANEL_ENTITY_ID 6-10 -- see panels.ts). Counts begin-touch events per pair to see how
+// panels have PANEL_ENTITY_ID 6-11 -- see panels.ts). Counts begin-touch events per pair to see how
 // often the doors (lowest panels, see friction-instrument.test.mjs) actually make/break ground
 // contact during ordinary driving.
 import { describe, it } from 'vitest';

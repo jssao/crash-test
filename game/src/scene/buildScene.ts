@@ -28,7 +28,7 @@ export interface SceneBundle {
 // Forest/rural daylight HDRI (Poly Haven "J&E Gray 02", CC0): a sunny outdoor sky with a real
 // directional sun -- reads far better over the new terrain/forest than the old industrial airfield.
 const HDRI_URL = 'assets/hdri/je_gray_02_2k.hdr';
-const CAR_URL = 'assets/car/mustang65.glb';
+const CAR_URL = 'assets/car/volvo-s90.glb';
 
 // Sun direction for je_gray_02, measured from its brightest equirect texel the same way sun.ts derives
 // the airfield's (azimuth ~36deg, elevation ~21deg) -- almost the same azimuth as the airfield the

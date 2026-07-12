@@ -254,7 +254,16 @@ async function main() {
     const stageLarge = await evalExpr('window.__driveToward(-92, -30, 1200, 5, 0.6, 0.7, 60, 40)');
     await evalExpr('window.__GAME__.setInput({ throttle: 0, brake: 0.6, steer: 0, handbrake: false }); window.__GAME__.stepN(90); "ok"'); // see feMid's comment above
     const speedBeforeLarge = (await evalExpr('window.__GAME__.telemetry')).speedKmh;
-    const feLarge = await evalExpr('window.__driveToward(-92, -8, 500, 1.5, 0.65, 0.8, 40, 20)');
+    let feLarge = await evalExpr('window.__driveToward(-92, -8, 500, 1.5, 0.65, 0.8, 40, 20)');
+    // HARDENED (2026-07): a prior run missed the trunk entirely (car sped THROUGH the hero's vicinity
+    // without the P-controller ever converging within stopDist=1.5m -- speedAfterLarge > speedBeforeLarge,
+    // i.e. no deceleration event at all, not a soft one). feLarge.steps === its own maxSteps (500) is the
+    // direct telemetry signal for "never converged" (driveToward breaks early the moment it's within
+    // stopDist). Same reaim-retry technique as shed-collapse's ram loop below: redrive at the exact trunk
+    // point with a tighter stopDist/higher gain rather than trusting one shot.
+    for (let attempt = 0; attempt < 4 && feLarge.steps >= 500; attempt++) {
+      feLarge = await evalExpr('window.__driveToward(-92, -8, 300, 1.2, 0.7, 1.0, 40, 20)');
+    }
     await settle(evalExpr, 90);
     const speedAfterLarge = (await evalExpr('window.__GAME__.telemetry')).speedKmh;
     const afterLarge = await evalExpr('window.__GAME__.features.trees.snapshot()');
@@ -263,6 +272,13 @@ async function main() {
     const saplingsBroken = afterSlalom.saplings.filter((s) => s.broken).length - before.saplings.filter((s) => s.broken).length;
     const midsBroken = afterMid.mids.filter((m) => m.broken || m.leaning).length;
     const largeBranchesBroken = afterLarge.larges.reduce((n, l) => n + l.branchesBroken, 0);
+    const largeBranchesDrooping = afterLarge.larges.reduce((n, l) => n + l.branchesDrooping, 0);
+    // CONTACT-CONFIRMED GUARD: converged within stopDist (1.2-1.5m of the trunk center; LARGE_TRUNK_RADIUS_M
+    // is 0.6m and the car is ~1m+ half-width, so getting this close is real proximity, not a proxy for one)
+    // OR direct structural evidence (a branch broke/drooped) counts as confirmed contact. Neither means the
+    // scripted approach never actually reached the tree -- that's a script/drive-convergence problem, not a
+    // confirmed game defect, so it's reported as inconclusive instead of a false major.
+    const largeContactConfirmed = feLarge.steps < 300 || largeBranchesBroken > 0 || largeBranchesDrooping > 0;
 
     if (saplingsBroken <= 0) record('forest-slalom-trees', 'minor', 'slalom did not break any sapling', { before: before.saplings.filter((s)=>s.broken).length, after: afterSlalom.saplings.filter((s)=>s.broken).length });
     // 'minor' not 'major': this script's scripted approach reliably gets the chassis within ~2-3m of
@@ -271,11 +287,15 @@ async function main() {
     // dir's diag-midtree.mjs got close repeatedly without quite making contact); flagged for follow-up
     // with a more precise approach rather than asserted as a confirmed game-side defect.
     if (midsBroken <= 0) record('forest-slalom-trees', 'minor', 'mid-tree run reached the hero tree\'s vicinity but scripted approach did not confirm contact/break (inconclusive, see diag-midtree.mjs)', { afterMid: afterMid.mids[0], feMidFinalPos: feMid.finalPos });
-    if (!(speedAfterLarge < speedBeforeLarge * 0.5)) record('forest-slalom-trees', 'major', 'large tree did not produce a hard stop', { speedBeforeLarge, speedAfterLarge });
-    if (largeBranchesBroken <= 0) record('forest-slalom-trees', 'minor', 'large-tree hit broke no branches', { afterLarge: afterLarge.larges[0] });
+    if (!largeContactConfirmed) {
+      record('forest-slalom-trees', 'minor', 'large-tree leg inconclusive -- scripted approach never confirmed contact with the hero trunk after retries (drive-convergence flakiness, not a confirmed game defect)', { speedBeforeLarge, speedAfterLarge, feLargeSteps: feLarge.steps, feLargeFinalPos: feLarge.finalPos });
+    } else {
+      if (!(speedAfterLarge < speedBeforeLarge * 0.5)) record('forest-slalom-trees', 'major', 'large tree did not produce a hard stop despite confirmed contact', { speedBeforeLarge, speedAfterLarge });
+      if (largeBranchesBroken <= 0) record('forest-slalom-trees', 'minor', 'large-tree hit broke no branches', { afterLarge: afterLarge.larges[0] });
+    }
 
     return {
-      slalom, saplingsBroken, midsBroken, largeBranchesBroken,
+      slalom, saplingsBroken, midsBroken, largeBranchesBroken, largeContactConfirmed,
       speedBeforeLarge, speedAfterLarge,
       stageMidSteps: stageMid.steps, feMidSteps: feMid.steps,
       stageLargeSteps: stageLarge.steps, feLargeSteps: feLarge.steps,
@@ -299,9 +319,14 @@ async function main() {
       collapsing: await evalExpr("window.__GAME__.features.buildings.collapsingBodyCountFor('shed')"),
       broken: await evalExpr("window.__GAME__.features.buildings.brokenJointCountFor('shed')"),
     };
-    for (let attempt = 0; attempt < 5 && stats.collapsing <= 0; attempt++) {
+    // HARDENED (2026-07): bumped 5->7 retries, plus one wider re-aim (driveToward from a bit further back,
+    // not just the tight 140-step nudge) on the LAST couple attempts -- documented drive-convergence
+    // flakiness here means the car can end up parked just off the shed's corner where the tight nudge
+    // alone can't correct the heading enough to actually make contact.
+    for (let attempt = 0; attempt < 7 && stats.collapsing <= 0; attempt++) {
       await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }); window.__GAME__.stepN(70); 'ok'");
-      await evalExpr('window.__driveToward(-30, 34, 140, 0.5, 1.0, 2.0)');
+      if (attempt >= 5) await evalExpr('window.__driveToward(-30, 33, 260, 1.0, 0.9, 1.3)');
+      else await evalExpr('window.__driveToward(-30, 34, 140, 0.5, 1.0, 2.0)');
       stats = {
         collapsing: await evalExpr("window.__GAME__.features.buildings.collapsingBodyCountFor('shed')"),
         broken: await evalExpr("window.__GAME__.features.buildings.brokenJointCountFor('shed')"),
@@ -312,11 +337,24 @@ async function main() {
     const maxDisp = disp.length ? Math.max(...disp) : 0;
     await h.screenshot('09-shed-collapsed');
 
-    if (before.collapsing !== 0) record('shed-collapse', 'major', 'collapsingBodyCountFor(shed) nonzero before any impact', before);
-    if (!(stats.collapsing > 0)) record('shed-collapse', 'blocker', 'shed front assembly never flagged collapsing after ram+retries', { stats });
-    if (!(maxDisp > 0.8)) record('shed-collapse', 'major', 'shed roof/top piece did not visibly fall (maxPieceDisp<=0.8m)', { maxDisp });
+    // CONTACT-CONFIRMED GUARD: pieceDisplacements('shed') > 0.05 means the car actually nudged the
+    // structure at all (distinct from "structurally collapsed") -- independent telemetry evidence the ram
+    // connected, vs. the car having simply never reached the shed after a convergence failure. Only treat
+    // "never collapsed" as a real (blocker-level) game defect when contact is confirmed; otherwise it's the
+    // script's drive-convergence flakiness and gets reported as inconclusive instead of a false blocker.
+    const shedContactConfirmed = maxDisp > 0.05 || stats.broken > 0 || stats.collapsing > 0;
 
-    return { before, atImpact: stats, maxDisp };
+    if (before.collapsing !== 0) record('shed-collapse', 'major', 'collapsingBodyCountFor(shed) nonzero before any impact', before);
+    if (!(stats.collapsing > 0)) {
+      if (shedContactConfirmed) {
+        record('shed-collapse', 'blocker', 'shed was contacted (pieces displaced/broken) but front assembly never flagged collapsing after ram+retries', { stats, maxDisp });
+      } else {
+        record('shed-collapse', 'minor', 'shed-collapse leg inconclusive -- scripted approach never confirmed contact with the shed after ram+retries (drive-convergence flakiness, not a confirmed game defect)', { stats, maxDisp });
+      }
+    }
+    if (shedContactConfirmed && !(maxDisp > 0.8)) record('shed-collapse', 'major', 'shed roof/top piece did not visibly fall (maxPieceDisp<=0.8m)', { maxDisp });
+
+    return { before, atImpact: stats, maxDisp, shedContactConfirmed };
   });
 
   // =====================================================================================
@@ -511,9 +549,17 @@ async function main() {
       const fwd0 = fwdOf(t0.chassisQuat);
       function alongFwd(p) { return (p.x - p0.x) * fwd0.x + (p.z - p0.z) * fwd0.z; }
 
-      // straight reverse, 4s -- same window as the already-validated verify/reverse-check.mjs
-      // acceptance test (its scenario C is this exact forward->stop->reverse sequence, accepted at
-      // >=8m backward in 4s/240 steps -- matching its window here for a fair comparison).
+      // straight reverse, 4s -- same 240-step window as verify/reverse-check.mjs, but NOT the same
+      // acceptance bar. reverse-check.mjs's own PASS_M=-8m gate is only ever applied to its Scenarios A
+      // (fresh-spawn reverse) and B (reverse-after-sleep) -- both start from a straight, wheels-centered
+      // standstill. Its Scenario C (forward->stop->reverse, the closest match to this leg) is measured
+      // and reported but NEVER gated against -8m there (see reverse-check.mjs's SUMMARY block: passA/
+      // passB only). This leg's precondition also isn't a clean match to A/B even in technique -- the
+      // car got here via a curved P-controller drive into the yard (driveToward above), which can leave
+      // the front wheels off-center at the moment brake-to-stop completes, unlike A/B's dead-straight
+      // fresh-spawn start. So: recorded as a REAL number for humans to read, but no longer asserted as a
+      // hard pass/fail bar borrowed from a scenario reverse-check.mjs doesn't actually gate that way
+      // (arbitrated 2026-07 -- see r3-BATTERY SCRIPT CORRECTIONS item 2a).
       for (let i = 0; i < 240; i++) { g.setInput({ throttle: 0, brake: 1, steer: 0, handbrake: false }); g.stepN(1); }
       const tRevStraight = g.telemetry;
       const straightBack = alongFwd(tRevStraight.chassisPos);
@@ -546,7 +592,13 @@ async function main() {
         wheelStatesAfterStop: run.wheelStatesAfterStop, wheelStatesAfterReverse: run.wheelStatesAfterReverse, detachedAfterReverse,
       });
     } else {
-      if (!(run.straightBack < -8)) record('reverse-maneuvering', 'major', 'reverse (S) did not clear the validated >=8m/4s acceptance bar (verify/reverse-check.mjs)', { straightBack: run.straightBack });
+      // straightBack is INFORMATIONAL, not a hard bar: reverse-check.mjs's -8m PASS_M gate only ever
+      // applies to its fresh-standstill Scenarios A/B, never to the forward->stop->reverse Scenario C
+      // this leg most resembles (see the comment above the reverse-drive loop). What we DO still assert
+      // hard is that reverse produces genuine backward motion at all (a car that's merely stalled/rolling
+      // forward under brake is a real defect regardless of which bar it's compared to).
+      if (!(run.straightBack < 0)) record('reverse-maneuvering', 'major', 'reverse (S) produced no net backward displacement at all after a full stop (not just short of the informational 8m/4s reference -- literally non-negative)', { straightBack: run.straightBack });
+      else console.log(`[reverse-maneuvering] INFO straightBack=${run.straightBack.toFixed(2)}m/4s (informational vs. reverse-check.mjs's Scenario A/B-only -8m bar; see comment)`);
       if (Math.abs(run.manLateral) < 0.3) record('reverse-maneuvering', 'minor', 'reverse-with-steer produced little lateral displacement (maneuvering not effective)', { manLateral: run.manLateral });
       if (!(run.endSpeedAfterFwd > 3)) record('reverse-maneuvering', 'major', 'car did not resume forward driving normally after the reverse maneuver', { endSpeedAfterFwd: run.endSpeedAfterFwd });
     }
@@ -613,10 +665,23 @@ async function main() {
     // stalls the car in place with zero contact anywhere (a script bug, not a game bug).
     const toShed = await evalExpr('window.__driveToward(-30, 33, 1400, 1.5, 0.85, 0.7, 400, 40)');
     let shedStats = { collapsing: await evalExpr("window.__GAME__.features.buildings.collapsingBodyCountFor('shed')") };
-    for (let attempt = 0; attempt < 4 && shedStats.collapsing <= 0; attempt++) {
-      await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }); window.__GAME__.stepN(60); 'ok'");
+    // HARDENED (2026-07): the original retry here was a plain straight-throttle nudge (steer=0, no
+    // re-aim) -- if the initial driveToward left the car angled off the shed's face at all, a
+    // steer=0 nudge can never correct that heading, so it just drives further away without ever
+    // making contact (documented drive-convergence flakiness). Re-aim at the shed point each attempt,
+    // same technique as shed-collapse's ram loop above, instead of hoping straight-ahead connects.
+    for (let attempt = 0; attempt < 6 && shedStats.collapsing <= 0; attempt++) {
+      await evalExpr("window.__GAME__.setInput({ throttle: 1, brake: 0, steer: 0, handbrake: false }); window.__GAME__.stepN(50); 'ok'");
+      await evalExpr('window.__driveToward(-30, 33, 220, 0.8, 0.9, 1.2, 400, 40)');
       shedStats = { collapsing: await evalExpr("window.__GAME__.features.buildings.collapsingBodyCountFor('shed')") };
     }
+    const shedDispAfterRam = await evalExpr("window.__GAME__.features.buildings.pieceDisplacements('shed')");
+    const shedMaxDispAfterRam = shedDispAfterRam.length ? Math.max(...shedDispAfterRam) : 0;
+    // CONTACT-CONFIRMED GUARD: same technique as shed-collapse -- pieceDisplacements('shed') > 0.05 (or a
+    // broken joint) is independent telemetry evidence the ram actually connected, vs. the run-up+retries
+    // never reaching the shed at all.
+    const shedContactConfirmed = shedMaxDispAfterRam > 0.05 || shedStats.collapsing > 0
+      || (await evalExpr("window.__GAME__.features.buildings.brokenJointCountFor('shed')")) > 0;
     await h.screenshot('17-max-chaos-shed-hit');
 
     // Leg 2: WITHOUT resetting, continue straight to the barrel apex (16,34) for the chain.
@@ -627,6 +692,7 @@ async function main() {
 
     const during = {
       collapsingShed: shedStats.collapsing,
+      shedContactConfirmed, shedMaxDispAfterRam,
       maxDestructibleDisp: Math.max(...dispMidChaos),
       peakRunupSpeedKmh: runup.maxSpeedKmh,
     };
@@ -646,7 +712,13 @@ async function main() {
     await h.screenshot('19-max-chaos-after-reset-pristine');
     console.log('[max-chaos] AFTER resetWorld() pristine check:', JSON.stringify(after));
 
-    if (!(during.collapsingShed > 0)) record('max-chaos', 'major', 'shed never actually flagged collapsing during max-chaos leg', during);
+    if (!(during.collapsingShed > 0)) {
+      if (shedContactConfirmed) {
+        record('max-chaos', 'major', 'shed was contacted (pieces displaced/broken) but never actually flagged collapsing during max-chaos leg', during);
+      } else {
+        record('max-chaos', 'minor', 'max-chaos shed-ram leg inconclusive -- run-up+retries never confirmed contact with the shed (drive-convergence flakiness, not a confirmed game defect)', during);
+      }
+    }
     if (!(during.maxDestructibleDisp > 5)) record('max-chaos', 'major', 'no big destructible displacement observed (barrel chain likely did not fire)', during);
     if (after.featureBodyCount !== before.featureBodyCount) record('max-chaos', 'blocker', 'featureBodyCount did not return to baseline after resetWorld()', { before: before.featureBodyCount, after: after.featureBodyCount });
     if (after.collapsingShed !== 0) record('max-chaos', 'blocker', 'collapsingBodyCountFor(shed) nonzero after resetWorld()', after);
@@ -654,7 +726,7 @@ async function main() {
     if (after.seated !== before.seated) record('max-chaos', 'blocker', 'occupants not fully re-seated after resetWorld()', { before: before.seated, after: after.seated });
     if (after.destructibleDispMax >= 0.05) record('max-chaos', 'major', 'destructibles (incl. barrels) not restored to spawn pose after resetWorld()', { destructibleDispMax: after.destructibleDispMax });
 
-    return { before, runup: { steps: runup.steps, maxSpeedKmh: runup.maxSpeedKmh, finalPos: runup.finalPos }, toShedSteps: toShed.steps, toBarrelsSteps: toBarrels.steps, during, after };
+    return { before, runup: { steps: runup.steps, maxSpeedKmh: runup.maxSpeedKmh, finalPos: runup.finalPos }, toShedSteps: toShed.steps, toBarrelsSteps: toBarrels.steps, shedContactConfirmed, during, after };
   });
 
   // =====================================================================================

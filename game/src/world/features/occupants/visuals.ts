@@ -10,17 +10,8 @@
 import * as THREE from 'three';
 import { InterpolatedTransform } from '../../../core/loop';
 import type { Occupant } from './physics';
-import { PART_DIMS, PART_KEYS, SHIRT_COLOR_SEED, baseOf, type PartKey, type SeatKey } from './tuning';
-
-const SKIN_COLOR = 0xd8a878;
-const PANTS_COLOR = 0x2a2a30;
-
-function colorFor(part: PartKey, seatKey: SeatKey): number {
-	const base = baseOf(part);
-	if (base === 'head') return SKIN_COLOR;
-	if (base === 'torso' || base === 'upperArm' || base === 'forearm') return SHIRT_COLOR_SEED[seatKey];
-	return PANTS_COLOR; // pelvis, thigh, shin
-}
+import { attachCalibrationDisks, colorForBase } from './dummySkin';
+import { PART_DIMS, PART_KEYS, baseOf, type PartKey, type SeatKey } from './tuning';
 
 function geometryFor(part: PartKey): THREE.BufferGeometry {
 	const base = baseOf(part);
@@ -55,9 +46,11 @@ export function buildOccupantVisual(occupant: Occupant, seatKey: SeatKey): Occup
 
 	const parts = {} as Record<PartKey, { mesh: THREE.Mesh; transform: InterpolatedTransform }>;
 	for (const key of PART_KEYS) {
-		const mesh = new THREE.Mesh(geometryFor(key), materialFor(colorFor(key, seatKey)));
+		const base = baseOf(key);
+		const mesh = new THREE.Mesh(geometryFor(key), materialFor(colorForBase(base, seatKey)));
 		mesh.castShadow = true;
 		mesh.receiveShadow = true;
+		attachCalibrationDisks(mesh, base, PART_DIMS[base]);
 		const t = occupant.parts[key].body.getTransform();
 		mesh.position.set(t.position.x, t.position.y, t.position.z);
 		mesh.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);

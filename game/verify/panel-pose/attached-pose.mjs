@@ -5,7 +5,11 @@
 // Used by shoot.mjs (this dir) and shoot-alignment.mjs to compute a panel's "attached" target pose
 // (chassisPos + chassisRot*localCenter, chassisRot*nodeWorldQuat) from a dumpPoses()-style snapshot,
 // so a verify script can assert BODY-vs-ATTACHED-POSE (not just mesh-vs-body).
-export const CHASSIS_ORIGIN_HEIGHT_M = 0.39; // tuning.ts's CHASSIS_ORIGIN_HEIGHT_M (= car-map wheels.frontLeft.radiusMm/1000)
+// S90 swap 2026-07-11: updated to the current real value (was already stale at 0.39 before this swap,
+// per docs/loom/p0b-mustang-coupling.md -- this file's PANEL_NODES table below is ALSO stale (legacy
+// CarConcept-rig quats/positions, not this car's) and needs a full rewrite unrelated to this swap;
+// out of scope here (not used by the build/vitest gates), fixing only the duplicated constant).
+export const CHASSIS_ORIGIN_HEIGHT_M = 0.359; // tuning.ts's CHASSIS_ORIGIN_HEIGHT_M (= car-map wheels.frontLeft.radiusMm/1000)
 
 export const PANEL_NODES = {
   hood: { centerMm: [0, 503, 1793], worldQuat: [-0.70710678, 0, 0, 0.70710678] },

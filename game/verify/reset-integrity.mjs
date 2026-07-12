@@ -39,7 +39,11 @@ const CDP_PORT = 9467;
 const PREVIEW_PORT = 4189;
 const URL = `http://localhost:${PREVIEW_PORT}/`;
 const OUT_DIR = path.join(__dirname, 'reset-integrity');
-const PANEL_KEYS = ['hood', 'doorL', 'doorR', 'trunk'];
+// S90 swap 2026-07-11: hand-duplicated copy of damage/panels.ts's PANEL_KEYS (not imported -- this is
+// a plain browser CDP script, no TS module resolution), extended with the rear doors doorRL/doorRR so
+// this gate actually exercises their reset-integrity too (see docs/loom/p0b-mustang-coupling.md §6's
+// "silent risk" callout for this exact file).
+const PANEL_KEYS = ['hood', 'doorL', 'doorR', 'doorRL', 'doorRR', 'trunk'];
 const POS_TOL_M = 0.05; // 5 cm
 const ANG_TOL_DEG = 5; // 5 deg
 const RESET_WORLD_CYCLES = 5;

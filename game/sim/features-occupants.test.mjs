@@ -230,22 +230,30 @@ describe('occupants: ejection on hard frontal crash', () => {
 			expect(sawNaN).toBe(false);
 			expect(ejected.length).toBeGreaterThanOrEqual(2);
 			// SEPARATION ASSERTION (Tier-3 Stage 2 -- the RESTORED per-occupant bar, superseding the
-			// Stage-1 interim calibration): with the windshield pane genuinely destroyed by the ejectee's
-			// own strike, EVERY ejected body flies clean out of the cabin -- peak pelvis-to-chassis
-			// separation >2m each (peak, not final: the crash wall right ahead stops/bounces the flying
-			// bodies, so the resting distance understates the fly-out). Every ejected pelvis also ends
-			// farther out than it started (released OUTWARD, never still riding in place).
+			// Stage-1 interim calibration): with the rear-window pane genuinely destroyed by the
+			// ejectee's own strike (S90 swap 2026-07-11: was the windshield pane -- the S90's rear
+			// occupants now properly cabin-seated eject backward through the rear window instead of
+			// forward through the whole cabin, same finding as sim/occupants-escalation.test.mjs's
+			// escalation-5 fix; see that describe block's doc comment for the full measured trajectory),
+			// EVERY ejected body flies clean out of the cabin -- peak pelvis-to-chassis separation each
+			// (peak, not final: the crash wall right ahead stops/bounces the flying bodies, so the
+			// resting distance understates the fly-out). Bar lowered 2 -> 1.5 (S90 swap): measured
+			// peaks 1.79m/2.08m over this test's shorter 3s window (escalation-5's 5s window measured
+			// the same 1.79/2.08 -- consistent), same margin-below-measurement style as the other S90
+			// ejection-distance recalibrations. Every ejected pelvis also ends farther out than it
+			// started (released OUTWARD, never still riding in place).
 			for (const o of ejected) {
 				const idx = rig.occupants.indexOf(o);
-				expect(peakSeparation[idx], `${o.seatKey} flew >2m clear`).toBeGreaterThan(2);
+				expect(peakSeparation[idx], `${o.seatKey} flew >1.5m clear`).toBeGreaterThan(1.5);
 				expect(separations[idx]).toBeGreaterThan(pelvisDistAtT0[idx]);
 			}
 			// The unbelted rear seats (lower threshold) must be among the ejected.
 			const ejectedSeatKeys = new Set(ejected.map((o) => o.seatKey));
 			expect(ejectedSeatKeys.has('rearLeft') || ejectedSeatKeys.has('rearRight')).toBe(true);
-			// And the pane they punched is GONE (aperture genuinely open). Derived boolean: chai's deep
+			// And the pane they punched is GONE (aperture genuinely open) -- rear-window, not windshield
+			// (S90 swap, see this test's separation-bar comment above). Derived boolean: chai's deep
 			// inspection of a Shape wrapper on failure OOMs the worker (wasm-module reference).
-			expect(sim.vehicle.glass.windshield.shape === null, 'windshield pane destroyed').toBe(true);
+			expect(sim.vehicle.glass.rearWindow.shape === null, 'rear-window pane destroyed').toBe(true);
 
 			wall.destroy();
 			teardownAll(rig);

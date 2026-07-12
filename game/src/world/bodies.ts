@@ -41,6 +41,7 @@ import {
 	CRATE_TOWER_CENTER,
 	CRATE_TOWER_LAYERS,
 	CRATE_TOWER_WIDE_LAYERS,
+	LEGACY_DESTRUCTIBLE_ENTITY_ID_BASE,
 	POLE_FRICTION,
 	POLE_MASS_KG,
 	POLE_POSITIONS,
@@ -313,6 +314,15 @@ export function createDestructibleWorld(world: World): DestructibleWorld {
 	const barrelStartIndex = bodies.length;
 	bodies.push(...buildBarrelTriangle(world));
 	bodies.push(...buildPoles(world));
+
+	// FRACTURE SPEC §E (docs/loom/d1-fracture-material-spec.md): tag every still-untagged destructible
+	// (wall blocks, crates, poles -- barrels were already tagged above with BARREL_ENTITY_ID_BASE+i)
+	// with a deterministic entity id so main.ts can register its real mass into the damage system's
+	// foreign-mass registry (setForeignMass), giving light debris mass-attenuated car damage instead of
+	// wall-strength damage. Creation-order indexing keeps ids byte-stable across runs (warning #3).
+	for (let i = 0; i < bodies.length; i++) {
+		if (bodies[i].body.getUserData() === 0) bodies[i].body.setUserData(LEGACY_DESTRUCTIBLE_ENTITY_ID_BASE + i);
+	}
 
 	// Spawn asleep: every dynamic body above is fresh (b3DefaultBodyDef() starts awake), so put it to
 	// sleep now, before the world has ever stepped -- observably identical to "spawned asleep" (zero

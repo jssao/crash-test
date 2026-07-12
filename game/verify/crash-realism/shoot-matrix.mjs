@@ -149,7 +149,8 @@ async function main() {
   pageErrors.slice(0, 10).forEach((e, i) => console.log(`  exc[${i}] ${e}`));
 
   // Report: doors must stay attached in every frontal run; deformation must be present.
-  const doorFailures = runs.filter((r) => ['doorL', 'doorR'].some((k) => r.damage.panelStates[k] === 'broken'));
+  // S90 swap 2026-07-11: extended to all 4 doors (front + rear) -- a frontal must not break any door.
+  const doorFailures = runs.filter((r) => ['doorL', 'doorR', 'doorRL', 'doorRR'].some((k) => r.damage.panelStates[k] === 'broken'));
   const noDamage = runs.filter((r) => r.damage.dentedVertexCount === 0);
   writeFileSync(path.join(OUT_DIR, 'console-report-matrix.json'), JSON.stringify({ runs, doorFailures, noDamage, consoleErrors, pageErrors, timestamp: new Date().toISOString() }, null, 2));
   console.log(`[matrix] frontal door detachments (must be 0): ${doorFailures.length}`);

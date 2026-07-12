@@ -4,7 +4,9 @@
 // NOSE/TAIL crush volumes are now chains of REAL welded segment bodies (vehicle/segments.ts:
 // bumperBeam ⇄ crushRailL/R (2 cells each) ⇄ engineCradle ⇄ chassis firewall; trunkFloor + rear rails
 // rear). This test proves the swap's load-bearing claims:
-//   1. STRUCTURE: 9 segment bodies + a 10-weld rigid chain exist, tagged with the 13-21 entity ids.
+//   1. STRUCTURE: 9 segment bodies + a 10-weld rigid chain exist, tagged with the 14-22 entity ids
+//      (renumbered 2026-07-11, S90 swap: was 13-21 before the rear-door panels took the only free
+//      panel slot, shifting glass/segments/cores +1 -- see docs/loom/p0b-mustang-coupling.md §5).
 //   2. ENGINE-INTEGRATED MASS PARITY: box3d's own integrated masses reproduce the spec masses, and
 //      chassis remainder + segments == the tuned total (the parity DEDUCTION applied in vehicle.ts;
 //      the full COM/inertia recomposition identity is asserted in hull-cabin-tub.test.mjs).
@@ -22,7 +24,7 @@ import { CHASSIS_MASS_KG, CHASSIS_ORIGIN_HEIGHT_M, FIXED_DT, FIXED_SUBSTEPS, CAR
 const SPAWN = { x: 0, y: CHASSIS_ORIGIN_HEIGHT_M, z: 0 };
 
 describe('crush M1: segment structure (segments.ts)', () => {
-	it('9 segment bodies + 9 chassis-anchored welds, tagged 13-21, disjoint from every other entity-id range', async () => {
+	it('9 segment bodies + 9 chassis-anchored welds, tagged 14-22, disjoint from every other entity-id range', async () => {
 		const native = await init();
 		const world = new World(native, { gravity: { x: 0, y: -10, z: 0 } });
 		try {
@@ -39,9 +41,9 @@ describe('crush M1: segment structure (segments.ts)', () => {
 			}
 			const ids = Object.values(SEGMENT_ENTITY_ID);
 			expect(new Set(ids).size).toBe(9);
-			// Disjoint from chassis/wheels (1-5), panels (6-10), glass (11-12), occupants (1000+).
+			// Disjoint from chassis/wheels (1-5), panels (6-11), glass (12-13), occupants (1000+).
 			for (const id of ids) {
-				expect(id).toBeGreaterThanOrEqual(13);
+				expect(id).toBeGreaterThanOrEqual(14);
 				expect(id).toBeLessThan(1000);
 			}
 			destroyVehicle(vehicle);

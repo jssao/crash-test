@@ -60,10 +60,11 @@ export interface CrashProtocol {
 	isFreeConfig?: boolean;
 }
 
-// Mustang-65 half-width is ~0.97m (car-map.ts derived, see crash-realism.test.mjs's comments) -- the
-// offset geometry below is calibrated against that, not re-derived here (avoids a physics/vehicle
-// import into this pure-data file).
-const CAR_HALF_WIDTH_M = 0.97;
+// Volvo S90 half-width is ~1.01m (car-map.ts derived: overallDimsMm.width 2011mm / 2 = 1.0055m,
+// rounded -- see crash-realism.test.mjs's comments) -- the offset geometry below is calibrated
+// against that, not re-derived here (avoids a physics/vehicle import into this pure-data file).
+// RE-MEASURED 2026-07-11 (Mustang -> S90 swap): was 0.97m.
+const CAR_HALF_WIDTH_M = 1.01;
 
 export const PROTOCOLS: readonly CrashProtocol[] = [
 	{

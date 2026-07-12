@@ -13,8 +13,19 @@ import { FREE_CONFIG_ANGLE_RANGE, FREE_CONFIG_OFFSET_RANGE, FREE_CONFIG_SPEED_RA
 export type CameraPreset = 'top' | 'side' | '3q' | 'free';
 export type RunState = 'idle' | 'running' | 'settled';
 
-const PANEL_ORDER: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'trunk'];
-const PANEL_LABELS: Record<PanelKey, string> = { hood: 'Hood', doorL: 'Door L', doorR: 'Door R', trunk: 'Trunk' };
+// S90 swap 2026-07-11: extended with the rear doors (doorRL/doorRR) -- a plain array, NOT a
+// Record<PanelKey,...>, so the compiler does NOT force this update when PanelKey gains members (see
+// docs/loom/p0b-mustang-coupling.md §5's "silent trap" callout); kept in sync by hand here (same fix
+// applied to src/hud/hud.ts's own duplicate PANEL_ORDER).
+const PANEL_ORDER: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'doorRL', 'doorRR', 'trunk'];
+const PANEL_LABELS: Record<PanelKey, string> = {
+	hood: 'Hood',
+	doorL: 'Door L',
+	doorR: 'Door R',
+	doorRL: 'Rear Door L',
+	doorRR: 'Rear Door R',
+	trunk: 'Trunk',
+};
 const WHEEL_ORDER: readonly WheelKey[] = ['fl', 'fr', 'rl', 'rr'];
 const WHEEL_LABELS: Record<WheelKey, string> = { fl: 'FL', fr: 'FR', rl: 'RL', rr: 'RR' };
 const REGION_ORDER: readonly CrushRegion[] = ['front', 'left', 'right', 'rear'];
@@ -42,6 +53,7 @@ export interface LabHudCallbacks {
 	onRun: () => void;
 	onReset: () => void;
 	onToggleSlowMo: () => void;
+	onToggleBarrier: () => void;
 	onExport: () => void;
 	onCameraPreset: (preset: CameraPreset) => void;
 	onFreeConfigChange: (next: Partial<FreeConfigState>) => void;
@@ -55,6 +67,7 @@ export interface LabHudController {
 	setFreeConfigValues(state: FreeConfigState): void;
 	setRunState(state: RunState, elapsedS: number, totalS: number): void;
 	setSlowMo(enabled: boolean): void;
+	setBarrierHidden(hidden: boolean): void;
 	setCameraPreset(preset: CameraPreset): void;
 	updateReadout(data: ReadoutData): void;
 	showToast(message: string): void;
@@ -146,6 +159,7 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 				<button class="lab-btn" id="lab-cam-side">Side</button>
 				<button class="lab-btn" id="lab-cam-3q">3/4</button>
 				<button class="lab-btn" id="lab-cam-free">Free orbit</button>
+				<button class="lab-btn" id="lab-btn-barrier" title="Hide the barrier to inspect the crushed face">Hide barrier</button>
 			</div>
 		</div>
 		<div class="lab-panel lab-readout" id="lab-readout">
@@ -187,6 +201,7 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 	const occupantsEl = mount.querySelector('#lab-occupants')!;
 	const toastEl = mount.querySelector('#lab-toast') as HTMLElement;
 	const slowMoBtn = mount.querySelector('#lab-btn-slowmo') as HTMLButtonElement;
+	const barrierBtn = mount.querySelector('#lab-btn-barrier') as HTMLButtonElement;
 	const camBtns: Record<CameraPreset, HTMLButtonElement> = {
 		top: mount.querySelector('#lab-cam-top') as HTMLButtonElement,
 		side: mount.querySelector('#lab-cam-side') as HTMLButtonElement,
@@ -197,6 +212,7 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 	mount.querySelector('#lab-btn-run')!.addEventListener('click', () => callbacks.onRun());
 	mount.querySelector('#lab-btn-reset')!.addEventListener('click', () => callbacks.onReset());
 	slowMoBtn.addEventListener('click', () => callbacks.onToggleSlowMo());
+	barrierBtn.addEventListener('click', () => callbacks.onToggleBarrier());
 	mount.querySelector('#lab-btn-export')!.addEventListener('click', () => callbacks.onExport());
 	(Object.keys(camBtns) as CameraPreset[]).forEach((p) => camBtns[p].addEventListener('click', () => callbacks.onCameraPreset(p)));
 	fcSpeed.addEventListener('input', () => callbacks.onFreeConfigChange({ speedKmh: Number(fcSpeed.value) }));
@@ -249,6 +265,10 @@ export function createLabHud(mount: HTMLElement, callbacks: LabHudCallbacks): La
 			runStateEl.className = `lab-run-state lab-${state}`;
 			const label = state === 'idle' ? 'IDLE' : state === 'running' ? `RUNNING ${elapsedS.toFixed(1)}s / ${totalS.toFixed(1)}s` : `SETTLED (${elapsedS.toFixed(1)}s)`;
 			runStateEl.textContent = label;
+		},
+		setBarrierHidden(hidden) {
+			barrierBtn.classList.toggle('lab-active', hidden);
+			barrierBtn.textContent = hidden ? 'Show barrier' : 'Hide barrier';
 		},
 		setSlowMo(enabled) {
 			slowMoBtn.classList.toggle('lab-active', enabled);

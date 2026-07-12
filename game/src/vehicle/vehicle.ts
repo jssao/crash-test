@@ -109,7 +109,7 @@ export type WheelKey = 'fl' | 'fr' | 'rl' | 'rr';
  * Entity ids tagged on the chassis/wheel bodies (Body userData), read back via hit events'
  * userDataA/userDataB (src/ts/events.ts's HitEventCursor) by the damage system (game/src/damage/
  * welds.ts, system.ts). Kept in a disjoint numeric range (1-5) from game/src/damage/panels.ts's
- * PANEL_ENTITY_ID (6-10) by convention, deliberately NOT via a shared import -- vehicle.ts already
+ * PANEL_ENTITY_ID (6-11) by convention, deliberately NOT via a shared import -- vehicle.ts already
  * imports panels.ts (createVehicle() below calls createPanels()), so panels.ts importing IDs back
  * from here would be a cycle.
  */
@@ -123,13 +123,17 @@ export const CAR_ENTITY_ID = {
  * -- shape-level userData, which hit events report INSTEAD of the owning chassis body's tag (see
  * src/ts/events.ts), so the damage system's central drain (game/src/damage/system.ts) can tell "a
  * pane was struck" apart from "the hull was struck" and route the hit to the glass-shatter model
- * (emit glassShattered + destroy the pane) instead of the crumple/weld models. 11-12 extends the
- * car's reserved id range (chassis/wheels 1-5, panels 6-10 -- same disjoint-by-convention scheme as
+ * (emit glassShattered + destroy the pane) instead of the crumple/weld models. 12-13 extends the
+ * car's reserved id range (chassis/wheels 1-5, panels 6-11 -- same disjoint-by-convention scheme as
  * CAR_ENTITY_ID's doc comment).
+ *
+ * RENUMBERED 2026-07-11 (S90 swap): was 11-12 before the rear-door panels (doorRL/doorRR) took the
+ * only free panel slot -- shifted +1 to 12-13, and segments.ts's SEGMENT_ENTITY_ID/CORE_ENTITY_ID
+ * shifted +1 in lockstep (14-25). See docs/loom/p0b-mustang-coupling.md section 5.
  */
 export const GLASS_ENTITY_ID: Record<GlassPaneKey, number> = {
-	windshield: 11,
-	rearWindow: 12,
+	windshield: 12,
+	rearWindow: 13,
 } as const;
 
 /** The visual glass mesh node (car-map.ts glassMeshNodes) each pane corresponds to -- system.ts uses

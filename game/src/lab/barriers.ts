@@ -300,11 +300,31 @@ export function vehicleGuideUntilS(protocol: CrashProtocol, freeConfig: FreeConf
 	// yield honestly converts every re-fed step into fresh structural collapse, so the guide
 	// force-fed the crush through its whole budget and then slammed the exhausted (rigid) face at
 	// full speed -- MEASURED at NHTSA-56: 97.7g chassis peak, both doors + trunk broken, 3 occupants
-	// dead (vs the sim harness's clean staged ~35-45g stop for the same crash). Releasing 3m ahead
-	// leaves the final ~0.2s ballistic -- the assists bleed <2% of the speed over that window (the
-	// pole protocol's lateral-assist problem the guide exists for needs the guide only during the
-	// long approach, not the last car-length).
-	return Math.max(0.2, (protocol.approachDistanceM - 3.0) / speedMs);
+	// dead (vs the sim harness's clean staged ~35-45g stop for the same crash).
+	//
+	// FORWARD-PROTOCOL MARGIN WIDENED 3.0 -> 4.35 (playtest 2026-07-10 realism pass): with the wall's
+	// actual half-depth (0.5m, spawnBarrierRig) + the ~2.35m nose overhang, first contact lands at
+	// approachDistance - 2.85m of travel -- so the old 3.0 release margin left only 0.15m (~0.6 fixed
+	// steps at 56 km/h) and discrete stepping still re-fed launch velocity through the first contact
+	// steps. MEASURED (lab stress sweep, __LAB__.panelStress diagnostic): hood weld stress 313 at
+	// 56 km/h vs the sim harness's ~99 for the same nominal crash -- ~3x inflated purely by that
+	// guided-through-contact overlap, which made the lab hood break at NCAP speed no matter how the
+	// weld thresholds were calibrated. 4.35 releases the nose ~1.5m before the wall (~0.10s ballistic
+	// at 56 km/h; the driving assists bleed <1% over that window -- real NHTSA tow rigs release before
+	// the barrier too). The POLE protocol keeps the tight 3.0 margin: its guide exists precisely
+	// because the lateral-grip assist devours a sideways launch (doc above), so its ballistic window
+	// must stay short -- and its striking face is the car's SIDE (~1m half-width, no 2.35m overhang),
+	// so 3.0 already releases well before pole contact.
+	//
+	// RE-MEASURED 2026-07-11 (Mustang -> S90 swap): the S90's nose overhang is LONGER -- car-map.ts's
+	// whole-body zMax (overallCenterMm.z/1000 + CAR_LENGTH_M/2 = 0.016 + 2.501 = 2.517m, cross-checked
+	// directly against BodyShell's own measured max z = 2.517m) vs the Mustang's ~2.35m. First contact
+	// now lands at approachDistance - (2.517 + 0.5 wall half-depth) = approachDistance - 3.017m of
+	// travel. Keeping the SAME ~1.5m ballistic release window as the Mustang recalibration above:
+	// 3.017 + 1.5 = 4.517 -> 4.52. Pole margin unchanged (side-strike, not overhang-dependent, per the
+	// doc above -- the S90's half-width (1.01m, was 0.97m) is too small a change to matter here).
+	const releaseMarginM = protocol.barrier === 'rigid-pole' ? 3.0 : 4.52;
+	return Math.max(0.2, (protocol.approachDistanceM - releaseMarginM) / speedMs);
 }
 
 /** Wall-clock (sim-time) budget for one run: guided run-up (distance/closing-speed) + a fixed settle

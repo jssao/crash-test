@@ -3,9 +3,15 @@
 Assets copied (not moved) from `../assets-src/` — see that directory's `CREDITS.md` and per-asset
 `SOURCE.md` files for full provenance/checksums. Summary:
 
-- **Car (hero — active):** `assets/car/mustang65.glb` — "Rigged Car Mustang 1965 with Engine",
-  Godspeed (Sketchfab, @godspeedx14). License: CC BY 4.0 International. Attribution: "Rigged Car
-  Mustang 1965 with Engine" by Godspeed (@godspeedx14) —
+- **Car (hero — active):** `assets/car/volvo-s90.glb` — exported Volvo S90 4-door sedan (377,054
+  verts / 127 objects, dims 5.00 x 2.01 x 1.43 m). Node-named per car-map.ts conventions (BodyShell,
+  Hood, Trunk, DoorL/R + DoorRL/RR, EngineBlock, WheelFL/FR/RL/RR, Windshield, RearWindow, QuarterGlass)
+  so `scripts/analyze-car.mjs`'s `volvoS90` CONFIG can re-derive the car-map without hand-editing. No
+  third-party trademarked textures found needing load-time sanitization.
+- **Car (retired — 2026-07-11 swap, kept for reference/legacy model-viewer entries):**
+  `assets/car/mustang65.glb` — "Rigged Car Mustang 1965 with Engine", Godspeed (Sketchfab,
+  @godspeedx14). License: CC BY 4.0 International. Attribution: "Rigged Car Mustang 1965 with Engine"
+  by Godspeed (@godspeedx14) —
   https://sketchfab.com/3d-models/rigged-car-mustang-1965-with-engine-3d-model-c2d4f0a6170d43f4a5a8303373ebb81a
   - The source ships as ONE skinned mesh (bone-weighted panel/wheel/engine regions).
     `scripts/split-mustang.py` (deterministic Blender headless) splits it by vertex group into separate

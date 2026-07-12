@@ -33,6 +33,7 @@ import { CHASSIS_ORIGIN_HEIGHT_M } from '../vehicle/tuning';
 import { registerDeformable, type DamageSystem } from '../damage/system';
 import { PANEL_KEYS, PANEL_NODE_NAMES, type PanelHandle, type PanelKey } from '../damage/panels';
 import type { DeformableMeshHandle } from '../damage/crumple';
+import { structuralFieldFor, type StructuralCrushState } from './structuralCrush';
 
 /** Each panel's GLB node world rotation (car-map.ts's PanelNode.worldQuat), as a THREE.Quaternion --
  * the same rigid chassis-local orientation offset panels.ts's createPanels() spawns/welds the panel
@@ -156,12 +157,37 @@ export function registerCarDeformables(system: DamageSystem, carRoot: THREE.Obje
 
 const scratchV = new THREE.Vector3();
 
+/**
+ * Body-local position of vertex `i` with the structural-crush field (scene/structuralCrush.ts)
+ * folded in, written into `out`. COMBINE RULE: x/y displacements ADD (contact dents + structural
+ * buckle stack), but along z -- the crush axis both passes push on -- the DEEPER of the two wins,
+ * not the sum: the contact-dent pipeline already caves the barrier-facing surface by ~the mechanical
+ * crush depth, and the structural compaction encodes that same total shortening as a field, so
+ * summing them would double-crush the nose face (~0.84m on a 0.42m crash).
+ */
+function combinedBodyLocal(handle: DeformableMeshHandle, sOff: Float32Array, i: number, out: THREE.Vector3): void {
+	const cx = handle.offsets[i * 3];
+	const cy = handle.offsets[i * 3 + 1];
+	const cz = handle.offsets[i * 3 + 2];
+	const sz = sOff[i * 3 + 2];
+	out.set(
+		handle.basePositions[i * 3] + cx + sOff[i * 3],
+		handle.basePositions[i * 3 + 1] + cy + sOff[i * 3 + 1],
+		handle.basePositions[i * 3 + 2] + (Math.abs(cz) >= Math.abs(sz) ? cz : sz),
+	);
+}
+
 /** Writes each registered mesh's current (possibly deformed) positions/normals back into its
  * THREE.BufferGeometry, converting from the crumple registry's body-local frame back to mesh-local
  * space via the registration-time inverse matrix. Call once per fixed step (cheap: only iterates
  * meshes that were actually part of the damage system, and BufferAttribute uploads are the only real
- * cost, same as any other skinned/morph-target mesh). */
-export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panels: Record<PanelKey, PanelHandle>): void {
+ * cost, same as any other skinned/morph-target mesh).
+ *
+ * `struct` (optional): the structural-crush visual state (scene/structuralCrush.ts) -- meshes with an
+ * ACTIVE field get the combined (crumple + structural) positions and THREE-side recomputed normals
+ * (version-gated: only when the field actually rebuilt since this mesh's last sync, so the steady
+ * post-crash state costs nothing extra). Passing null keeps the exact pre-structural behavior. */
+export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panels: Record<PanelKey, PanelHandle>, struct: StructuralCrushState | null = null): void {
 	for (const b of bindings.bindings) {
 		const { handle, mesh, inverseMatrix, attachedTo } = b;
 		const posAttr = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -169,8 +195,11 @@ export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panel
 		// Forward nodeWorldQuat: panel BODY's own local frame -> chassis-local (see this module's
 		// COORDINATE FRAMES doc comment) -- the exact inverse of registerCarDeformables()'s conversion.
 		const panelQuat = attachedTo === 'chassis' ? null : PANEL_WORLD_QUAT[attachedTo];
+		const sf = struct ? structuralFieldFor(struct, handle) : null;
+		const sOff = sf && sf.active && sf.offsets ? sf.offsets : null;
 		for (let i = 0; i < handle.vertexCount; i++) {
-			scratchV.set(handle.positions[i * 3], handle.positions[i * 3 + 1], handle.positions[i * 3 + 2]);
+			if (sOff) combinedBodyLocal(handle, sOff, i, scratchV);
+			else scratchV.set(handle.positions[i * 3], handle.positions[i * 3 + 1], handle.positions[i * 3 + 2]);
 			if (localCenter) {
 				scratchV.applyQuaternion(panelQuat!); // -> chassis-local, panel-centered
 				scratchV.x += localCenter.x;
@@ -183,7 +212,15 @@ export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panel
 		}
 		posAttr.needsUpdate = true;
 
-		if (handle.normals) {
+		if (sOff) {
+			// Structural field active: registry normals don't know about it -- recompute THREE-side
+			// from the final combined positions, but only when the field rebuilt since this mesh's
+			// last sync (the field converges within the crash's ~1s window, then this never runs).
+			if (sf!.lastSyncedVersion !== struct!.version) {
+				mesh.geometry.computeVertexNormals();
+				sf!.lastSyncedVersion = struct!.version;
+			}
+		} else if (handle.normals) {
 			const normAttr = mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
 			// Normals only need the ROTATION part of the forward/inverse transform (no translation);
 			// THREE.Vector3.transformDirection uses the upper 3x3 -- exactly what we want here since
@@ -202,4 +239,40 @@ export function syncCarDeformablesToThree(bindings: CarDeformableBindings, panel
 
 		mesh.geometry.computeBoundingSphere();
 	}
+}
+
+/** Diagnostic (verify-harness eyes-on support): for each binding, the max distance (m) between what
+ * the THREE geometry currently renders and what the crumple registry (+ the structural field, when
+ * one is passed) says it should render -- the same body-local -> mesh-local conversion
+ * syncCarDeformablesToThree() writes. ~0 everywhere proves the sync actually reached the rendered
+ * meshes; a large error pinpoints a binding whose geometry is stale/shared/replaced. */
+export function checkCarDeformablesSync(bindings: CarDeformableBindings, panels: Record<PanelKey, PanelHandle>, struct: StructuralCrushState | null = null): { id: string; maxErrorM: number }[] {
+	const out: { id: string; maxErrorM: number }[] = [];
+	const rendered = new THREE.Vector3();
+	for (const b of bindings.bindings) {
+		const { handle, mesh, inverseMatrix, attachedTo } = b;
+		const posAttr = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+		const localCenter = attachedTo === 'chassis' ? null : panels[attachedTo].localCenter;
+		const panelQuat = attachedTo === 'chassis' ? null : PANEL_WORLD_QUAT[attachedTo];
+		const sf = struct ? structuralFieldFor(struct, handle) : null;
+		const sOff = sf && sf.active && sf.offsets ? sf.offsets : null;
+		let maxErrorM = 0;
+		for (let i = 0; i < handle.vertexCount; i++) {
+			if (sOff) combinedBodyLocal(handle, sOff, i, scratchV);
+			else scratchV.set(handle.positions[i * 3], handle.positions[i * 3 + 1], handle.positions[i * 3 + 2]);
+			if (localCenter) {
+				scratchV.applyQuaternion(panelQuat!);
+				scratchV.x += localCenter.x;
+				scratchV.y += localCenter.y;
+				scratchV.z += localCenter.z;
+			}
+			scratchV.y += CHASSIS_ORIGIN_HEIGHT_M;
+			scratchV.applyMatrix4(inverseMatrix);
+			rendered.fromBufferAttribute(posAttr, i);
+			const err = rendered.distanceTo(scratchV);
+			if (err > maxErrorM) maxErrorM = err;
+		}
+		out.push({ id: handle.id, maxErrorM });
+	}
+	return out;
 }

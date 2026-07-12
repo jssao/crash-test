@@ -134,22 +134,36 @@ function capX(lengthMm: number, radiusMm: number): CapsuleDims {
 	return { length: lengthMm / 1000, radius: radiusMm / 1000 };
 }
 
+// VOLVO S90 SWAP RE-DERIVATION (2026-07-11): every position below rescaled from the Mustang-tuned
+// values. LENGTH_SCALE = S90/Mustang overall length (5002/4591 = 1.0895) applied to every
+// specForwardMm (Z position, this file's mm()'s 1st arg). WIDTH_SCALE = S90/Mustang overall body
+// width (2011/1936 = 1.0389) applied to every specRightMm (X/lateral position, mm()'s 3rd arg) EXCEPT
+// the 4 control arms, which use the much smaller TRACK-width ratio (S90/Mustang front track
+// 1629/1619 = 1.0062 -- barely changed) since their lateral position is tied to the wheel/suspension
+// track, not the overall body width (the body-width ratio would have pushed their outboard tip past
+// the S90's own tire's outer face). specUpMm (height, mm()'s 2nd arg) is left UNCHANGED -- component
+// mounting heights are not meaningfully car-length/width-dependent, and (per the interior-culled note
+// below) Y already runs through the auto-updating CHASSIS_ORIGIN_HEIGHT_M subtraction. Two positions
+// needed a small manual nudge past the scale to stay inside the S90's measured envelope
+// (headlightL/R, see that entry's comment) -- every other scaled position was checked to still land
+// inside the S90's measured whole-body/panel envelopes (car-map.ts) with the same ~30-40mm margin
+// convention the original Mustang refit used.
 export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// ---- Engine bay (§1, priority 1) ----
-	{ id: 'engineBlock', label: 'Engine block + head', strength: 'firm', phys: 'box', dims: box(550, 480, 620), localCenter: mm(1580, 560, 0), massKgSpec: 145, matKey: 'engineMetal', engineBay: true },
+	{ id: 'engineBlock', label: 'Engine block + head', strength: 'firm', phys: 'box', dims: box(550, 480, 620), localCenter: mm(1721, 560, 0), massKgSpec: 145, matKey: 'engineMetal', engineBay: true },
 	// turboDownpipe/intercooler/intakeAssembly (forced-induction subsystem) CULLED here -- period-wrong
 	// for a 1965 Mustang (naturally-aspirated, carbureted V8); see this file's top doc comment.
-	{ id: 'radiatorFan', label: 'Radiator + cooling fan', strength: 'breaksEasily', phys: 'box', dims: box(180, 700, 480), localCenter: mm(1970, 480, 0), massKgSpec: 9, matKey: 'radiatorFin', engineBay: true },
-	{ id: 'upperHose', label: 'Upper radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(350, 19), localCenter: mm(1820, 620, -120), massKgSpec: 0.6, matKey: 'rubberBlack', engineBay: true },
-	{ id: 'lowerHose', label: 'Lower radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(380, 21), localCenter: mm(1830, 360, -100), massKgSpec: 0.7, matKey: 'rubberBlack', engineBay: true },
-	{ id: 'battery', label: 'Battery', strength: 'breaksEasily', phys: 'box', dims: box(260, 175, 200), localCenter: mm(1420, 650, -780), massKgSpec: 15, matKey: 'plasticBlackGloss', engineBay: true },
-	{ id: 'brakeBoosterMC', label: 'Brake master cylinder + booster', strength: 'firm', phys: 'box', dims: box(350, 220, 260), localCenter: mm(1180, 600, -380), massKgSpec: 9, matKey: 'castAluminum', engineBay: true },
+	{ id: 'radiatorFan', label: 'Radiator + cooling fan', strength: 'breaksEasily', phys: 'box', dims: box(180, 700, 480), localCenter: mm(2146, 480, 0), massKgSpec: 9, matKey: 'radiatorFin', engineBay: true },
+	{ id: 'upperHose', label: 'Upper radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(350, 19), localCenter: mm(1983, 620, -125), massKgSpec: 0.6, matKey: 'rubberBlack', engineBay: true },
+	{ id: 'lowerHose', label: 'Lower radiator hose', strength: 'breaksEasily', phys: 'capsuleZ', dims: capZ(380, 21), localCenter: mm(1994, 360, -104), massKgSpec: 0.7, matKey: 'rubberBlack', engineBay: true },
+	{ id: 'battery', label: 'Battery', strength: 'breaksEasily', phys: 'box', dims: box(260, 175, 200), localCenter: mm(1547, 650, -810), massKgSpec: 15, matKey: 'plasticBlackGloss', engineBay: true },
+	{ id: 'brakeBoosterMC', label: 'Brake master cylinder + booster', strength: 'firm', phys: 'box', dims: box(350, 220, 260), localCenter: mm(1286, 600, -395), massKgSpec: 9, matKey: 'castAluminum', engineBay: true },
 	// Strut brace (10): spec dim order is "(span)xdepthxheight" -- span is the LATERAL lower_control-arm-
 	// style long axis (bolts to both strut towers), modeled as a capsule along local X (lateral).
-	{ id: 'strutBrace', label: 'Strut brace', strength: 'breaksEasily', phys: 'capsuleX', dims: capX(900, 35), localCenter: mm(1300, 780, 0), massKgSpec: 2.5, matKey: 'steelBrushed', engineBay: true },
-	{ id: 'alternator', label: 'Alternator', strength: 'firm', phys: 'box', dims: box(150, 140, 160), localCenter: mm(1480, 480, -100), massKgSpec: 5, matKey: 'castAluminum', engineBay: true },
-	{ id: 'coolantReservoir', label: 'Coolant + washer reservoir', strength: 'breaksEasily', phys: 'box', dims: box(300, 150, 220), localCenter: mm(1250, 700, 520), massKgSpec: 2, matKey: 'plasticTranslucentWhite', engineBay: true },
-	{ id: 'fuseBox', label: 'Fuse box', strength: 'breaksEasily', phys: 'box', dims: box(220, 160, 90), localCenter: mm(1200, 680, -620), massKgSpec: 1.5, matKey: 'plasticBlackMatte', engineBay: true },
+	{ id: 'strutBrace', label: 'Strut brace', strength: 'breaksEasily', phys: 'capsuleX', dims: capX(900, 35), localCenter: mm(1416, 780, 0), massKgSpec: 2.5, matKey: 'steelBrushed', engineBay: true },
+	{ id: 'alternator', label: 'Alternator', strength: 'firm', phys: 'box', dims: box(150, 140, 160), localCenter: mm(1612, 480, -104), massKgSpec: 5, matKey: 'castAluminum', engineBay: true },
+	{ id: 'coolantReservoir', label: 'Coolant + washer reservoir', strength: 'breaksEasily', phys: 'box', dims: box(300, 150, 220), localCenter: mm(1362, 700, 540), massKgSpec: 2, matKey: 'plasticTranslucentWhite', engineBay: true },
+	{ id: 'fuseBox', label: 'Fuse box', strength: 'breaksEasily', phys: 'box', dims: box(220, 160, 90), localCenter: mm(1307, 680, -644), massKgSpec: 1.5, matKey: 'plasticBlackMatte', engineBay: true },
 
 	// ---- Interior (§2, priority 2) ----
 	// ALL 8 interior components (driverSeat, passengerSeat, rearBench, dashboard, steeringColumn,
@@ -158,7 +172,9 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// dash/console/wheel/pedals, so these procedural boxes were pure grey-box duplicates visible
 	// through the glass (screenshot-confirmed: game/verify/audit-cardetail/interior-through-side-
 	// glass.png before this cull showed grey dashboard/steering-column/console shapes floating inside
-	// the model's own molded cabin). See this file's top doc comment.
+	// the model's own molded cabin). See this file's top doc comment. STAYS CULLED for the S90 swap --
+	// the S90 GLB molds its own Dashboard/CenterConsole/SteeringWheel/Driver+Passenger+Rear Seats
+	// meshes (see export-validation.json), same "model's models" rationale.
 
 	// ---- Underbody / extremities (§3, priority 3) ----
 	// catConverter CULLED here -- catalytic converters did not exist on any 1965 car (first mandated
@@ -173,36 +189,50 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// mufflerTailpipe/rearBumperBeam/taillightL/R 265-380mm out the back of the real body envelope.
 	// Repositioned (Z only, forward toward the axle) so each sits fully inside the measured envelope
 	// with a small (~30-40mm) clearance margin instead of clipping through the rear bumper skin.
-	{ id: 'mufflerTailpipe', label: 'Muffler + tailpipe', strength: 'firm', phys: 'box', dims: box(700, 200, 180), localCenter: mm(-1550, 260, 200), massKgSpec: 12, matKey: 'stainlessBrushed', engineBay: false },
-	{ id: 'fuelTank', label: 'Fuel tank', strength: 'rigid', phys: 'box', dims: box(900, 500, 250), localCenter: mm(-1150, 280, 0), massKgSpec: 40, matKey: 'steelMattePowder', engineBay: false },
-	{ id: 'frontSubframe', label: 'Front subframe', strength: 'rigid', phys: 'box', dims: box(1000, 900, 200), localCenter: mm(1450, 280, 0), massKgSpec: 35, matKey: 'steelMattePowder', engineBay: false },
-	{ id: 'rearSubframe', label: 'Rear subframe', strength: 'rigid', phys: 'box', dims: box(950, 900, 200), localCenter: mm(-1450, 280, 0), massKgSpec: 30, matKey: 'steelMattePowder', engineBay: false },
-	{ id: 'driveshaft', label: 'Driveshaft', strength: 'firm', phys: 'capsuleZ', dims: capZ(1400, 35), localCenter: mm(-150, 260, 0), massKgSpec: 9, matKey: 'steelBrushed', engineBay: false },
+	// S90 SWAP: the mufflerTailpipe proxy stays MODELED_PROXY (hidden while attached) -- the S90 GLB
+	// has a real "Exhaust System" mesh node (measured world z -2.42..-1.81, x +-0.78) roughly matching
+	// this proxy's rear-underbody position, unlike engineBlock/driveshaft below (see MODELED_PROXY_IDS).
+	{ id: 'mufflerTailpipe', label: 'Muffler + tailpipe', strength: 'firm', phys: 'box', dims: box(700, 200, 180), localCenter: mm(-1689, 260, 208), massKgSpec: 12, matKey: 'stainlessBrushed', engineBay: false },
+	{ id: 'fuelTank', label: 'Fuel tank', strength: 'rigid', phys: 'box', dims: box(900, 500, 250), localCenter: mm(-1253, 280, 0), massKgSpec: 40, matKey: 'steelMattePowder', engineBay: false },
+	{ id: 'frontSubframe', label: 'Front subframe', strength: 'rigid', phys: 'box', dims: box(1000, 900, 200), localCenter: mm(1580, 280, 0), massKgSpec: 35, matKey: 'steelMattePowder', engineBay: false },
+	{ id: 'rearSubframe', label: 'Rear subframe', strength: 'rigid', phys: 'box', dims: box(950, 900, 200), localCenter: mm(-1580, 280, 0), massKgSpec: 30, matKey: 'steelMattePowder', engineBay: false },
+	// S90 SWAP: driveshaft is NO LONGER a MODELED_PROXY (the S90 GLB has no modeled drivetrain/
+	// driveshaft node, unlike the Mustang's split-mustang.py Drivetrain sub-split) -- its procedural box
+	// is now VISIBLE while attached (see MODELED_PROXY_IDS below).
+	{ id: 'driveshaft', label: 'Driveshaft', strength: 'firm', phys: 'capsuleZ', dims: capZ(1400, 35), localCenter: mm(-163, 260, 0), massKgSpec: 9, matKey: 'steelBrushed', engineBay: false },
 	// Control arms (28-31): re-ordered -- the spec's first dim (450/420mm) is the arm's LENGTH, which
 	// spans mostly LATERALLY (inner bushing near the centerline to the outer ball joint at the hub), not
 	// front-to-back.
 	// MUSTANG-65 REFIT: lateral centre pulled 850 -> 720mm so the arm's 450mm span (half 225mm) stays
 	// inside the narrower Mustang body (car-map half-width ~968mm vs the concept car's ~1271mm).
-	{ id: 'flControlArm', label: 'Front-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, -720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'frControlArm', label: 'Front-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1350, 320, 720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'rlControlArm', label: 'Rear-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, -720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
-	{ id: 'rrControlArm', label: 'Rear-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1350, 320, 720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
+	// S90 SWAP: lateral centre kept at 720mm (the S90/Mustang front TRACK ratio is 1629/1619 = 1.0062,
+	// negligible) -- using the overall body-width ratio instead would have pushed the arm's outboard
+	// tip (720+225=945mm) past the S90 front wheel's own outer tire face (~939mm), a visible overshoot.
+	{ id: 'flControlArm', label: 'Front-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1471, 320, -720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'frControlArm', label: 'Front-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 450, 80), localCenter: mm(1471, 320, 720), massKgSpec: 5, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'rlControlArm', label: 'Rear-left lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1471, 320, -720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
+	{ id: 'rrControlArm', label: 'Rear-right lower control arm', strength: 'firm', phys: 'box', dims: box(100, 420, 80), localCenter: mm(-1471, 320, 720), massKgSpec: 6, matKey: 'steelBrushed', engineBay: false },
 	// Bumper beams (32-33): "span" bars, modeled as a lateral (local X) capsule, same rationale as the
 	// strut brace above.
-	{ id: 'frontBumperBeam', label: 'Front bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1300, 55), localCenter: mm(2230, 430, 0), massKgSpec: 8, matKey: 'steelMattePowder', engineBay: false },
+	{ id: 'frontBumperBeam', label: 'Front bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1300, 55), localCenter: mm(2430, 430, 0), massKgSpec: 8, matKey: 'steelMattePowder', engineBay: false },
 	// Rear-overhang correction (see mufflerTailpipe's comment above) -- moved forward from the spec's
 	// literal -2150mm so the beam's box sits inside the real rear envelope instead of poking through.
-	{ id: 'rearBumperBeam', label: 'Rear bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1250, 55), localCenter: mm(-1850, 430, 0), massKgSpec: 9, matKey: 'steelMattePowder', engineBay: false },
+	{ id: 'rearBumperBeam', label: 'Rear bumper beam', strength: 'firm', phys: 'capsuleX', dims: capX(1250, 55), localCenter: mm(-2016, 430, 0), massKgSpec: 9, matKey: 'steelMattePowder', engineBay: false },
 	// Headlights (36-37): tiny (~9mm) front-overhang overshoot from the same spec/real-asset mismatch
 	// (see mufflerTailpipe's comment) -- nudged back 30mm to clear the real front envelope.
 	// MUSTANG-65 REFIT: lateral centre 850 -> 760mm (headlight/taillight 350/300mm width inside the
 	// narrower body) and headlight forward-Z 2170 -> 2120mm so its 450mm-deep box stays inside the
 	// measured front envelope (car-map whole-body zMax ~2.36m).
-	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2120, 620, -760), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
-	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2120, 620, 760), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	// S90 SWAP: the length-scaled forward position (2120*1.0895=2310mm) would put this box's front face
+	// (2310+225=2535mm) 18mm PAST the S90's measured whole-body zMax (2517mm, car-map.ts
+	// overallCenterMm.z/1000 + CAR_LENGTH_M/2) -- manually nudged back to 2250mm instead (front face
+	// 2475mm, ~40mm clearance, matching this file's established margin convention). Lateral scaled by
+	// the body-width ratio (1.0389): 760 -> 790mm.
+	{ id: 'headlightL', label: 'Headlight L', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2250, 620, -790), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
+	{ id: 'headlightR', label: 'Headlight R', strength: 'breaksEasily', phys: 'box', dims: box(450, 350, 250), localCenter: mm(2250, 620, 790), massKgSpec: 3.5, matKey: 'lensClear', engineBay: false },
 	// Rear-overhang correction (see mufflerTailpipe's comment above).
-	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, -760), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
-	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1700, 620, 760), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	{ id: 'taillightL', label: 'Taillight L', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1852, 620, -790), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
+	{ id: 'taillightR', label: 'Taillight R', strength: 'breaksEasily', phys: 'box', dims: box(400, 300, 200), localCenter: mm(-1852, 620, 790), massKgSpec: 1.8, matKey: 'lensRed', engineBay: false },
 	// Side mirrors (38-39): "projects outboard" -- the spec's first dim (200mm) is explicitly the
 	// outboard (lateral) projection, so lateral is re-ordered to the first column here. FOUND BY THE
 	// AUDIT: the spec's literal specUp=1150mm (ground-referenced) sits almost exactly at the real
@@ -217,8 +247,9 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
 	// overallDimsMm.width 1936mm, half 968mm) sits the mirror's outboard face at ~940mm, right at the
 	// flank (was tuned to the concept car's 2542mm/half-1271mm body); still projects ~40mm past the
 	// door's outer surface (car-map DoorL X up to ~905mm).
-	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, -840), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
-	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(550, 950, 840), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	// S90 SWAP: forward/lateral scaled by the length/width ratios (550->599mm, 840->873mm).
+	{ id: 'mirrorL', label: 'Side mirror L', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(599, 950, -873), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
+	{ id: 'mirrorR', label: 'Side mirror R', strength: 'breaksEasily', phys: 'box', dims: box(150, 200, 180), localCenter: mm(599, 950, 873), massKgSpec: 0.9, matKey: 'paintGeneric', engineBay: false },
 ];
 
 /**
@@ -247,8 +278,18 @@ export const CAR_DETAIL_SPECS: readonly CarDetailSpec[] = [
  * re-export was needed (Drivetrain already exists, split-mustang.py's original EngineBlock/Drivetrain
  * divide already isolates it) -- same "hide the box, let the model be the crash's normal visual, box
  * only earns its keep as the flying-debris MASS" treatment as engineBlock above.
+ *
+ * VOLVO S90 SWAP (2026-07-11), REVERSED for engineBlock/driveshaft: unlike the Mustang, the S90 GLB
+ * has NO modeled engine -- its own "EngineBlock" node is a 72-vertex/36-face FILLER box (an empty bay
+ * under the hood, per the swap-plan's P0-A blend inventory), and there is no Drivetrain/driveshaft
+ * node at all. Hiding the procedural engineBlock/driveshaft proxies here would leave both spaces
+ * genuinely EMPTY (worse than a grey box) -- so both are REMOVED from this set, making their proxies
+ * VISIBLE while attached again (the "grey box IS the crash's normal visual" fallback, same as any
+ * other non-modeled underbody part in this table). mufflerTailpipe STAYS modeled-proxy: the S90 GLB
+ * does have a real "Exhaust System" mesh node (measured world z -2.42..-1.81, x +-0.78, roughly
+ * matching this proxy's rear-underbody position), so hiding the grey box behind it is still correct.
  */
-export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['engineBlock', 'driveshaft', 'mufflerTailpipe']);
+export const MODELED_PROXY_IDS: ReadonlySet<string> = new Set(['mufflerTailpipe']);
 
 /**
  * TIER-3 STAGE 3 (open engine bay, docs/build-log/specs/compound-hull-design.md): parts in this set

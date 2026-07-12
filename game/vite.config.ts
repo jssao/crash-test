@@ -59,6 +59,11 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         crashLab: path.resolve(__dirname, 'crash-lab.html'),
+        // model-viewer.html -> src/model-viewer/main.ts: a third independent page (a turntable
+        // gallery of every procedural/GLB model the game builds). Reuses the same renderer/env/
+        // model builders; `npm run dev` serves it with no config (Vite auto-serves root .html),
+        // this line only matters for `vite build`/`vite preview`.
+        modelViewer: path.resolve(__dirname, 'model-viewer.html'),
       },
     },
   },

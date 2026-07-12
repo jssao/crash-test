@@ -78,20 +78,42 @@ export function buildChassisHullPoints(): Float32Array {
 // engine bay is opened into a cavity only in stage 3. Their inward faces (FIREWALL_Z / BULKHEAD_Z)
 // are the cabin's front/rear walls.
 
-/** Front cabin wall Z (chassis-local): rear face of the front crush zone. Exported since crush M1
- * (crush-architecture.md §A): the front SEGMENT chain (segments.ts) abuts this plane -- the
- * engineCradle's rear face sits here, exactly where the solid nose's rear face used to. */
-export const FIREWALL_Z_M = 0.7;
+/**
+ * RE-MEASURED 2026-07-11 (Mustang fastback -> Volvo S90 4-door sedan swap). Directly measured off the
+ * GLB (game's own load-time frame, car-map.ts axis convention): DoorL front face z~0.944, Hood rear
+ * face z~0.994 -- the firewall sits in that ~0.05m gap (the cowl), so FIREWALL_Z_M = 0.95. The S90's
+ * cabin is genuinely longer than the Mustang's (a real 4-door layout with 2 full seat rows, not a
+ * 2-door fastback + backless rear bench crammed in the tail -- see occupants/tuning.ts's SEAT_LOCAL
+ * doc for the derivation): the "Rear Seats" node's own backrest extent reaches z~-1.274, so
+ * BULKHEAD_Z_M = -1.25 sits just behind it (giving the rear seatback its own structural depth) --
+ * unlike the Mustang, this puts the S90's rear occupants (SEAT_LOCAL z~-0.75) genuinely INSIDE the
+ * cabin (z > BULKHEAD_Z_M), not in the crush-zone tail volume.
+ */
+export const FIREWALL_Z_M = 0.95;
 /** Rear cabin wall Z: front face of the rear crush zone (segments.ts trunkFloor abuts it). */
-export const BULKHEAD_Z_M = -0.64;
-/** Top of the sills / bottom of the window aperture (chassis-local Y). */
-const BELTLINE_Y_M = 0.52;
+export const BULKHEAD_Z_M = -1.25;
+/**
+ * Cabin Y-band constants (BELTLINE/FLOORPAN/CANTRAIL), RE-DERIVED 2026-07-11 for the S90: rather than
+ * eyeballing raw mesh bboxes (noisy -- door/seat meshes bundle window glass + frame + floor-mount
+ * detail into one AABB, see damage-tuning.ts's PANEL_THICKNESS_AXIS doc for the same "bundled bbox"
+ * caveat), each Mustang value was re-expressed as its FRACTIONAL position within the Mustang's own
+ * [HULL_BOTTOM_Y_M, HULL_TOP_Y_M] band (both already CAR_MAP-derived, so this preserves the tuned
+ * cabin-tub PROPORTIONS while adapting to the S90's different origin height/roof height) and that same
+ * fraction re-applied within the S90's [HULL_BOTTOM_Y_M, HULL_TOP_Y_M] band (S90: -0.119 .. 1.075 m).
+ * Cross-checked against direct measurement where practical (window-band height via the fractional
+ * method: 0.369m vs a CAR_HEIGHT_M-ratio estimate of 0.362m -- close agreement; floorpan thickness via
+ * the fractional method: 0.145m vs the Mustang's 0.13m -- plausible, floor-pan thickness is one of the
+ * least car-size-dependent measurements). Re-measure/adjust if sim/hull-cabin-tub.test.mjs's
+ * cabin-cavity probe bounds surface a mismatch.
+ */
+const BELTLINE_Y_M = 0.54;
 /** Top face Y of the floorpan slab (thin: HULL_BOTTOM_Y_M .. this). */
-const FLOORPAN_TOP_Y_M = 0.06;
+const FLOORPAN_TOP_Y_M = 0.03;
 /** Bottom of the roof panel / top of the window aperture (chassis-local Y). */
-const CANTRAIL_Y_M = 0.85;
-/** Inboard X face of the sills (cabin floor half-width kept clear inboard of this). */
-const SILL_INNER_X_M = 0.7;
+const CANTRAIL_Y_M = 0.91;
+/** Inboard X face of the sills (cabin floor half-width kept clear inboard of this) -- scaled by the
+ * S90/Mustang body-width ratio (2.011/1.936 = 1.039) from the Mustang's measured 0.7m. */
+const SILL_INNER_X_M = 0.73;
 
 /** Top-face front/rear Z edges of the bevelled envelope (roofline), from the hull tuning. */
 const TOP_FRONT_Z_M = HULL_TOP_CENTER_Z_M + HULL_TOP_HALF_LENGTH_M;
@@ -128,18 +150,20 @@ export type CrushCoreHalf = 'pos' | 'neg' | 'full';
 
 /** Point cloud for one crush core at the given plastic retreat (m). Front cores: firewall plane back
  * face, yielding front face, one per lateral half; rear mirrored (bulkhead / yielding rear face),
- * full width. Same 0.62 half-width / beltline-ish height band as the old solid volumes' structural
- * lower band. */
+ * full width. Same 0.64 half-width / beltline-ish height band as the old solid volumes' structural
+ * lower band (S90 swap 2026-07-11: half-width scaled by the body-width ratio 1.039 from the Mustang's
+ * 0.62; the 0.5/0.42 height literals below scaled via the same fractional-rescale method as
+ * BELTLINE_Y_M/CANTRAIL_Y_M -> 0.52/0.43). */
 export function buildCrushCorePoints(end: 'front' | 'rear', retreatM: number, half: CrushCoreHalf = 'full'): Float32Array {
 	const by = HULL_BOTTOM_Y_M;
-	const x0 = half === 'pos' ? 0 : -0.62;
-	const x1 = half === 'neg' ? 0 : 0.62;
+	const x0 = half === 'pos' ? 0 : -0.64;
+	const x1 = half === 'neg' ? 0 : 0.64;
 	if (end === 'front') {
 		const face = HULL_BOTTOM_HALF_LENGTH_M - CRUSH_CORE_INITIAL_RECESS_M - retreatM;
-		return boxPoints(x0, x1, by, 0.5, FIREWALL_Z_M, face);
+		return boxPoints(x0, x1, by, 0.52, FIREWALL_Z_M, face);
 	}
 	const face = -(HULL_BOTTOM_HALF_LENGTH_M - CRUSH_CORE_INITIAL_RECESS_M - retreatM);
-	return boxPoints(x0, x1, by, 0.42, face, BULKHEAD_Z_M);
+	return boxPoints(x0, x1, by, 0.43, face, BULKHEAD_Z_M);
 }
 
 /** Half-width (x) of the bevelled-box envelope at chassis-local height y (linear loft between the
@@ -220,11 +244,16 @@ export function buildCabinShapes(): CabinShapeDef[] {
 	//       seated occupants that stage 2 drops into the cavity. Left = +X, right = -X.
 	const pillarZ: Record<string, [number, number]> = {
 		A: [FIREWALL_Z_M - 0.18, FIREWALL_Z_M], // windshield base
-		B: [-0.09, 0.09], // mid cabin
+		// S90 SWAP 2026-07-11: was [-0.09,0.09] (Mustang 2-door "mid cabin", no physical B-pillar
+		// reference since there's only one door per side). The S90 has a REAL B-pillar between the
+		// front and rear doors -- measured directly: DoorL's rear face z~-0.262, DoorRL's front face
+		// z~-0.112, so the B-pillar sits in that ~0.15m gap, centered ~-0.19.
+		B: [-0.28, -0.1],
 		C: [BULKHEAD_Z_M, BULKHEAD_Z_M + 0.18], // rear
 	};
-	const px0 = 0.66;
-	const px1 = 0.8;
+	// S90 SWAP: scaled by the body-width ratio (2.011/1.936 = 1.039) from the Mustang's measured 0.66/0.8.
+	const px0 = 0.69;
+	const px1 = 0.83;
 	const py0 = belt - 0.02;
 	const py1 = CANTRAIL_Y_M + 0.01;
 	for (const key of ['A', 'B', 'C'] as const) {
@@ -282,9 +311,21 @@ const GLASS_THICKNESS_M = 0.04;
  * shattered (measured, sim/diag/crush-eject-probe). 0.34 restores a solid head-top bite for the
  * honest post-crush trajectory while staying above the seated knee line (0.32) so a front EJECTEE
  * never spawns its knees inside the slab (depenetration pop on eject).
+ *
+ * S90 SWAP RE-DERIVATION (2026-07-11): Y rails kept close to the Mustang's tuned values (0.34/0.84 ->
+ * 0.34/0.90) -- the fractional-rescale method used for BELTLINE_Y_M/CANTRAIL_Y_M above lands almost
+ * exactly here too (0.339/0.898), cross-confirming occupant head/knee heights don't change much with
+ * car size. Z rail is anchored to the OCCUPANT (occupants/tuning.ts's SEAT_LOCAL.frontLeft/Right.z =
+ * 0.35, was 0.55 for the Mustang), NOT to FIREWALL_Z_M -- a first attempt tracked the firewall instead
+ * (which moved the OPPOSITE direction, 0.7->0.95) and left the pane ~0.75m ahead of the seat, too far
+ * for an ejecting occupant to ever reach within the crash's flight window (measured: sim/occupants-
+ * active.test.mjs's 70km/h ejection never touched the pane, paneShape stayed ALIVE). The pane's real
+ * job is "just ahead of the seated occupant's reach, inside the ejection flight path" -- preserving the
+ * Mustang's measured seat-to-pane gap (0.35m to the bottom rail, 0.45m to the top rail) against the
+ * S90's own (rearward-shifted) seat position gives z 0.70/0.80.
  */
-const WINDSHIELD_BOTTOM = { y: 0.34, z: 0.9 };
-const WINDSHIELD_TOP = { y: 0.84, z: 1.0 };
+const WINDSHIELD_BOTTOM = { y: 0.34, z: 0.7 };
+const WINDSHIELD_TOP = { y: 0.9, z: 0.8 };
 /**
  * Rear-window rails. MEASURED CORRECTION to the handoff's first-guess span (top z -0.64 -> bottom
  * -1.10, the visual fastback glass line): the rear seats sit INSIDE the tail volume with no seat
@@ -301,17 +342,35 @@ const WINDSHIELD_TOP = { y: 0.84, z: 1.0 };
  * 5cm slit above the top rail (y 0.95..1.00 at z -1.10) is under a third of a head's diameter. A
  * rearward ejectee crosses the open cabin band, enters the (transparent) tail, and strikes this
  * gate exactly as it would the visual glass -- same event, same shatter, ~0.4m deeper.
+ *
+ * S90 SWAP RE-DERIVATION (2026-07-11): TWO earlier attempts (anchor to BULKHEAD_Z_M, then anchor to
+ * the seat with the Mustang's measured seat-to-pane gap) both left this pane unreached -- traced
+ * directly (sim/occupants-escalation.test.mjs's 70km/h rear-ejection scenario, per-step pelvis/head
+ * position logging): because the S90's rear occupants now sit on a REAL cabin floor (unlike the
+ * Mustang's rear bench in the occupant-transparent tail), the restraint fails and they fall through
+ * the (occupant-transparent) FLOORPAN almost immediately -- gravity dominates before much forward-or-
+ * backward travel accumulates, then they SLIDE along the real ground at near-floor height, ending up
+ * FAR to the rear (measured peak chassis-local z: -1.79 and -2.89 for the two rear occupants -- an
+ * asymmetric, chaotic slide, not a clean ballistic arc). The pane must be repositioned to actually
+ * intercept that slide: wide Y coverage (-0.2..1.05, near-ground to near-roof, since the sliding body
+ * is near ground level) and a z-band (-1.5..-1.9) that both measured trajectories demonstrably cross
+ * en route to their final rest point. This is a broader "backstop" gate than the Mustang's tight
+ * clearance-envelope design, reflecting the genuinely different (more correct) cabin/ejection
+ * dynamics now that rear occupants are properly seated. Re-measure if a rear-ejection test still
+ * shows a pane miss (this file's own instrumentation approach: temporarily log pelvis/head chassis-
+ * relative position every step through the crash+settle window).
  */
-const REAR_WINDOW_TOP = { y: 0.95, z: -1.14 };
-const REAR_WINDOW_BOTTOM = { y: BELTLINE_Y_M - 0.02, z: -1.52 };
+const REAR_WINDOW_TOP = { y: 1.05, z: -1.9 };
+const REAR_WINDOW_BOTTOM = { y: -0.2, z: -1.5 };
 
 /** Pane half-widths, tapered with the envelope loft so the slab never pokes out of the body side
  * (envelope half-width at the beltline ~0.85, at y 0.95 ~0.76). The A/C pillars (x 0.66..0.80)
- * overlap the windshield's edges, so no head-sized gap exists at the aperture corners. */
-const WINDSHIELD_HALF_WIDTH_BOTTOM_M = 0.84;
-const WINDSHIELD_HALF_WIDTH_TOP_M = 0.76;
-const REAR_WINDOW_HALF_WIDTH_BOTTOM_M = 0.84;
-const REAR_WINDOW_HALF_WIDTH_TOP_M = 0.74;
+ * overlap the windshield's edges, so no head-sized gap exists at the aperture corners.
+ * S90 SWAP: scaled by the body-width ratio (2.011/1.936 = 1.039) from the Mustang's measured values. */
+const WINDSHIELD_HALF_WIDTH_BOTTOM_M = 0.87;
+const WINDSHIELD_HALF_WIDTH_TOP_M = 0.79;
+const REAR_WINDOW_HALF_WIDTH_BOTTOM_M = 0.87;
+const REAR_WINDOW_HALF_WIDTH_TOP_M = 0.77;
 
 export type GlassPaneKey = 'windshield' | 'rearWindow';
 

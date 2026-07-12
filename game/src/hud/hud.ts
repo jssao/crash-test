@@ -19,10 +19,15 @@ const PANEL_LABELS: Record<PanelKey, string> = {
 	hood: 'Hood',
 	doorL: 'Door L',
 	doorR: 'Door R',
+	doorRL: 'Rear Door L',
+	doorRR: 'Rear Door R',
 	trunk: 'Trunk',
 };
-const PANEL_ORDER: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'trunk'];
-const PANEL_ABBR: Record<PanelKey, string> = { hood: 'HD', doorL: 'DL', doorR: 'DR', trunk: 'TR' };
+// S90 swap 2026-07-11: extended with the rear doors (doorRL/doorRR) -- a plain array, NOT a
+// Record<PanelKey,...>, so the compiler does NOT force this update when PanelKey gains members (see
+// docs/loom/p0b-mustang-coupling.md §5's "silent trap" callout); kept in sync by hand here.
+const PANEL_ORDER: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'doorRL', 'doorRR', 'trunk'];
+const PANEL_ABBR: Record<PanelKey, string> = { hood: 'HD', doorL: 'DL', doorR: 'DR', doorRL: 'RL', doorRR: 'RR', trunk: 'TR' };
 const WHEEL_LABELS: Record<WheelKey, string> = { fl: 'Front L', fr: 'Front R', rl: 'Rear L', rr: 'Rear R' };
 const WHEEL_ORDER: readonly WheelKey[] = ['fl', 'fr', 'rl', 'rr'];
 
@@ -102,7 +107,7 @@ export function createHud(mount: HTMLElement): HudController {
 	mount.innerHTML = `
 		<div class="hud-panel hud-title-block">
 			<div class="hud-title">box3d crash sandbox</div>
-			<div class="hud-credits">car: "Rigged Car Mustang 1965 with Engine" by Godspeed, CC BY 4.0 &middot; HDRI: Poly Haven &middot;
+			<div class="hud-credits">car: Volvo S90 &middot; HDRI: Poly Haven &middot;
 				<a href="./CREDITS.md" target="_blank" rel="noopener">credits</a>
 				&middot; quality: <span id="hud-quality-value">-</span>
 				&middot; <a href="./crash-lab.html" title="Standardized NHTSA/IIHS-style crash test protocols on this car">Crash Lab</a></div>

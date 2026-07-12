@@ -26,7 +26,9 @@ import { FIXED_DT, FIXED_SUBSTEPS, CHASSIS_ORIGIN_HEIGHT_M, VISUAL_RIDE_LIFT_M }
 import { FixedStepAccumulator, InterpolatedTransform } from '../core/loop';
 import { installPointerInput, consumeDragDelta, consumeZoomDelta } from '../input/pointer';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageEvent } from '../damage/system';
-import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBindings } from '../scene/carDeformables';
+import { registerCarDeformables, syncCarDeformablesToThree, checkCarDeformablesSync, type CarDeformableBindings } from '../scene/carDeformables';
+import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, maxStructuralOffsetM, type StructuralCrushState } from '../scene/structuralCrush';
+import { getSegmentTelemetry } from '../vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from '../scene/panelVisuals';
 import { resetCrumpleRegistry } from '../damage/crumple';
 import { PANEL_KEYS, type PanelKey } from '../damage/panels';
@@ -44,6 +46,7 @@ import {
 	effectiveRunParams,
 	type BarrierRig,
 } from './barriers';
+import { spawnCrashTarget, installCrashTargetPicker, type CrashTargetHandle } from './crashTargets';
 import {
 	measureAllCrush,
 	createChassisDecelTracker,
@@ -68,12 +71,38 @@ declare global {
 			setOrbitView: (opts: { radius?: number; height?: number; targetHeight?: number }) => void;
 			setFixedAngle: (radians: number | null) => void;
 			setFreeConfig: (next: Partial<FreeConfigState>) => void;
+			/** Select a model crash-target (spawns ahead of the car in place of the barrier), or null for
+			 * the normal barrier. See ./crashTargets.ts's CRASH_TARGETS for ids. */
+			setCrashTarget: (id: string | null) => void;
+			setCrashTargetDistance: (m: number) => void;
 			readonly readout: ReadoutData;
 			readonly runState: RunState;
 			readonly runElapsedS: number;
 			readonly runTotalS: number;
 			exportReport: () => unknown;
 			liveHandleCount: () => number;
+			/** Diagnostic (verify-harness eyes-on support): per-registered-deformable damage summary --
+			 * which meshes actually took the crumple, how deep, and where they sit. */
+			dumpDeformables: () => {
+				id: string;
+				kind: string;
+				attachedTo: string;
+				vertexCount: number;
+				dentedCount: number;
+				maxOffsetM: number;
+				centerLocal: { x: number; y: number; z: number };
+				boundsRadius: number;
+			}[];
+			/** Diagnostic: max |rendered THREE geometry - crumple registry positions| per binding (m) --
+			 * proves whether syncCarDeformablesToThree() actually reached the rendered meshes. */
+			deformableSyncCheck: () => { id: string; maxErrorM: number }[];
+			/** Diagnostic: hide/show the barrier rig visual so screenshots can see the crushed nose. */
+			setRigVisible: (visible: boolean) => void;
+			/** Diagnostic: max structural-crush visual displacement (m) currently applied to the shell
+			 * (scene/structuralCrush.ts) -- >0 proves the mechanical crush reached the rendered body. */
+			maxStructuralOffsetM: () => number;
+			/** Diagnostic: per-panel accumulated weld stress (damage-tuning.ts threshold calibration). */
+			panelStress: () => Record<string, number>;
 		};
 	}
 }
@@ -96,6 +125,7 @@ async function main() {
 			slowMo = !slowMo;
 			hud.setSlowMo(slowMo);
 		},
+		onToggleBarrier: () => setBarrierHidden(!barrierHidden),
 		onExport: () => downloadReport(),
 		onCameraPreset: (preset) => applyCameraPreset(preset),
 		onFreeConfigChange: (next) => {
@@ -132,6 +162,9 @@ async function main() {
 
 	let damageSystem: DamageSystem = createDamageSystem(vehicle);
 	const carDeformables: CarDeformableBindings = registerCarDeformables(damageSystem, car.root, vehicle.panels);
+	// Structural-crush visual pass (scene/structuralCrush.ts): the rendered shell follows the
+	// MECHANICAL crush (segment telemetry), on top of the contact-dent crumple.
+	const structuralCrush: StructuralCrushState = createStructuralCrushState(damageSystem.registry.meshes);
 	const panelVisuals: Record<PanelKey, PanelVisual> = createPanelVisuals(car.root);
 
 	const originalGlassMaterials = new Map<string, THREE.Material>();
@@ -168,7 +201,10 @@ async function main() {
 	}
 	damageSystem.emitter.on(handleDamageEvent);
 
-	const featureCtx: FeatureContext = { world, scene, getVehicle: () => vehicle, carRoot: car.root, quality };
+	// foreignMasses: the lab's barriers deliberately opt OUT of mass registration (src/lab/barriers.ts's
+	// doc comment -- barriers must read wall-like), so the lab threads the damage system's own map through
+	// purely to satisfy the shared FeatureContext contract; the occupants feature never writes to it.
+	const featureCtx: FeatureContext = { world, scene, getVehicle: () => vehicle, carRoot: car.root, quality, foreignMasses: damageSystem.foreignMasses };
 	const occupantsFeature: WorldFeature = await createOccupantsFeature(featureCtx);
 	const occHooks = () => occupantsFeature.hooks as { occupantStates?: () => OccupantStateLike[]; matchVehicleVelocity?: () => void } | undefined;
 
@@ -229,6 +265,21 @@ async function main() {
 	let currentProtocolId: string = PROTOCOLS[0].id;
 	let freeConfig: FreeConfigState = { ...FREE_CONFIG_DEFAULT };
 	let barrierRig: BarrierRig | null = null;
+	// Crash-target extension (./crashTargets.ts): when a model target is selected it spawns AHEAD of
+	// the car IN PLACE OF the barrier wall, so you can crash into a single game model to troubleshoot
+	// its physics. `crashTargetId === null` keeps the normal barrier behaviour.
+	let crashTarget: CrashTargetHandle | null = null;
+	let crashTargetId: string | null = null;
+	let crashTargetDistanceM = 14;
+	// "Hide barrier" inspection toggle: the barrier rig is a wide opaque wall the car crushes AGAINST,
+	// so post-crash it hides exactly the damaged face -- this lets the player (and the verify harness)
+	// actually see the crush. Persists across runs until toggled back.
+	let barrierHidden = false;
+	function setBarrierHidden(hidden: boolean): void {
+		barrierHidden = hidden;
+		if (barrierRig) barrierRig.visual.visible = !hidden;
+		hud.setBarrierHidden(hidden);
+	}
 	let runState: RunState = 'idle';
 	let runElapsedS = 0;
 	let runTotalS = 0;
@@ -244,12 +295,17 @@ async function main() {
 			teardownBarrierRig(scene, barrierRig);
 			barrierRig = null;
 		}
+		if (crashTarget) {
+			crashTarget.teardown();
+			crashTarget = null;
+		}
 	}
 
 	/** Full car+damage rebuild at the pristine spawn pose -- mirrors game/src/main.ts's doCarRepair(),
 	 * minus the chase-camera/audio/destructible-world bookkeeping this lab has none of. */
 	function rebuildCarAndDamage(): void {
 		resetCrumpleRegistry(damageSystem.registry);
+		resetStructuralCrush(structuralCrush);
 		destroyVehicle(vehicle);
 		vehicle = createVehicle(world, SPAWN_POS, SPAWN_ROT);
 		vehicle.chassis.setLinearVelocity({ x: 0, y: 0, z: 0 });
@@ -260,7 +316,7 @@ async function main() {
 			w.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
 			w.body.setAwake(true);
 		}
-		damageSystem = createDamageSystem(vehicle, damageSystem.registry);
+		damageSystem = createDamageSystem(vehicle, damageSystem.registry, damageSystem.foreignMasses);
 		damageSystem.emitter.on(handleDamageEvent);
 		for (const key of PANEL_KEYS) {
 			const visual = panelVisuals[key];
@@ -270,7 +326,7 @@ async function main() {
 			const mesh = findDeformableMesh(meshId);
 			if (mesh) mesh.material = mat;
 		}
-		syncCarDeformablesToThree(carDeformables, vehicle.panels);
+		syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
 
 		const t = vehicle.chassis.getTransform();
 		chassisTransform.sample(t.position, t.rotation);
@@ -308,6 +364,13 @@ async function main() {
 		runState = 'idle';
 		vehicleGuideVelocity = null;
 		hud.setRunState('idle', 0, 0);
+		// Preview a selected model target ahead of the car so it's visible before launching.
+		if (crashTargetId) crashTarget = spawnCrashTarget(crashTargetId, { world, scene, vehicle, distanceAhead: crashTargetDistanceM, foreignMasses: damageSystem.foreignMasses });
+	}
+
+	function setCrashTarget(id: string | null): void {
+		crashTargetId = id;
+		resetLab();
 	}
 
 	function startRun(id: string = currentProtocolId): void {
@@ -320,7 +383,13 @@ async function main() {
 		runElapsedS = 0;
 		runTotalS = runDurationS(protocol, freeConfig);
 		runState = 'running';
-		barrierRig = spawnBarrierRig(world, scene, vehicle, protocol, freeConfig);
+		if (crashTargetId) {
+			// A model crash-target replaces the barrier: spawn it ahead, keep the protocol's launch.
+			crashTarget = spawnCrashTarget(crashTargetId, { world, scene, vehicle, distanceAhead: crashTargetDistanceM, foreignMasses: damageSystem.foreignMasses });
+		} else {
+			barrierRig = spawnBarrierRig(world, scene, vehicle, protocol, freeConfig);
+			barrierRig.visual.visible = !barrierHidden;
+		}
 		const launchVel = launchVehicle(vehicle, protocol, freeConfig);
 		// Trolley protocols: the car stays PARKED (launchVehicle already gave it zero velocity) and the
 		// TROLLEY carries the closing speed instead -- guiding the car here would mean re-asserting zero
@@ -390,8 +459,10 @@ async function main() {
 		if (barrierRig) guideBarrierRig(barrierRig, runElapsedS);
 		if (vehicleGuideVelocity && runElapsedS < vehicleGuideEndS) applyVehicleVelocity(vehicle, vehicleGuideVelocity);
 		stepDamageSystem(damageSystem, world, FIXED_DT);
-		syncCarDeformablesToThree(carDeformables, vehicle.panels);
+		updateStructuralCrush(structuralCrush, structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)));
+		syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
 		occupantsFeature.afterFixedStep?.(FIXED_DT);
+		crashTarget?.afterFixedStep(FIXED_DT);
 		sampleChassisDecel(decelTracker, vehicle.chassis.getLinearVelocity(), FIXED_DT);
 
 		const t = vehicle.chassis.getTransform();
@@ -465,6 +536,11 @@ async function main() {
 			freeConfig = { ...freeConfig, ...next };
 			hud.setFreeConfigValues(freeConfig);
 		},
+		setCrashTarget: (id) => setCrashTarget(id),
+		setCrashTargetDistance: (m) => {
+			crashTargetDistanceM = Math.max(4, Math.min(60, m));
+			if (crashTargetId) setCrashTarget(crashTargetId); // respawn preview at the new distance
+		},
 		get readout() {
 			return buildReadoutData();
 		},
@@ -479,7 +555,41 @@ async function main() {
 		},
 		exportReport: buildReport,
 		liveHandleCount: () => liveHandleCount(),
+		dumpDeformables: () =>
+			damageSystem.registry.meshes.map((m) => {
+				let maxOffsetM = 0;
+				for (let v = 0; v < m.vertexCount; v++) {
+					const ox = m.offsets[v * 3];
+					const oy = m.offsets[v * 3 + 1];
+					const oz = m.offsets[v * 3 + 2];
+					const mag = Math.sqrt(ox * ox + oy * oy + oz * oz);
+					if (mag > maxOffsetM) maxOffsetM = mag;
+				}
+				return {
+					id: m.id,
+					kind: m.kind,
+					attachedTo: m.attachedTo,
+					vertexCount: m.vertexCount,
+					dentedCount: m.dentedCount,
+					maxOffsetM,
+					centerLocal: { ...m.centerLocal },
+					boundsRadius: m.boundsRadius,
+				};
+			}),
+		deformableSyncCheck: () => checkCarDeformablesSync(carDeformables, vehicle.panels, structuralCrush),
+		setRigVisible: (visible) => setBarrierHidden(!visible),
+		maxStructuralOffsetM: () => maxStructuralOffsetM(structuralCrush),
+		panelStress: () => ({ ...getDamageTelemetry(damageSystem).stressLevels }),
 	};
+
+	// Crash-target picker (own injected DOM — leaves ./hud.ts untouched).
+	installCrashTargetPicker(document.body, {
+		onTarget: (id) => setCrashTarget(id),
+		onDistance: (m) => {
+			crashTargetDistanceM = m;
+			if (crashTargetId) setCrashTarget(crashTargetId);
+		},
+	});
 
 	resize();
 	hud.setLoadingProgress(1, 'ready');
@@ -519,6 +629,7 @@ async function main() {
 			if (visual) applyPanelVisual(visual, alpha);
 		}
 		occupantsFeature.applyVisuals?.(alpha);
+		crashTarget?.applyVisuals(alpha);
 		chassisTransform.applyTo(car.root, alpha);
 		car.root.translateY(-CHASSIS_ORIGIN_HEIGHT_M + VISUAL_RIDE_LIFT_M);
 

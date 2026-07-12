@@ -15,13 +15,19 @@ import type { PanelKey } from './panels';
 // Panel mass + geometry
 // ---------------------------------------------------------------------------------------------
 
-/** Per-panel mass, kg -- spec: "mass 12-18kg (door heavier than hood)". Mustang 2-door set (no roof):
- * hood + 2 doors + trunk lid. Sum (59kg) is exactly what game/src/vehicle/tuning.ts's CHASSIS_MASS_KG
- * was reduced by (1350 - 59 = 1291), so total car mass stays ~unchanged (1291 + 59 + 88 = 1438kg). */
+/** Per-panel mass, kg -- spec: "mass 12-18kg (door heavier than hood)". S90 4-door set (no roof):
+ * hood + 4 doors + trunk lid. RENUMBERED/RE-MASSED 2026-07-11 (S90 swap): rear doors added at ~15kg
+ * each (orchestrator decision -- minimum-recalibration swap, not a full re-mass to a realistic ~1750kg
+ * S90 curb weight). Sum (89kg) is exactly what game/src/vehicle/tuning.ts's CHASSIS_MASS_KG was
+ * reduced by (1350 - 89 = 1261), so total car mass stays EXACTLY 1438kg (1261 + 89 + 88 = 1438kg) --
+ * same total the damage/crush matrix was tuned against. See tuning.ts's CHASSIS_MASS_KG doc comment
+ * for a TODO on a later dedicated re-mass pass to the S90's real curb weight. */
 export const PANEL_MASS_KG: Record<PanelKey, number> = {
 	hood: 13,
 	doorL: 16,
 	doorR: 16,
+	doorRL: 15,
+	doorRR: 15,
 	trunk: 14,
 };
 
@@ -42,6 +48,8 @@ export const PANEL_THICKNESS_AXIS: Record<PanelKey, 'x' | 'y'> = {
 	hood: 'y',
 	doorL: 'x',
 	doorR: 'x',
+	doorRL: 'x', // rear doors are near-vertical panels too, same thin-lateral axis as the front doors
+	doorRR: 'x',
 	trunk: 'y', // trunk lid is a near-horizontal panel (car-map Trunk sizeMm.y=139mm, thin along Y)
 };
 
@@ -173,6 +181,46 @@ export const STRESS_K = 9;
 export const STRESS_LOOSEN_S1 = 28;
 export const STRESS_BREAK_S2 = 90;
 
+/**
+ * Per-panel BREAK threshold multiplier on STRESS_BREAK_S2 (the LOOSEN threshold S1 is untouched).
+ * REALISM DELTA (user playtest 2026-07-10 vs the NHTSA 56 km/h full-frontal reference): a hood at
+ * NCAP speed BUCKLES -- tents at mid-span, stays attached via hinges+latch -- it does not tear off;
+ * hood separation is a high-speed event. Measured hood stress on this car: ~99 @55 km/h, ~211
+ * @100 km/h (roughly speed-linear between), so 1.65x (break at ~148.5) keeps 55-64 km/h frontals at
+ * LOOSENED (the visual tent buckle, scene/structuralCrush.ts, carries the "damaged hood" read) while
+ * ~80+ km/h still tears the hood off, and damage-threshold-ordering.test.mjs's hard "100 km/h ->
+ * hood BROKEN" requirement keeps passing (211 > 148.5). Doors/trunk stay at 1x: crash-realism.
+ * test.mjs's 130 km/h side impact pins door break through the same global S2, and the hood-scoped
+ * form (rather than weakening PANEL_VULNERABILITY.hood.floor or raising S2 globally) is exactly what
+ * keeps crash-realism.test.mjs's panelDirectionalFactor(hood, frontal)~=1 unit pin intact.
+ */
+export const PANEL_BREAK_S2_MULT: Record<PanelKey, number> = {
+	hood: 1.65,
+	doorL: 1,
+	doorR: 1,
+	doorRL: 1, // rear doors: same vulnerability shape as the front doors (orchestrator decision)
+	doorRR: 1,
+	trunk: 1,
+};
+
+/**
+ * HOOD BREAK is additionally gated on MECHANICAL front crush depth (vehicle/segments.ts telemetry):
+ * the hood only tears off once the front structure carrying its hinges+latch has collapsed this far.
+ *
+ * WHY a crush gate and not stress alone (measured, __LAB__.panelStress timeline + sweep 2026-07-10):
+ * the same nominal crash produces wildly different accumulated-stress totals per rig -- the bare sim
+ * harness reads ~99 @55 km/h and ~211 @100 km/h, while the crash lab (occupant ragdolls, segment
+ * chain contacts, longer contact dwell) reads ~307 @56 and ~435 @80 -- lab-56 stress EXCEEDS sim-100
+ * stress, so no stress threshold can simultaneously keep an NCAP-speed hood attached (the reference
+ * behavior: it buckles, it does not fly off) and satisfy damage-threshold-ordering.test.mjs's hard
+ * "sim 100 km/h -> hood broken". Mechanical crush depth is rig-independent physics truth
+ * (segment-yield.test.mjs bands: 0.382 @56, 0.456 @64, 0.542 @80, 0.580 @120 -- lab measures the
+ * same +-0.02), so gating on it separates the regimes cleanly: 56/64 km/h stay under 0.52 ->
+ * LOOSENED (tented, attached); ~80+ km/h crosses -> hood tears off as before. The stress threshold
+ * (PANEL_BREAK_S2_MULT above) still applies on top -- both must hold to break.
+ */
+export const HOOD_BREAK_MIN_FRONT_CRUSH_M = 0.52;
+
 // ---------------------------------------------------------------------------------------------
 // Weld stress model -- DIRECTION-AWARE panel vulnerability (crash-deformation-reference.md).
 // ---------------------------------------------------------------------------------------------
@@ -219,6 +267,10 @@ export const PANEL_VULNERABILITY: Record<PanelKey, PanelVulnerability> = {
 	// loosened; a genuine side impact (dir.x~+/-1) gives ~full stress, so it still tears off.
 	doorL: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
 	doorR: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
+	// Rear doors (S90 swap): mirror the front doors exactly -- lateral-only vulnerability, floor 0 (a
+	// frontal/rear hit contributes nothing; only a genuine side impact tears a rear door off).
+	doorRL: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
+	doorRR: { axis: 'x', signed: 0, sharpness: 3, floor: 0 },
 	// Trunk lid: only vulnerable to a rear impact (dir.z < 0), same as the concept car's rear hatch. A
 	// frontal (dir.z > 0) gives nothing.
 	trunk: { axis: 'z', signed: -1, sharpness: 3, floor: 0 },

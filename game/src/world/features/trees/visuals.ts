@@ -1,560 +1,377 @@
 // SPDX-License-Identifier: MIT
 //
-// Three.js visuals for the 'trees' world feature: one trunk+canopy group per sapling/mid tree
-// (follows its own body's InterpolatedTransform, same pattern as world/visuals.ts's per-body
-// meshes), a static trunk+canopy mesh per large tree (never moves -- added directly, no per-frame
-// transform, matching world/visuals.ts's static-ramp treatment), and one small mesh per large-tree
-// branch (its own InterpolatedTransform).
+// Three.js visuals for the 'trees' world feature. Each tree is a real optimized GLB model (Tree Pack
+// 01, decimated + textured, see assets-src/CREDITS.md's tree entry) placed at — and driven by — its
+// physics trunk body, exactly the same renderer-free-physics <-> THREE bridge the rest of the game
+// uses (one InterpolatedTransform per tree, sampled after each fixed step, lerped each render frame).
 //
-// VISUAL TECHNIQUE (2026-07-09 tree-visuals pass -- replaces the earlier cone-canopy/procedural-
-// canvas-bark placeholder, see assets-src/CREDITS.md's "Tree canopy visuals pass" entry):
-//   - Trunks/branches: real Poly Haven CC0 `bark_brown_01` PBR set (diff+normal+roughness, staged
-//     since the original acquisition pass but never wired in) wraps a CylinderGeometry approximating
-//     the physics capsule (same "visual approximates, does not exactly match, the collision shape"
-//     convention as world/visuals.ts's barrel mesh). UV tiling is baked into each trunk's OWN uv
-//     attribute (scaleTrunkUVs()) rather than Texture.repeat, since one shared bark material spans
-//     sapling/mid/large/branch classes with very different radii/heights. A small seeded radial
-//     jitter (jitterTrunkSilhouette()) adds a root-flare read + bark-ridge silhouette wobble --
-//     purely cosmetic, the capsule underneath is untouched.
-//   - Canopies: alpha-cutout foliage CARDS (the standard game-vegetation technique), not solid
-//     cones -- clusters of 3 quads crossed 60 degrees apart (cheap fake-billboard volume from any
-//     viewing angle without per-frame billboarding, which is render-loop territory, not this file's)
-//     scattered through an oblate-spheroid canopy volume, biased toward the outer shell so the
-//     canopy doesn't read hollow. All cards for one tree merge into ONE geometry (mergeGeometries,
-//     same one-draw-call-per-canopy discipline the old cone code established) sampling a real photo
-//     leaf-cutout atlas (Poly Haven `tree_small_02`'s `leaves_*` maps -- see CREDITS.md) at two fixed
-//     UV sub-rects: a detailed alpha-cut leaf-cluster region (outer/silhouette cards) and a solid
-//     opaque leaf-mass region (inner/fill cards, cheaper, hidden by the outer shell). Per-cluster
-//     vertex-color tint (seeded) adds brightness variance plus a small deterministic chance of an
-//     autumn tint, tying the canopy palette to the forest floor's fallen-leaf litter texture.
-//   - Both materials are alpha-tested/opaque (never `transparent:true`) so a single merged multi-card
-//     mesh never needs per-triangle sort -- the standard cutout-foliage choice.
-//   - Broken/felled states are untouched: visuals still ride the existing bodies' transforms exactly
-//     as before (see bodies.ts) -- only how each body's mesh is BUILT changed, not which body drives
-//     which mesh.
+// REPLACES the earlier fully-procedural trunk-cylinder + foliage-card build. What changed is ONLY how
+// a tree's MESH is produced (a cloned GLB instead of built geometry) — NOT which body drives which
+// mesh, nor the public API (buildTreesVisuals / sampleTreesVisuals / applyTreesVisuals /
+// resnapTreesVisuals / disposeTreesVisuals, and the `.group` / `.saplings|.mids|.larges` bundle
+// shape), so ./index.ts and its feature-contract wiring are untouched. The tree PHYSICS
+// (./bodies.ts, ./tuning.ts) is likewise untouched — this file only reads dims/seeds from ./tuning.ts.
+//
+// GLB PRELOAD: the ~6 tree GLBs are loaded ONCE at module load via a top-level await, then CLONED per
+// instance (clone shares geometry + material, so 158 forest trees cost 6 geometry uploads, not 158).
+// Keeping the load at module scope lets buildTreesVisuals() stay synchronous — the feature factory in
+// ./index.ts calls it synchronously and needs no `await`. The load is browser-only (the headless sim
+// tests import ./bodies.ts directly, never this file), and is fully guarded: any model that fails to
+// fetch/parse falls back to a simple procedural tree so the feature can never fail to build.
 
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { InterpolatedTransform } from '../../../core/loop';
-import type { LargeTree, MidTree, SaplingTree, TreesWorld } from './bodies';
+import type { TreesWorld } from './bodies';
 import {
-	LARGE_BRANCH_LAYOUT,
-	LARGE_BRANCH_LENGTH_M,
-	LARGE_BRANCH_RADIUS_M,
 	LARGE_TRUNK_HEIGHT_M,
-	LARGE_TRUNK_RADIUS_M,
 	MID_TRUNK_HEIGHT_M,
-	MID_TRUNK_RADIUS_M,
 	mulberry32,
 	SAPLING_TRUNK_HEIGHT_M,
-	SAPLING_TRUNK_RADIUS_M,
 	TREES_RNG_SEED,
 } from './tuning';
 
 // ---------------------------------------------------------------------------------------------
-// Shared textures/materials (built once, reused by every tree of every class -- no per-instance
-// textures). Real CC0 Poly Haven photo assets, not procedural -- see assets-src/CREDITS.md.
+// Model catalog: which GLBs serve which size class (several per class → forest variety), plus the
+// canopy-factor that turns a class's physics TRUNK height into the whole tree's visual height (the
+// canopy sits above the trunk, so the visual tree is taller than the collision capsule — the standard
+// "visual approximates, does not exactly match, the collision shape" convention).
 // ---------------------------------------------------------------------------------------------
 
-const BARK_TEX_BASE = 'assets/trees/bark_brown_01';
-const LEAF_TEX_BASE = 'assets/trees/tree_small_02_leaves';
+const MODELS_BASE = 'assets/trees/models';
 
-/** Meters of trunk surface (both around the circumference AND up the height) per bark-texture
- * repeat -- baked into each trunk's own UV attribute by scaleTrunkUVs() rather than relying on
- * Texture.repeat, since ONE shared bark material spans sapling/mid/large/branch classes whose
- * radii/heights differ by an order of magnitude. */
-const BARK_TILE_M = 1.3;
+const CLASS_MODELS = {
+	sapling: ['tree_005', 'tree_004'],
+	mid: ['tree_022', 'tree_014'],
+	large: ['tree_013', 'tree_012'],
+} as const;
 
-function loadBarkTextures(): { diff: THREE.Texture; nor: THREE.Texture; rough: THREE.Texture } {
-	const loader = new THREE.TextureLoader();
-	const diff = loader.load(`${BARK_TEX_BASE}/bark_brown_01_diff_2k.jpg`);
-	const nor = loader.load(`${BARK_TEX_BASE}/bark_brown_01_nor_gl_2k.jpg`);
-	const rough = loader.load(`${BARK_TEX_BASE}/bark_brown_01_rough_2k.jpg`);
-	diff.colorSpace = THREE.SRGBColorSpace;
-	nor.colorSpace = THREE.NoColorSpace;
-	rough.colorSpace = THREE.NoColorSpace;
-	for (const t of [diff, nor, rough]) {
-		t.wrapS = t.wrapT = THREE.RepeatWrapping;
-		t.anisotropy = 4;
-	}
-	return { diff, nor, rough };
+const SAPLING_VISUAL_HEIGHT_M = SAPLING_TRUNK_HEIGHT_M * 1.55;
+const MID_VISUAL_HEIGHT_M = MID_TRUNK_HEIGHT_M * 1.28;
+const LARGE_VISUAL_HEIGHT_M = LARGE_TRUNK_HEIGHT_M * 1.35;
+
+// DISTANCE LOD (perf): the forest is ~158 trees (98 saplings / 38 mids / 22 larges), each a real GLB.
+// three.js already frustum-culls off-screen trees; this additionally hides trees beyond ~105 m from
+// the focus point (the car) — the far ON-screen forest that would otherwise pay full vertex+fill cost
+// every frame. Squared distances (no sqrt); a small show/hide hysteresis band kills boundary flicker.
+// applyTreesVisuals() does the per-frame cull; buildInstance() seeds the SAME cull from spawn so the
+// very first render (incl. the boot quality benchmark) doesn't pay for the whole forest either.
+const TREE_LOD_SHOW_M2 = 105 * 105;
+const TREE_LOD_HIDE_M2 = 114 * 114;
+
+interface TreeTemplate {
+	/** Recentered (base at y=0, centred in x/z) template scene, ready to clone. */
+	readonly scene: THREE.Object3D;
+	/** Native (pre-scale) height in metres, for the scale-to-class-height factor. */
+	readonly nativeHeight: number;
 }
 
-function loadLeafTextures(): { diff: THREE.Texture; alpha: THREE.Texture; nor: THREE.Texture } {
-	const loader = new THREE.TextureLoader();
-	const diff = loader.load(`${LEAF_TEX_BASE}/tree_small_02_leaves_diff_1k.jpg`);
-	const alpha = loader.load(`${LEAF_TEX_BASE}/tree_small_02_leaves_alpha_1k.png`);
-	const nor = loader.load(`${LEAF_TEX_BASE}/tree_small_02_leaves_nor_gl_1k.jpg`);
-	diff.colorSpace = THREE.SRGBColorSpace;
-	alpha.colorSpace = THREE.NoColorSpace;
-	nor.colorSpace = THREE.NoColorSpace;
-	for (const t of [diff, alpha, nor]) {
-		// Sampled at fixed atlas sub-rects only (see DETAIL/FILL rects below) -- never tiled.
-		t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-		t.anisotropy = 4;
-	}
-	return { diff, alpha, nor };
-}
+// ---------------------------------------------------------------------------------------------
+// Preload (top-level await, browser-only) — load every distinct GLB once, guarded per-model.
+// ---------------------------------------------------------------------------------------------
 
-export interface TreesMaterialSet {
-	bark: THREE.MeshStandardMaterial;
-	foliage: THREE.MeshStandardMaterial;
-}
-
-export function buildTreesMaterials(): TreesMaterialSet {
-	const barkTex = loadBarkTextures();
-	const leafTex = loadLeafTextures();
-	const bark = new THREE.MeshStandardMaterial({
-		map: barkTex.diff,
-		normalMap: barkTex.nor,
-		roughnessMap: barkTex.rough,
-		roughness: 1,
-		metalness: 0,
+function prepareTemplate(scene: THREE.Object3D): TreeTemplate {
+	scene.updateMatrixWorld(true);
+	const box = new THREE.Box3().setFromObject(scene);
+	const size = new THREE.Vector3();
+	const center = new THREE.Vector3();
+	box.getSize(size);
+	box.getCenter(center);
+	// Recenter: base on the ground (min.y -> 0), centred in x/z. The offset lives in the template
+	// root's own position (native units); an instance's scale-wrapper scales it along with the
+	// geometry, so the base stays pinned at the wrapper origin at any class scale.
+	scene.position.set(-center.x, -box.min.y, -center.z);
+	scene.traverse((o) => {
+		const mesh = o as THREE.Mesh;
+		if (mesh.isMesh) {
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+		}
 	});
-	const foliage = new THREE.MeshStandardMaterial({
-		map: leafTex.diff,
-		alphaMap: leafTex.alpha,
-		normalMap: leafTex.nor,
-		vertexColors: true,
-		roughness: 0.92,
-		metalness: 0,
-		// Cutout, not blend -- a merged multi-card mesh has no reliable per-triangle sort order, so
-		// alpha BLEND would produce visible ordering artifacts between overlapping cards. alphaTest
-		// (hard cutoff, depth-written like any opaque surface) is the standard vegetation-card choice.
-		alphaTest: 0.5,
-		side: THREE.DoubleSide,
-	});
-	return { bark, foliage };
+	return { scene, nativeHeight: Math.max(size.y, 0.01) };
 }
 
-export function disposeTreesMaterials(materials: TreesMaterialSet): void {
-	materials.bark.map?.dispose();
-	materials.bark.normalMap?.dispose();
-	materials.bark.roughnessMap?.dispose();
-	materials.bark.dispose();
-	materials.foliage.map?.dispose();
-	materials.foliage.alphaMap?.dispose();
-	materials.foliage.normalMap?.dispose();
-	materials.foliage.dispose();
+/** Dead-simple procedural stand-in (brown trunk + green blob) used only if a GLB fails to load, so
+ * the feature never fails to build. Native height ~4 m, recentered like a real template. */
+function fallbackTemplate(): TreeTemplate {
+	const group = new THREE.Group();
+	const trunk = new THREE.Mesh(
+		new THREE.CylinderGeometry(0.16, 0.22, 3, 6),
+		new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 1 }),
+	);
+	trunk.position.y = 1.5;
+	const canopy = new THREE.Mesh(
+		// Smooth (not faceted) so a last-resort fallback doesn't read as an obvious low-poly blob.
+		new THREE.IcosahedronGeometry(1.6, 3),
+		new THREE.MeshStandardMaterial({ color: 0x3f6b30, roughness: 0.95 }),
+	);
+	canopy.position.y = 3.4;
+	group.add(trunk, canopy);
+	return prepareTemplate(group);
 }
+
+/** Loads one tree GLB with a few RETRIES before giving up. A busy dev server / transient fetch hiccup
+ * (e.g. the server stalling under a concurrent load) was intermittently failing whole variants, which
+ * left every instance of that variant as the ugly procedural fallback (a faceted blob). Retrying with
+ * a short backoff makes the fallback a genuine last resort rather than a flaky-network artifact. */
+async function loadOneTemplate(loader: GLTFLoader, name: string, attempts = 3): Promise<TreeTemplate> {
+	for (let attempt = 1; attempt <= attempts; attempt++) {
+		try {
+			const gltf = await loader.loadAsync(`${MODELS_BASE}/${name}.glb`);
+			return prepareTemplate(gltf.scene);
+		} catch (err) {
+			if (attempt === attempts) {
+				console.warn(`[trees] ${name}.glb failed after ${attempts} attempts — using fallback:`, err);
+				return fallbackTemplate();
+			}
+			await new Promise((resolve) => setTimeout(resolve, 200 * attempt));
+		}
+	}
+	return fallbackTemplate();
+}
+
+async function loadTemplates(): Promise<Map<string, TreeTemplate>> {
+	const loader = new GLTFLoader();
+	const names = [...new Set(Object.values(CLASS_MODELS).flat())];
+	const out = new Map<string, TreeTemplate>();
+	await Promise.all(names.map(async (name) => out.set(name, await loadOneTemplate(loader, name))));
+	return out;
+}
+
+// Loaded once, at module evaluation. See the file header for why top-level await is safe here.
+const TEMPLATES: Map<string, TreeTemplate> = await loadTemplates();
 
 // ---------------------------------------------------------------------------------------------
-// Foliage atlas layout (tree_small_02_leaves_*): two hand-verified safe regions (checked by eye
-// against the downloaded 1024x1024 images -- the two regions are separated by a soft, diagonally-
-// wavy cutout boundary that sweeps roughly from u~0.83 at the top to u~0.47 at the bottom, so both
-// rects below are kept well clear of it on every edge).
+// Instance construction
 // ---------------------------------------------------------------------------------------------
 
-interface AtlasRect {
-	readonly u0: number;
-	readonly v0: number;
-	readonly u1: number;
-	readonly v1: number;
-}
-
-// Dense field of individually alpha-cut leaf-on-twig clusters (left ~40% of the atlas) -- diced into
-// a small grid purely so different cards can sample a different sub-crop (cheap per-card variety,
-// no extra texture memory). Used for outer/silhouette-facing cards.
-const DETAIL_U0 = 0.02;
-const DETAIL_U1 = 0.4;
-const DETAIL_V0 = 0.03;
-const DETAIL_V1 = 0.97;
-const DETAIL_COLS = 2;
-const DETAIL_ROWS = 4;
-
-// Solid, fully-opaque leaf-mass fill (right ~10% of the atlas, safely past the cutout boundary at
-// every row). Used for cheap interior/hidden canopy bulk where per-leaf detail would be wasted
-// overdraw.
-const FILL_RECT: AtlasRect = { u0: 0.9, v0: 0.05, u1: 0.995, v1: 0.95 };
-
-function detailRect(col: number, row: number): AtlasRect {
-	const w = (DETAIL_U1 - DETAIL_U0) / DETAIL_COLS;
-	const h = (DETAIL_V1 - DETAIL_V0) / DETAIL_ROWS;
-	const u0 = DETAIL_U0 + col * w;
-	const v0 = DETAIL_V0 + row * h;
-	return { u0, v0, u1: u0 + w, v1: v0 + h };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Canopy: foliage CARDS (alpha-cutout quads), not solid cones. Several small "clusters" (each a
-// 60-degree tri-cross of 3 quads, so the cluster reads from any viewing angle without per-frame
-// billboarding) are scattered through an oblate-spheroid volume and merged into ONE geometry per
-// tree (feature contract warning #3: deterministic seeded RNG, no bare Math.random).
-// ---------------------------------------------------------------------------------------------
-
-function paintVertexColors(geometry: THREE.BufferGeometry, color: THREE.Color): void {
-	const count = geometry.attributes.position.count;
-	const colors = new Float32Array(count * 3);
-	for (let i = 0; i < count; i++) {
-		colors[i * 3] = color.r;
-		colors[i * 3 + 1] = color.g;
-		colors[i * 3 + 2] = color.b;
-	}
-	geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-}
-
-/** Near-white multiply tint with mild per-cluster variance (the REAL leaf photo supplies most of
- * the color -- this only nudges brightness/greenness so identical atlas crops don't repeat
- * identically across a canopy), a seeded chance of an autumn amber/orange tint (ties the canopy
- * palette to the forest floor's fallen-leaf-litter ground texture), and a flat darkening for
- * inner/fill clusters (reads as canopy self-shadowing/occlusion without an actual light pass). */
-function clusterTint(rand: () => number, autumn: boolean, isOuter: boolean): THREE.Color {
-	const shade = isOuter ? 1.0 : 0.72;
-	if (autumn) {
-		const h = 0.05 + rand() * 0.07;
-		const s = 0.55 + rand() * 0.25;
-		const l = (0.4 + rand() * 0.16) * shade;
-		return new THREE.Color().setHSL(h, s, l);
-	}
-	const g = (0.82 + rand() * 0.32) * shade;
-	return new THREE.Color(g * 0.94, g * 1.03, g * 0.86);
-}
-
-function buildLeafCardGeometry(width: number, height: number, rect: AtlasRect): THREE.BufferGeometry {
-	const geo = new THREE.PlaneGeometry(width, height);
-	const uv = geo.attributes.uv as THREE.BufferAttribute;
-	for (let i = 0; i < uv.count; i++) {
-		const u = uv.getX(i);
-		const v = uv.getY(i);
-		uv.setXY(i, rect.u0 + u * (rect.u1 - rect.u0), rect.v0 + v * (rect.v1 - rect.v0));
-	}
-	uv.needsUpdate = true;
-	return geo;
-}
-
-/** One foliage "cluster": 3 quads crossed 60 degrees apart around a shared (random) yaw, all
- * sampling the SAME atlas crop + tint, positioned at `offset` (tree-local space). Rotation is baked
- * into the geometry (BufferGeometry.rotateX/Y apply their matrix to the normal attribute too, so
- * lighting stays correct without needing an explicit tangent attribute for the normal map -- three's
- * screen-space-derivative TBN fallback handles that). */
-function buildFoliageCluster(rand: () => number, offset: THREE.Vector3, size: number, useDetail: boolean, autumn: boolean): THREE.BufferGeometry {
-	const w = size * (0.85 + rand() * 0.3);
-	const h = size * (1.05 + rand() * 0.35);
-	const rect = useDetail ? detailRect(Math.floor(rand() * DETAIL_COLS), Math.floor(rand() * DETAIL_ROWS)) : FILL_RECT;
-	const baseYaw = rand() * Math.PI * 2;
-	const tilt = (rand() - 0.5) * 0.4;
-	const tint = clusterTint(rand, autumn, useDetail);
-	const pieces: THREE.BufferGeometry[] = [];
-	for (let k = 0; k < 3; k++) {
-		const geo = buildLeafCardGeometry(w, h, rect);
-		geo.rotateX(tilt);
-		geo.rotateY(baseYaw + (k * Math.PI) / 3);
-		geo.translate(offset.x, offset.y, offset.z);
-		paintVertexColors(geo, tint);
-		pieces.push(geo);
-	}
-	const merged = mergeGeometries(pieces, false) ?? new THREE.BufferGeometry();
-	for (const p of pieces) p.dispose();
-	return merged;
-}
-
-/** Builds one merged canopy geometry (tree-local space, y=0 at the cluster's own anchor point,
- * spanning roughly y in [0, baseHeight]) from `clusterCount` foliage clusters distributed through an
- * oblate-spheroid volume (radius baseRadius, height baseHeight), biased toward the outer shell so
- * the canopy doesn't read hollow in the middle while still keeping some cheaper interior "fill"
- * depth for parallax when driving past. Deterministic for a given `seed` (feature contract warning
- * #3 -- no bare Math.random). */
-function buildCanopyGeometry(seed: number, baseRadius: number, baseHeight: number, clusterCount: number): THREE.BufferGeometry {
-	const rand = mulberry32(seed);
-	const pieces: THREE.BufferGeometry[] = [];
-	for (let i = 0; i < clusterCount; i++) {
-		const theta = rand() * Math.PI * 2;
-		const phiCos = 1 - 2 * rand();
-		const sinPhi = Math.sqrt(Math.max(0, 1 - phiCos * phiCos));
-		const radial = Math.cbrt(0.3 + rand() * 0.7); // biased toward the outer shell
-		const sx = sinPhi * Math.cos(theta) * radial;
-		const sz = sinPhi * Math.sin(theta) * radial;
-		const sy = phiCos * radial;
-		const offset = new THREE.Vector3(sx * baseRadius, baseHeight * 0.5 + sy * baseHeight * 0.42, sz * baseRadius);
-		const isOuter = radial > 0.6;
-		const size = baseRadius * (isOuter ? 0.5 + rand() * 0.34 : 0.55 + rand() * 0.36);
-		const autumn = rand() < 0.14;
-		pieces.push(buildFoliageCluster(rand, offset, size, isOuter, autumn));
-	}
-	const merged = mergeGeometries(pieces, false) ?? new THREE.BufferGeometry();
-	for (const p of pieces) p.dispose();
-	merged.computeBoundingSphere();
-	return merged;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Trunk/branch geometry (CylinderGeometry approximating the physics capsule -- same convention as
-// world/visuals.ts's barrel mesh approximating its hull shape). Real bark texture, UV-tiled per
-// class + a subtle seeded silhouette jitter (root flare + bark-ridge wobble).
-// ---------------------------------------------------------------------------------------------
-
-function scaleTrunkUVs(geo: THREE.BufferGeometry, radius: number, height: number): void {
-	const circumference = 2 * Math.PI * radius;
-	const tilesU = Math.max(1, Math.round(circumference / BARK_TILE_M));
-	const tilesV = Math.max(0.5, height / BARK_TILE_M);
-	const uv = geo.attributes.uv as THREE.BufferAttribute;
-	for (let i = 0; i < uv.count; i++) {
-		uv.setXY(i, uv.getX(i) * tilesU, uv.getY(i) * tilesV);
-	}
-	uv.needsUpdate = true;
-}
-
-/** Subtle seeded radial perturbation of the trunk silhouette (bark-ridge wobble along the whole
- * trunk, plus extra flare near the base for a root-buttress read) so it doesn't look lathe-turned.
- * Purely cosmetic -- the physics capsule underneath (bodies.ts) is an untouched perfect cylinder+
- * caps; geometry here is in PRE-TRANSLATE local space (y in [-height/2, height/2], matching
- * CylinderGeometry's own convention before buildTrunkGeometry's final translate). */
-function jitterTrunkSilhouette(geo: THREE.BufferGeometry, height: number, seed: number): void {
-	const rand = mulberry32(seed);
-	const pos = geo.attributes.position as THREE.BufferAttribute;
-	for (let i = 0; i < pos.count; i++) {
-		const x = pos.getX(i);
-		const y = pos.getY(i);
-		const z = pos.getZ(i);
-		const r = Math.hypot(x, z);
-		if (r < 1e-5) continue; // cap-center vertices -- nothing to perturb radially
-		const heightFrac = (y + height / 2) / height;
-		const rootFlare = Math.max(0, 1 - heightFrac / 0.3) * 0.16;
-		const ridge = (rand() - 0.5) * 0.07;
-		const scale = 1 + rootFlare + ridge;
-		pos.setX(i, x * scale);
-		pos.setZ(i, z * scale);
-	}
-	pos.needsUpdate = true;
-	geo.computeVertexNormals();
-	geo.computeBoundingSphere();
-}
-
-function buildTrunkGeometry(radius: number, height: number, radialSegments: number, seed: number): THREE.BufferGeometry {
-	const radiusBottom = radius * 1.28;
-	const geo = new THREE.CylinderGeometry(radius, radiusBottom, height, radialSegments, 3);
-	scaleTrunkUVs(geo, (radius + radiusBottom) / 2, height);
-	jitterTrunkSilhouette(geo, height, seed);
-	geo.translate(0, height / 2, 0);
-	return geo;
-}
-
-export interface SaplingVisual {
+export interface TreeInstanceVisual {
 	readonly group: THREE.Group;
 	readonly transform: InterpolatedTransform;
-}
-
-export interface MidVisual {
-	readonly group: THREE.Group;
-	readonly transform: InterpolatedTransform;
-}
-
-export interface BranchVisual {
-	readonly mesh: THREE.Mesh;
-	readonly transform: InterpolatedTransform;
-}
-
-export interface LargeVisual {
-	readonly trunkMesh: THREE.Mesh;
-	readonly canopyMesh: THREE.Mesh;
-	readonly branches: BranchVisual[];
 }
 
 export interface TreesVisualBundle {
-	readonly materials: TreesMaterialSet;
-	readonly saplings: SaplingVisual[];
-	readonly mids: MidVisual[];
-	readonly larges: LargeVisual[];
+	readonly saplings: TreeInstanceVisual[];
+	readonly mids: TreeInstanceVisual[];
+	readonly larges: TreeInstanceVisual[];
 	readonly group: THREE.Group;
+	/** Distinct templates in use — disposed once at teardown (clones share these resources). */
+	readonly templates: TreeTemplate[];
+	/** FRACTURE stump visuals, keyed by MidTree id — created lazily the step a mid trunk SNAPS
+	 * (sampleTreesVisuals derives them straight from trees.mids[i].stump; no event plumbing), removed
+	 * on reset. One shared material/geometry-per-stump, disposed with the visual. */
+	readonly stumps: Map<string, { mesh: THREE.Mesh; transform: InterpolatedTransform }>;
+	/** Shared bark material for stump meshes (lazily created once, disposed at teardown). */
+	stumpMaterial: THREE.MeshStandardMaterial | null;
 }
 
-function buildSaplingVisual(sapling: SaplingTree, materials: TreesMaterialSet, seed: number): SaplingVisual {
+/** The one thing this file needs off a tree body: its live transform. SaplingTree/MidTree/LargeTree
+ * all expose it via `.trunk` (a box3d Body), which structurally satisfies this. */
+interface HasTransform {
+	getTransform(): { position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number; w: number } };
+}
+
+function trunkBodies(trees: TreesWorld): { saplings: HasTransform[]; mids: HasTransform[]; larges: HasTransform[] } {
+	return {
+		saplings: trees.saplings.map((s) => s.trunk),
+		mids: trees.mids.map((m) => m.trunk),
+		larges: trees.larges.map((l) => l.trunk),
+	};
+}
+
+/** Builds one tree instance: a body-driven group holding a scaled, yaw-jittered clone of a class
+ * template. `rand` (seeded) picks the variant + a random yaw so cloned trees don't all face the same
+ * way. */
+function buildInstance(trunk: HasTransform, templateNames: readonly string[], targetHeight: number, rand: () => number): TreeInstanceVisual {
+	const name = templateNames[Math.floor(rand() * templateNames.length)] ?? templateNames[0];
+	const template = TEMPLATES.get(name) ?? fallbackTemplate();
+
 	const group = new THREE.Group();
-	group.name = `tree-${sapling.id}`;
-	const trunkGeo = buildTrunkGeometry(SAPLING_TRUNK_RADIUS_M, SAPLING_TRUNK_HEIGHT_M, 6, seed ^ 0xbeef);
-	const trunk = new THREE.Mesh(trunkGeo, materials.bark);
-	trunk.castShadow = true;
-	trunk.receiveShadow = true;
-	group.add(trunk);
+	group.name = 'tree';
+	const wrapper = new THREE.Group();
+	wrapper.scale.setScalar(targetHeight / template.nativeHeight);
+	wrapper.rotation.y = rand() * Math.PI * 2;
+	wrapper.add(template.scene.clone(true));
+	group.add(wrapper);
 
-	const canopyGeo = buildCanopyGeometry(seed, 0.75, 1.05, 18);
-	const canopy = new THREE.Mesh(canopyGeo, materials.foliage);
-	// Anchor lower than the canopy's own visual midpoint would suggest -- generous overlap with the
-	// trunk top so sparse-sampled low clusters (see buildCanopyGeometry's outer-shell bias) never
-	// leave a visible bare-trunk gap between the foliage and the trunk (caught via
-	// verify/trees-visual.mjs's forest-interior screenshot).
-	canopy.position.y = SAPLING_TRUNK_HEIGHT_M * 0.62;
-	canopy.castShadow = true;
-	group.add(canopy);
-
-	const t = sapling.trunk.getTransform();
+	const t = trunk.getTransform();
 	group.position.set(t.position.x, t.position.y, t.position.z);
 	group.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
+	// Seed the distance-cull from spawn (car spawns near the origin), so the first frame / boot
+	// benchmark doesn't render the whole forest before applyTreesVisuals() takes over.
+	group.visible = t.position.x * t.position.x + t.position.z * t.position.z < TREE_LOD_HIDE_M2;
 	const transform = new InterpolatedTransform();
 	transform.sample(t.position, t.rotation);
 	transform.sample(t.position, t.rotation);
 	return { group, transform };
 }
 
-function buildMidVisual(mid: MidTree, materials: TreesMaterialSet, seed: number): MidVisual {
-	const group = new THREE.Group();
-	group.name = `tree-${mid.id}`;
-	const trunkGeo = buildTrunkGeometry(MID_TRUNK_RADIUS_M, MID_TRUNK_HEIGHT_M, 10, seed ^ 0xbeef);
-	const trunk = new THREE.Mesh(trunkGeo, materials.bark);
-	trunk.castShadow = true;
-	trunk.receiveShadow = true;
-	group.add(trunk);
-
-	const canopyGeo = buildCanopyGeometry(seed, 1.9, 2.7, 34);
-	const canopy = new THREE.Mesh(canopyGeo, materials.foliage);
-	canopy.position.y = MID_TRUNK_HEIGHT_M * 0.6;
-	canopy.castShadow = true;
-	group.add(canopy);
-
-	const t = mid.trunk.getTransform();
-	group.position.set(t.position.x, t.position.y, t.position.z);
-	group.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
-	const transform = new InterpolatedTransform();
-	transform.sample(t.position, t.rotation);
-	transform.sample(t.position, t.rotation);
-	return { group, transform };
-}
-
-function buildBranchGeometry(): THREE.BufferGeometry {
-	const geo = new THREE.CylinderGeometry(LARGE_BRANCH_RADIUS_M, LARGE_BRANCH_RADIUS_M * 1.3, LARGE_BRANCH_LENGTH_M, 6);
-	scaleTrunkUVs(geo, LARGE_BRANCH_RADIUS_M * 1.15, LARGE_BRANCH_LENGTH_M);
-	geo.rotateZ(Math.PI / 2); // cylinder's own axis is Y; branch capsule axis is local X
-	geo.translate(LARGE_BRANCH_LENGTH_M / 2, 0, 0);
-	return geo;
-}
-
-function buildLargeVisual(large: LargeTree, materials: TreesMaterialSet, seed: number): LargeVisual {
-	const trunkGeo = buildTrunkGeometry(LARGE_TRUNK_RADIUS_M, LARGE_TRUNK_HEIGHT_M, 12, seed ^ 0xbeef);
-	const trunkMesh = new THREE.Mesh(trunkGeo, materials.bark);
-	trunkMesh.castShadow = true;
-	trunkMesh.receiveShadow = true;
-	const tt = large.trunk.getTransform();
-	trunkMesh.position.set(tt.position.x, tt.position.y, tt.position.z);
-	trunkMesh.quaternion.set(tt.rotation.x, tt.rotation.y, tt.rotation.z, tt.rotation.w);
-	trunkMesh.name = `tree-${large.id}-trunk`;
-
-	const canopyGeo = buildCanopyGeometry(seed, 2.7, 3.8, 48);
-	const canopyMesh = new THREE.Mesh(canopyGeo, materials.foliage);
-	canopyMesh.position.set(tt.position.x, tt.position.y + LARGE_TRUNK_HEIGHT_M * 0.58, tt.position.z);
-	canopyMesh.castShadow = true;
-	canopyMesh.name = `tree-${large.id}-canopy`;
-
-	const branches: BranchVisual[] = [];
-	for (let i = 0; i < large.branches.length; i++) {
-		const b = large.branches[i];
-		void LARGE_BRANCH_LAYOUT[i]; // layout consumed by bodies.ts; kept here only for doc symmetry
-		const mesh = new THREE.Mesh(buildBranchGeometry(), materials.bark);
-		mesh.castShadow = true;
-		const bt = b.body.getTransform();
-		mesh.position.set(bt.position.x, bt.position.y, bt.position.z);
-		mesh.quaternion.set(bt.rotation.x, bt.rotation.y, bt.rotation.z, bt.rotation.w);
-		const transform = new InterpolatedTransform();
-		transform.sample(bt.position, bt.rotation);
-		transform.sample(bt.position, bt.rotation);
-		branches.push({ mesh, transform });
-	}
-
-	return { trunkMesh, canopyMesh, branches };
-}
-
-/** Builds every tree's visuals and adds them all to a single fresh THREE.Group (returned) --
- * caller adds it to the scene once, same convention as world/visuals.ts's buildDestructibleVisuals(). */
+/** Builds every tree's visuals into one fresh THREE.Group (returned); caller adds it to the scene
+ * once — same convention as world/visuals.ts's buildDestructibleVisuals(). Synchronous: the GLB
+ * templates were already loaded at module scope (see file header). */
 export function buildTreesVisuals(trees: TreesWorld): TreesVisualBundle {
-	const materials = buildTreesMaterials();
 	const group = new THREE.Group();
 	group.name = 'TreesFeature';
+	const bodies = trunkBodies(trees);
 
-	const saplings = trees.saplings.map((s, i) => {
-		const v = buildSaplingVisual(s, materials, TREES_RNG_SEED + i * 17 + 1);
-		group.add(v.group);
-		return v;
-	});
-	const mids = trees.mids.map((m, i) => {
-		const v = buildMidVisual(m, materials, TREES_RNG_SEED + i * 31 + 101);
-		group.add(v.group);
-		return v;
-	});
-	const larges = trees.larges.map((l, i) => {
-		const v = buildLargeVisual(l, materials, TREES_RNG_SEED + i * 53 + 201);
-		group.add(v.trunkMesh);
-		group.add(v.canopyMesh);
-		for (const b of v.branches) group.add(b.mesh);
-		return v;
-	});
+	const build = (trunks: readonly HasTransform[], names: readonly string[], height: number, seedBase: number): TreeInstanceVisual[] =>
+		trunks.map((trunk, i) => {
+			const rand = mulberry32((TREES_RNG_SEED + seedBase + i * 2654435761) >>> 0);
+			const v = buildInstance(trunk, names, height, rand);
+			group.add(v.group);
+			return v;
+		});
 
-	return { materials, saplings, mids, larges, group };
+	const saplings = build(bodies.saplings, CLASS_MODELS.sapling, SAPLING_VISUAL_HEIGHT_M, 0x1111);
+	const mids = build(bodies.mids, CLASS_MODELS.mid, MID_VISUAL_HEIGHT_M, 0x2222);
+	const larges = build(bodies.larges, CLASS_MODELS.large, LARGE_VISUAL_HEIGHT_M, 0x3333);
+
+	const templates = [...new Set(TEMPLATES.values())];
+	return { saplings, mids, larges, group, templates, stumps: new Map(), stumpMaterial: null };
 }
 
-/** Call once per fixed physics step (after stepTreesWorld()) -- samples every dynamic tree body's
- * CURRENT transform for render-time interpolation, same pattern as world/visuals.ts's
- * sampleDestructibleVisuals(). Static large-tree trunks/canopies are skipped (never move). */
+// ---------------------------------------------------------------------------------------------
+// FRACTURE stump visuals (docs/loom/d1-fracture-material-spec.md): when a mid trunk SNAPS
+// (bodies.ts's fractureMid), the tree's own GLB visual keeps following m.trunk — which now aliases
+// the FLYING top piece — so the falling tree animates for free; the anchored base STUMP fragment
+// gets a simple bark-brown cylinder with a lighter "splintered" top cap (cheap two-material
+// cylinder — deterministic, no CanvasTexture, no DOM dependency beyond three itself, which this
+// browser-only module already imports).
+// ---------------------------------------------------------------------------------------------
+
+const STUMP_BARK_COLOR = 0x5a4632; // matches fallbackTemplate()'s trunk brown
+const STUMP_SPLINTER_COLOR = 0xc9b287; // pale exposed-wood tone for the broken top face
+
+function stumpVisualFor(bundle: TreesVisualBundle, radius: number, capLen: number): { mesh: THREE.Mesh; transform: InterpolatedTransform } {
+	if (!bundle.stumpMaterial) {
+		bundle.stumpMaterial = new THREE.MeshStandardMaterial({ color: STUMP_BARK_COLOR, roughness: 1 });
+	}
+	const splinterMat = new THREE.MeshStandardMaterial({ color: STUMP_SPLINTER_COLOR, roughness: 0.9 });
+	const height = capLen + radius; // physics capsule spans y in [0, capLen + 2r]; cylinder approximates it
+	const geo = new THREE.CylinderGeometry(radius, radius * 1.12, height, 10, 1);
+	// CylinderGeometry group order: side=0, top cap=1, bottom cap=2 — light the TOP as splintered wood.
+	const mesh = new THREE.Mesh(geo, [bundle.stumpMaterial, splinterMat, bundle.stumpMaterial]);
+	mesh.castShadow = true;
+	mesh.receiveShadow = true;
+	// Body origin sits at the stump BASE (trees/bodies convention); cylinder origin is its center.
+	geo.translate(0, height / 2, 0);
+	return { mesh, transform: new InterpolatedTransform() };
+}
+
+function syncStumpVisuals(trees: TreesWorld, bundle: TreesVisualBundle): void {
+	for (const m of trees.mids) {
+		if (!m.fractured || !m.stump) continue;
+		let v = bundle.stumps.get(m.id);
+		if (!v) {
+			const frag = m.stump.frag;
+			v = stumpVisualFor(bundle, frag.capsuleRadius ?? 0.3, frag.capsuleCapLen ?? 1);
+			const t = m.stump.frag.body.getTransform();
+			v.mesh.position.set(t.position.x, t.position.y, t.position.z);
+			v.mesh.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
+			v.transform.sample(t.position, t.rotation);
+			v.transform.sample(t.position, t.rotation);
+			bundle.group.add(v.mesh);
+			bundle.stumps.set(m.id, v);
+		} else {
+			const t = m.stump.frag.body.getTransform();
+			v.transform.sample(t.position, t.rotation);
+		}
+	}
+}
+
+function disposeStumpVisual(bundle: TreesVisualBundle, id: string): void {
+	const v = bundle.stumps.get(id);
+	if (!v) return;
+	bundle.group.remove(v.mesh);
+	v.mesh.geometry.dispose();
+	const mats = Array.isArray(v.mesh.material) ? v.mesh.material : [v.mesh.material];
+	for (const mat of mats) if (mat !== bundle.stumpMaterial) (mat as THREE.Material).dispose();
+	bundle.stumps.delete(id);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Per-step sampling / per-frame apply / reset resnap — every tree (sapling, mid AND large) now
+// simply follows its own trunk body, so a bent sapling, a leaning mid and a felled large tree all
+// animate uniformly. (The old split — static large trunk + separately-animated branch meshes — is
+// gone: the GLB carries its own branches, and the breakable branch BODIES still exist for physics/
+// collision, they just no longer drive a separate visual.)
+// ---------------------------------------------------------------------------------------------
+
+function eachTrunk(trees: TreesWorld, bundle: TreesVisualBundle, fn: (trunk: HasTransform, visual: TreeInstanceVisual) => void): void {
+	const b = trunkBodies(trees);
+	for (let i = 0; i < b.saplings.length; i++) fn(b.saplings[i], bundle.saplings[i]);
+	for (let i = 0; i < b.mids.length; i++) fn(b.mids[i], bundle.mids[i]);
+	for (let i = 0; i < b.larges.length; i++) fn(b.larges[i], bundle.larges[i]);
+}
+
+/** Call once per fixed physics step (after stepTreesWorld()). Also derives fracture stump visuals
+ * straight from the physics state (a mid with a live stump fragment gets a cylinder mesh, created
+ * the first step it exists). */
 export function sampleTreesVisuals(trees: TreesWorld, bundle: TreesVisualBundle): void {
-	for (let i = 0; i < trees.saplings.length; i++) {
-		const t = trees.saplings[i].trunk.getTransform();
-		bundle.saplings[i].transform.sample(t.position, t.rotation);
-	}
-	for (let i = 0; i < trees.mids.length; i++) {
-		const t = trees.mids[i].trunk.getTransform();
-		bundle.mids[i].transform.sample(t.position, t.rotation);
-	}
-	for (let i = 0; i < trees.larges.length; i++) {
-		const large = trees.larges[i];
-		const visual = bundle.larges[i];
-		for (let b = 0; b < large.branches.length; b++) {
-			const t = large.branches[b].body.getTransform();
-			visual.branches[b].transform.sample(t.position, t.rotation);
+	eachTrunk(trees, bundle, (trunk, visual) => {
+		const t = trunk.getTransform();
+		visual.transform.sample(t.position, t.rotation);
+	});
+	syncStumpVisuals(trees, bundle);
+}
+
+/** Call once per render frame with the accumulator's interpolation alpha. `focus` (the car position)
+ * enables the distance LOD — trees far from it are hidden (and skip their per-frame matrix update).
+ * Omit `focus` to keep every tree visible (e.g. the model viewer, which never crops the forest). */
+export function applyTreesVisuals(bundle: TreesVisualBundle, alpha: number, focus?: { x: number; z: number }): void {
+	const applyOne = (v: TreeInstanceVisual): void => {
+		if (focus) {
+			const dx = v.group.position.x - focus.x;
+			const dz = v.group.position.z - focus.z;
+			const d2 = dx * dx + dz * dz;
+			if (d2 > TREE_LOD_HIDE_M2) {
+				v.group.visible = false;
+				return; // hidden + skip the matrix update
+			}
+			if (d2 < TREE_LOD_SHOW_M2) v.group.visible = true;
+			else if (!v.group.visible) return; // hysteresis band, still hidden: leave it
 		}
-	}
+		v.transform.applyTo(v.group, alpha);
+	};
+	for (const v of bundle.saplings) applyOne(v);
+	for (const v of bundle.mids) applyOne(v);
+	for (const v of bundle.larges) applyOne(v);
+	// Stumps are transient + spawn where the car just crashed (never far) — always applied.
+	for (const v of bundle.stumps.values()) v.transform.applyTo(v.mesh, alpha);
 }
 
-/** Call once per render frame with the accumulator's interpolation alpha. */
-export function applyTreesVisuals(bundle: TreesVisualBundle, alpha: number): void {
-	for (const s of bundle.saplings) s.transform.applyTo(s.group, alpha);
-	for (const m of bundle.mids) m.transform.applyTo(m.group, alpha);
-	for (const l of bundle.larges) for (const b of l.branches) b.transform.applyTo(b.mesh, alpha);
-}
-
-/** After a full reset, double-sample every transform from the NEW pose so render-time lerp doesn't
- * visibly interpolate from the old (possibly broken/flung) pose across a single frame -- same trick
- * as world/visuals.ts's resnapDestructibleVisuals(). Rebuilds a sapling/mid/branch's GEOMETRY too if
- * its body was recreated (broken -> reset), since the old Mesh's geometry belonged to a destroyed
- * body's now-stale visual identity would otherwise still render fine (geometry is body-independent)
- * -- so no geometry rebuild is actually needed, only the transform resnap below.
- */
+/** After a full reset, double-sample every transform from the NEW pose + snap the group, so the
+ * render-time lerp doesn't visibly interpolate from an old (possibly felled) pose across one frame —
+ * same trick as world/visuals.ts's resnapDestructibleVisuals(). Fracture stump visuals are removed
+ * outright (reset rebuilt every fractured mid pristine, so no mid has a stump fragment anymore). */
 export function resnapTreesVisuals(trees: TreesWorld, bundle: TreesVisualBundle): void {
-	for (let i = 0; i < trees.saplings.length; i++) {
-		const t = trees.saplings[i].trunk.getTransform();
-		bundle.saplings[i].transform.sample(t.position, t.rotation);
-		bundle.saplings[i].transform.sample(t.position, t.rotation);
-		bundle.saplings[i].group.position.set(t.position.x, t.position.y, t.position.z);
-		bundle.saplings[i].group.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
-	}
-	for (let i = 0; i < trees.mids.length; i++) {
-		const t = trees.mids[i].trunk.getTransform();
-		bundle.mids[i].transform.sample(t.position, t.rotation);
-		bundle.mids[i].transform.sample(t.position, t.rotation);
-		bundle.mids[i].group.position.set(t.position.x, t.position.y, t.position.z);
-		bundle.mids[i].group.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
-	}
-	for (let i = 0; i < trees.larges.length; i++) {
-		const large = trees.larges[i];
-		const visual = bundle.larges[i];
-		for (let b = 0; b < large.branches.length; b++) {
-			const t = large.branches[b].body.getTransform();
-			visual.branches[b].transform.sample(t.position, t.rotation);
-			visual.branches[b].transform.sample(t.position, t.rotation);
-			visual.branches[b].mesh.position.set(t.position.x, t.position.y, t.position.z);
-			visual.branches[b].mesh.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
-		}
-	}
+	eachTrunk(trees, bundle, (trunk, visual) => {
+		const t = trunk.getTransform();
+		visual.transform.sample(t.position, t.rotation);
+		visual.transform.sample(t.position, t.rotation);
+		visual.group.position.set(t.position.x, t.position.y, t.position.z);
+		visual.group.quaternion.set(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
+	});
+	for (const id of [...bundle.stumps.keys()]) disposeStumpVisual(bundle, id);
 }
 
 export function disposeTreesVisuals(bundle: TreesVisualBundle): void {
-	for (const s of bundle.saplings) {
-		for (const child of s.group.children) if (child instanceof THREE.Mesh) child.geometry.dispose();
+	for (const id of [...bundle.stumps.keys()]) disposeStumpVisual(bundle, id);
+	bundle.stumpMaterial?.dispose();
+	// Only the templates own geometry/materials/textures; instance clones share them, so dispose the
+	// templates ONCE (disposing a clone would break its siblings).
+	for (const template of bundle.templates) {
+		template.scene.traverse((o) => {
+			const mesh = o as THREE.Mesh;
+			if (!mesh.isMesh) return;
+			mesh.geometry?.dispose();
+			const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+			for (const mat of mats) {
+				const std = mat as THREE.MeshStandardMaterial;
+				std?.map?.dispose();
+				std?.normalMap?.dispose();
+				std?.dispose?.();
+			}
+		});
 	}
-	for (const m of bundle.mids) {
-		for (const child of m.group.children) if (child instanceof THREE.Mesh) child.geometry.dispose();
-	}
-	for (const l of bundle.larges) {
-		l.trunkMesh.geometry.dispose();
-		l.canopyMesh.geometry.dispose();
-		for (const b of l.branches) b.mesh.geometry.dispose();
-	}
-	disposeTreesMaterials(bundle.materials);
 }

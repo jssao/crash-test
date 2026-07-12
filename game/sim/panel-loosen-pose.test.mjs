@@ -64,9 +64,14 @@ const LOOSEN_SETTLE_ANGLE_TOL_DEG = 25;
 
 // First post-break pose tolerance. Tighter for panels that break via the gentler accumulated-stress
 // path (doorL/doorR/hatch/roof); the hood (always in direct wall contact -- see doc comment above)
-// gets a documented, still-tight exception on POSITION only (angle stays at the tight bound for every
-// panel, confirmed <10deg for the hood too in every measured case).
+// gets a documented exception on POSITION, and (since the crush-gated hood break,
+// damage-tuning.ts's HOOD_BREAK_MIN_FRONT_CRUSH_M) on ANGLE too: the hood now LOOSENS first and only
+// tears off once mechanical front crush crosses the gate -- i.e. mid-crash, after it has already been
+// buckling/flapping on the softened weld for a few tenths of a second -- so its first post-break pose
+// is legitimately a loosened-flap pose (measured 11.6deg at 90 km/h), not a still-attached pose. The
+// loosened-settle angle bound (25deg) is the physically right ceiling for that state.
 const BREAK_ANGLE_TOL_DEG = 10;
+const HOOD_BREAK_ANGLE_TOL_DEG = 25;
 const BREAK_POS_TOL_M = 0.15;
 const HOOD_BREAK_POS_TOL_M = 0.4;
 
@@ -138,11 +143,12 @@ describe('panel loosen pose: real crash, settled', () => {
 						if (panel.state === 'broken' && prevState[key] !== 'broken') {
 							const { posM, angleDeg } = poseDelta(panel, chassisT);
 							const posTol = key === 'hood' ? HOOD_BREAK_POS_TOL_M : BREAK_POS_TOL_M;
+							const angleTol = key === 'hood' ? HOOD_BREAK_ANGLE_TOL_DEG : BREAK_ANGLE_TOL_DEG;
 							console.log(
-								`[panel-loosen-pose] ${speedKmh}km/h ${key} [FIRST broken pose]: posDelta=${posM.toFixed(3)}m (tol ${posTol}) angleDelta=${angleDeg.toFixed(2)}deg (tol ${BREAK_ANGLE_TOL_DEG})`,
+								`[panel-loosen-pose] ${speedKmh}km/h ${key} [FIRST broken pose]: posDelta=${posM.toFixed(3)}m (tol ${posTol}) angleDelta=${angleDeg.toFixed(2)}deg (tol ${angleTol})`,
 							);
 							expect(posM).toBeLessThan(posTol);
-							expect(angleDeg).toBeLessThan(BREAK_ANGLE_TOL_DEG);
+							expect(angleDeg).toBeLessThan(angleTol);
 						}
 						prevState[key] = panel.state;
 					}

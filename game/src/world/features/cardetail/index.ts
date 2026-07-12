@@ -22,7 +22,9 @@ import { segmentSpec, type SegmentKey } from '../../../vehicle/segments';
  * the chassis (crush-architecture.md §A "INTERACTIONS": engine parts ride the cradle; extended to the
  * other crush-zone residents on the same measured grounds). WHY the extension: these parts' collision
  * shapes poke past the chassis's recessed crush-core backstop (frontSubframe front face z=1.95 vs
- * core face 1.795; front bumper capsule 2.285; headlights 2.345; mirrored at the rear), so in a wall
+ * core face 1.795; front bumper capsule 2.285; headlights 2.345; mirrored at the rear -- Mustang
+ * measurements; S90 swap (2026-07-11) rescaled every one of these positions, see cardetail/tuning.ts's
+ * CAR_DETAIL_SPECS doc comment, but the qualitative relationship is unchanged), so in a wall
  * crash the barrier presses them up to the crushable depth (~0.58m, geometry.ts CRUSH_CORE_*) -- against a hertz-0
  * RIGID chassis weld that is exactly the single-step elastic catapult the segment welds were
  * measured to be (see vehicle/segments.ts's SEGMENT_WELD_HERTZ doc). Anchored to the segment that
@@ -34,12 +36,12 @@ import { segmentSpec, type SegmentKey } from '../../../vehicle/segments';
 const CRUSH_ZONE_ANCHOR: Readonly<Record<string, SegmentKey>> = {
 	frontSubframe: 'engineCradle',
 	frontBumperBeam: 'bumperBeam',
-	headlightL: 'crushRailRF', // x=-0.76 -> the -x front rail cell
-	headlightR: 'crushRailLF', // x=+0.76 -> the +x front rail cell
+	headlightL: 'crushRailRF', // x<0 -> the -x front rail cell (sign-based; unaffected by the S90 rescale)
+	headlightR: 'crushRailLF', // x>0 -> the +x front rail cell
 	rearSubframe: 'trunkFloor',
 	rearBumperBeam: 'trunkFloor',
-	taillightL: 'rearRailR', // x=-0.76 -> the -x rear rail
-	taillightR: 'rearRailL', // x=+0.76 -> the +x rear rail
+	taillightL: 'rearRailR', // x<0 -> the -x rear rail
+	taillightR: 'rearRailL', // x>0 -> the +x rear rail
 };
 import { InterpolatedTransform } from '../../../core/loop';
 import { buildCarDetailMaterials, disposeCarDetailMaterials, type CarDetailMaterials } from './materials';

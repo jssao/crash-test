@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { spawnTestWall, crashSetup } from '../src/damage/scenario.ts';
-import { seedSegmentVelocities } from '../src/vehicle/segments.ts';
 import { createDamageSystem, stepDamageSystem } from '../src/damage/system.ts';
 import {
 	createOccupant,
@@ -185,8 +184,16 @@ describe('occupants-active: muscles are overwhelmed by a violent crash', () => {
 	});
 });
 
-describe('occupants-active: ejection punches through the windshield pane and lands on the ground', () => {
-	it('a 70km/h frontal crash ejects occupants who SHATTER the solid pane by contact (shape destroyed, glassShattered emitted) and settle on the ground without tunnelling', async () => {
+describe('occupants-active: ejection punches through a glass pane and lands on the ground', () => {
+	// S90 SWAP RE-DERIVATION (2026-07-11): was the WINDSHIELD pane. Traced directly (same
+	// investigation as sim/occupants-escalation.test.mjs's escalation-5 fix -- see that file's
+	// "escalation 5" describe-block doc comment for the full measured trajectory): the S90's rear
+	// occupants now sit on a REAL cabin floor, fall through the occupant-transparent floorpan on
+	// restraint failure, and slide backward along the real ground to the REAR window instead of
+	// forward to the windshield (the Mustang's rear bench sat in the occupant-transparent tail, so its
+	// ejectees had a clear unobstructed path all the way to the front glass -- that path no longer
+	// exists once rear occupants are properly cabin-seated). Assertions changed to match.
+	it('a 70km/h frontal crash ejects occupants who SHATTER the solid rear-window pane by contact (shape destroyed, glassShattered emitted) and settle on the ground without tunnelling', async () => {
 		const sim = await createSim();
 		try {
 			const rig = seatAll(sim);
@@ -209,8 +216,8 @@ describe('occupants-active: ejection punches through the windshield pane and lan
 			// The solid pane exists before the crash -- the collision gate the ejectee must break.
 			// (Asserted via derived booleans: handing chai a Shape wrapper OOMs the worker on failure --
 			// its deep inspection walks the `native` wasm-module reference.)
-			expect(sim.vehicle.glass.windshield.shape !== null).toBe(true);
-			expect(sim.vehicle.glass.windshield.shape.isValid()).toBe(true);
+			expect(sim.vehicle.glass.rearWindow.shape !== null).toBe(true);
+			expect(sim.vehicle.glass.rearWindow.shape.isValid()).toBe(true);
 
 			const wall = spawnTestWall(sim.world, sim.vehicle, 20);
 			crashSetup(sim.vehicle, 70);
@@ -237,15 +244,15 @@ describe('occupants-active: ejection punches through the windshield pane and lan
 
 			const ejected = rig.occupants.filter((o) => o.ejected);
 			console.log(
-				`[ejection-active] ejected=${ejected.length} paneShape=${sim.vehicle.glass.windshield.shape === null ? 'destroyed' : 'ALIVE'} shattered=${JSON.stringify(shattered)} minPartYAfterEject=${minYAfterEject.toFixed(3)}`,
+				`[ejection-active] ejected=${ejected.length} paneShape=${sim.vehicle.glass.rearWindow.shape === null ? 'destroyed' : 'ALIVE'} shattered=${JSON.stringify(shattered)} minPartYAfterEject=${minYAfterEject.toFixed(3)}`,
 			);
 
 			expect(sawNaN).toBe(false);
 			expect(ejected.length).toBeGreaterThanOrEqual(2);
 			// The pane was struck by a flying body and is GONE -- literal contact physics, no
-			// trajectory-plane hack: shape destroyed + nulled, glassShattered emitted for Windshield.
-			expect(sim.vehicle.glass.windshield.shape === null, 'windshield pane destroyed').toBe(true);
-			expect(shattered.some((m) => m.includes('Windshield'))).toBe(true);
+			// trajectory-plane hack: shape destroyed + nulled, glassShattered emitted for RearWindow.
+			expect(sim.vehicle.glass.rearWindow.shape === null, 'rear-window pane destroyed').toBe(true);
+			expect(shattered.some((m) => m.includes('RearWindow'))).toBe(true);
 			expect(minYAfterEject).toBeGreaterThan(-0.25); // collided with ground, never tunnelled through it
 
 			wall.destroy();
@@ -271,26 +278,23 @@ describe('occupants-active: a survivor gets up and flees the wreck', () => {
 				for (const o of rig.occupants) pollOccupantRestraint(o);
 			}
 
-			// Model a crash WITHOUT a wall: bring the car up to speed, then abruptly stop the car body
-			// (as if it hit something offscreen) while the occupants keep their velocity -- the restraint
-			// YIELDS (breaks) rather than fully decelerating them, so they eject into open space and
-			// survive (no wall to fly into). This isolates the get-up/flee FSM.
-			crashSetup(sim.vehicle, 55);
+			// S90 SWAP RE-DERIVATION (2026-07-11): was a wall-less "abrupt full stop" crash (car snapped
+			// to zero velocity in one step while occupants kept theirs). Traced directly (same
+			// investigation as sim/occupants-escalation.test.mjs's escalation-3/4 fixes -- see those
+			// describe blocks' doc comments): that instantaneous full stop throws the S90's now-properly
+			// cabin-seated rear occupants far enough forward in ONE step to land them UNDER THE FRONT of
+			// the car itself, where the car body genuinely blocks the recover ramp forever. Switched to
+			// a real wall crash (same mechanism proven to eject cleanly through the rear window) at
+			// 48km/h -- measured survivable-with-a-full-FSM-run band for this scenario (45=nobody
+			// ejects, 52=lethal; 48 lets ejected occupants reach recover/flee/safe).
+			const wall = spawnTestWall(sim.world, sim.vehicle, 20);
+			crashSetup(sim.vehicle, 48);
 			const v = sim.vehicle.chassis.getLinearVelocity();
 			rig.occupants.forEach((o, i) => {
 				matchOccupantVelocity(o, v);
 				resetOccupantAccelBaseline(o, rig.runtimes[i]);
 			});
 			for (const p of rig.pans) matchSeatPanVelocity(p, v);
-			const zero = { x: 0, y: 0, z: 0 };
-			sim.vehicle.chassis.setLinearVelocity(zero);
-			for (const w of Object.values(sim.vehicle.wheels)) w.body.setLinearVelocity(zero);
-			for (const pnl of Object.values(sim.vehicle.panels)) pnl.body.setLinearVelocity(zero);
-			// Crush M1: the welded crush segments are car bodies too (crashSetup seeded them to speed) --
-			// leaving them flying while the chassis is stopped would wrench the front chain (and, under
-			// the M2 yield mechanic, read as a real overload and falsely crush it at "impact").
-			seedSegmentVelocities(sim.vehicle.segments, zero, sim.vehicle.chassis);
-			for (const p of rig.pans) p.body.setLinearVelocity(zero);
 
 			// Tier-3 Stage 2: the panes are solid collision gates now -- run the damage system so the
 			// ejectees' own strikes open them (otherwise nobody can leave the cabin to flee).
@@ -327,6 +331,7 @@ describe('occupants-active: a survivor gets up and flees the wreck', () => {
 			});
 			expect(fled).toBe(true);
 
+			wall.destroy();
 			for (const o of rig.occupants) teardownOccupant(o);
 			for (const p of rig.pans) teardownSeatPan(p);
 		} finally {

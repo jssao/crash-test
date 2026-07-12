@@ -25,7 +25,7 @@ export interface LabSceneBundle {
 }
 
 const HDRI_URL = 'assets/hdri/je_gray_02_2k.hdr';
-const CAR_URL = 'assets/car/mustang65.glb';
+const CAR_URL = 'assets/car/volvo-s90.glb';
 const PAD_HALF_SIZE_M = 60;
 
 export async function buildLabScene(renderer: THREE.WebGLRenderer, quality: QualityPreset): Promise<LabSceneBundle> {

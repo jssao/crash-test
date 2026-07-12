@@ -22,7 +22,7 @@ import { PANEL_KEYS, type PanelKey } from '../../src/damage/panels';
 import { spawnTestWall, crashSetup } from '../../src/damage/scenario';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageEvent } from '../../src/damage/system';
 
-const CAR_URL = '/assets/car/mustang65.glb';
+const CAR_URL = '/assets/car/volvo-s90.glb';
 
 async function main() {
   const native = await init();

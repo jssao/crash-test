@@ -130,7 +130,18 @@ async function main() {
 
     assert('run settled after 600 fixed steps', runState === 'settled', runState);
     assert('front crush within reference band [0.18, 0.50]', readout.crush.front.depthM > 0.18 && readout.crush.front.depthM < 0.5, readout.crush.front);
-    assert('hood shows damage (loosened or broken)', readout.panelStates.hood === 'loosened' || readout.panelStates.hood === 'broken', readout.panelStates.hood);
+    // TIGHTENED (playtest 2026-07-10 realism pass): at NCAP speed the hood BUCKLES and stays attached
+    // (damage-tuning.ts's PANEL_BREAK_S2_MULT doc) -- it must be exactly 'loosened' here, with the
+    // visual tent buckle (scene/structuralCrush.ts) carrying the damage read. 'broken' at 56 was the
+    // pre-fix wrong failure mode (hood tearing off at NCAP speed).
+    assert('hood LOOSENED (buckled, attached) at 56 -- not broken', readout.panelStates.hood === 'loosened', readout.panelStates.hood);
+    // The structural visual pass must have actually reached the rendered shell (the pre-fix bug:
+    // 0.42m of telemetry crush while the car rendered pristine from every visible angle).
+    const structM = await evalExpr('window.__LAB__.maxStructuralOffsetM()');
+    assert('structural crush visual applied to the shell (>0.25m at 56)', structM > 0.25, structM);
+    const syncErrs = await evalExpr('JSON.stringify(window.__LAB__.deformableSyncCheck())').then((s) => JSON.parse(s));
+    const worstSync = Math.max(...syncErrs.map((e) => e.maxErrorM));
+    assert('rendered geometry matches registry+structural field (<1mm)', worstSync < 0.001, worstSync);
     // Reference spec's universal invariant (crash-deformation-reference.md): a door may loosen/jam in a
     // frontal, it must never BREAK/DETACH ("struck door JAMMED, ATTACHED", never "detaches") -- checked
     // against panelStates directly (not a stricter "still fully attached") since the shared damage

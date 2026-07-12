@@ -18,17 +18,22 @@ function q4FromVec4(v: Vec4): Q4 {
 	return { x: v[0], y: v[1], z: v[2], w: v[3] };
 }
 
-// Mustang-65 is a 2-door fastback: 4 damage panels (hood, 2 doors, trunk lid) -- NO roof panel (the
-// fastback roof folds into the shell). 'trunk' replaces the concept car's rear 'hatch' semantics.
-export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'trunk';
+// Volvo S90 is a 4-door sedan (swapped 2026-07-11 from the Mustang-65 2-door fastback): 6 damage
+// panels (hood, 4 doors, trunk lid) -- still NO roof panel (the S90's roof is molded into BodyShell,
+// same as the Mustang's shell). 'trunk' replaces the concept car's rear 'hatch' semantics. Rear doors
+// (doorRL/doorRR) are full detachable panels, same vulnerability shape as the front doors (see
+// damage-tuning.ts's PANEL_BREAK_S2_MULT/PANEL_VULNERABILITY/PANEL_THICKNESS_AXIS entries).
+export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'doorRL' | 'doorRR' | 'trunk';
 
-export const PANEL_KEYS: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'trunk'];
+export const PANEL_KEYS: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'doorRL', 'doorRR', 'trunk'];
 
 /** car-map.ts node name for each panel (see car-map.ts's `panels` record). */
 export const PANEL_NODE_NAMES: Record<PanelKey, string> = {
 	hood: 'Hood',
 	doorL: 'DoorL',
 	doorR: 'DoorR',
+	doorRL: 'DoorRL',
+	doorRR: 'DoorRR',
 	trunk: 'Trunk',
 };
 
@@ -36,14 +41,21 @@ export const PANEL_NODE_NAMES: Record<PanelKey, string> = {
  * Entity ids tagged on panel bodies/shapes (Body/Shape userData), read back via hit events'
  * userDataA/userDataB (src/ts/events.ts's HitEventCursor). Deliberately NOT imported from vehicle.ts
  * (that would create a vehicle.ts <-> panels.ts import cycle, since vehicle.ts's createVehicle()
- * calls createPanels() below) -- kept in a disjoint numeric range (6-10) by convention; vehicle.ts's
+ * calls createPanels() below) -- kept in a disjoint numeric range (6-11) by convention; vehicle.ts's
  * CAR_ENTITY_ID doc comment cross-references this range (1 = chassis, 2-5 = wheels).
+ *
+ * RENUMBERED 2026-07-11 (S90 swap, rear-door panels added): the old range (hood=6..trunk=9, 1 free
+ * slot) didn't have room for 2 more panels before colliding with vehicle.ts's GLASS_ENTITY_ID (11-12)
+ * -- glass shifted to 12-13 and segments.ts's segment range shifted +1 (14-22) to make room. See
+ * docs/loom/p0b-mustang-coupling.md section 5 for the collision analysis that drove this.
  */
 export const PANEL_ENTITY_ID: Record<PanelKey, number> = {
 	hood: 6,
 	doorL: 7,
 	doorR: 8,
-	trunk: 9,
+	doorRL: 9,
+	doorRR: 10,
+	trunk: 11,
 };
 
 /** Same mm->local-meters conversion as vehicle.ts's (private) mmToLocalMount() -- kept as an

@@ -90,7 +90,7 @@ export type WheelKey = 'fl' | 'fr' | 'rl' | 'rr';
  * Entity ids tagged on the chassis/wheel bodies (Body userData), read back via hit events'
  * userDataA/userDataB (src/ts/events.ts's HitEventCursor) by the damage system (game/src/damage/
  * welds.ts, system.ts). Kept in a disjoint numeric range (1-5) from game/src/damage/panels.ts's
- * PANEL_ENTITY_ID (6-10) by convention, deliberately NOT via a shared import -- vehicle.ts already
+ * PANEL_ENTITY_ID (6-11) by convention, deliberately NOT via a shared import -- vehicle.ts already
  * imports panels.ts (createVehicle() below calls createPanels()), so panels.ts importing IDs back
  * from here would be a cycle.
  */

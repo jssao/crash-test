@@ -156,6 +156,66 @@ export function deterministicJitter01(vertexIndex: number, seed: number): number
 	return hash32((vertexIndex * 0x9e3779b1) ^ seed) / 0x1_0000_0000;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Spatially COHERENT crease noise -- fixed physical wavelength, independent of mesh density.
+//
+// WHY (user playtest 2026-07-11, S90 swap): the original crease jitter hashed the VERTEX INDEX, so
+// its spatial frequency equals the mesh resolution -- believable ~15cm creases on the Mustang's
+// coarse panels became per-3cm "grocery bag" foil noise on the S90's 5x-denser metal. Real sheet
+// metal folds at a scale set by panel stiffness, not by how finely we happened to tessellate it, so
+// the noise must be sampled from the vertex's REST POSITION on a fixed-size lattice: any two nearby
+// vertices now share nearly the same crease value regardless of density. Still fully deterministic
+// (pure integer hash of quantized position + seed -- damage-determinism.test.mjs's requirement).
+// ---------------------------------------------------------------------------------------------
+
+function latticeHash01(ix: number, iy: number, iz: number, seed: number): number {
+	let h = seed | 0;
+	h = hash32(h ^ Math.imul(ix, 0x8da6b343));
+	h = hash32(h ^ Math.imul(iy, 0xd8163841));
+	h = hash32(h ^ Math.imul(iz, 0xcb1ab31f));
+	return h / 0x1_0000_0000;
+}
+
+function smooth01(t: number): number {
+	return t * t * (3 - 2 * t);
+}
+
+/** Trilinearly-interpolated value noise in [0,1) at rest-position (x,y,z), lattice cell size
+ * `wavelengthM` meters. */
+function valueNoise01(x: number, y: number, z: number, wavelengthM: number, seed: number): number {
+	const fx = x / wavelengthM;
+	const fy = y / wavelengthM;
+	const fz = z / wavelengthM;
+	const ix = Math.floor(fx);
+	const iy = Math.floor(fy);
+	const iz = Math.floor(fz);
+	const tx = smooth01(fx - ix);
+	const ty = smooth01(fy - iy);
+	const tz = smooth01(fz - iz);
+	const c000 = latticeHash01(ix, iy, iz, seed);
+	const c100 = latticeHash01(ix + 1, iy, iz, seed);
+	const c010 = latticeHash01(ix, iy + 1, iz, seed);
+	const c110 = latticeHash01(ix + 1, iy + 1, iz, seed);
+	const c001 = latticeHash01(ix, iy, iz + 1, seed);
+	const c101 = latticeHash01(ix + 1, iy, iz + 1, seed);
+	const c011 = latticeHash01(ix, iy + 1, iz + 1, seed);
+	const c111 = latticeHash01(ix + 1, iy + 1, iz + 1, seed);
+	const x00 = c000 + (c100 - c000) * tx;
+	const x10 = c010 + (c110 - c010) * tx;
+	const x01 = c001 + (c101 - c001) * tx;
+	const x11 = c011 + (c111 - c011) * tx;
+	const y0 = x00 + (x10 - x00) * ty;
+	const y1 = x01 + (x11 - x01) * ty;
+	return y0 + (y1 - y0) * tz;
+}
+
+/** Signed crease noise in [-1,1) at a REST-space point: a broad ~22cm fold octave plus a weaker
+ * ~9cm crinkle octave -- the scale mix of struck sheet metal in the user's crash-test references. */
+export function coherentCreaseNoise(x: number, y: number, z: number, seed: number): number {
+	const n = 0.7 * valueNoise01(x, y, z, 0.22, seed) + 0.3 * valueNoise01(x, y, z, 0.09, seed ^ 0x5bd1e995);
+	return n * 2 - 1;
+}
+
 /** Spec's "smoothfalloff": 1 at t=0, 0 at t>=1, smoothstep-shaped (C1 continuous). */
 export function smoothFalloff(t: number): number {
 	const c = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -213,7 +273,9 @@ export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, lo
 
 		const t = dist / radius;
 		const falloff = Math.pow(smoothFalloff(t), CRUMPLE_FALLOFF_POWER);
-		const jitterSigned = deterministicJitter01(i, seed) * 2 - 1; // [-1,1)
+		// Coherent (fixed-wavelength) crease noise sampled at the REST position -- see
+		// coherentCreaseNoise()'s doc for why per-vertex-index jitter was wrong here.
+		const jitterSigned = coherentCreaseNoise(bx, by, bz, seed); // [-1,1)
 		// massFactor last: for the default 1.0 this trailing `* 1` is an exact IEEE-754 no-op, so the
 		// static-obstacle path stays bit-identical (see this function's doc comment).
 		const mag = magBase * falloff * (1 + CRUMPLE_JITTER_FRACTION * jitterSigned) * massFactor;

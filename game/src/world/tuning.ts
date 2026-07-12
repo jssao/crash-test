@@ -104,10 +104,18 @@ export const BARREL_LATERAL_SPACING_M = BARREL_RADIUS_M * 2 * 1.05;
 // ENTITY IDS: each barrel body gets tagged (Body.setUserData()) with BARREL_ENTITY_ID_BASE + its
 // index in the barrel triangle (0-9), so world.hitEvents() can resolve "which barrel got hit" back to
 // this module's own bookkeeping. Kept in a disjoint numeric range from every other entity-id scheme in
-// the codebase: chassis=1, wheels=2-5 (vehicle/tuning.ts's CAR_ENTITY_ID), panels=6-10
+// the codebase: chassis=1, wheels=2-5 (vehicle/tuning.ts's CAR_ENTITY_ID), panels=6-11
 // (damage/panels.ts's PANEL_ENTITY_ID), occupants=1000-1399 (occupants/physics.ts's entityIdFor()),
 // cardetail=88,100,000+/88,200,000+ (cardetail/tuning.ts) -- 44,000,000 sits nowhere near any of those.
 export const BARREL_ENTITY_ID_BASE = 44_000_000;
+
+/** Entity-id base for every OTHER legacy destructible (wall blocks, crates, poles -- barrels keep
+ * their own BARREL_ENTITY_ID_BASE range above), tagged at spawn (world/bodies.ts) so main.ts can
+ * register each body's real mass into the damage system's foreign-mass registry (fracture spec §E:
+ * a 15kg crate must not hit the car with wall-strength damage). Disjoint from every other range:
+ * barrels=44,000,000+, fracture fragments=45,000,000+ (features/fracture.ts), trees members=
+ * 46,000,000+ (trees/bodies.ts), buildings pieces=47,000,000+ (buildings/structures.ts). */
+export const LEGACY_DESTRUCTIBLE_ENTITY_ID_BASE = 48_000_000;
 
 /** Trigger threshold, kg*m/s -- deliberately built from ONLY the struck barrel's own (always-known)
  * mass and the hit event's own approachSpeed (types.h's b3ContactHitEvent field, already the real

@@ -28,7 +28,10 @@ async function crashAndMeasure(speedKmh) {
 		const dt = sim.damageTelemetry();
 		const brokenCount = Object.values(dt.panelStates).filter((s) => s === 'broken').length;
 		const loosenedCount = Object.values(dt.panelStates).filter((s) => s === 'loosened').length;
-		const doorsTouched = ['doorL', 'doorR'].filter((k) => dt.panelStates[k] !== 'attached');
+		// S90 swap 2026-07-11: extended to all 4 doors (front + rear) -- a pure frontal must not touch
+		// ANY door, front or rear (same direction-aware reasoning this file's header describes for the
+		// front doors; rear doors carry the identical lateral-only PANEL_VULNERABILITY, damage-tuning.ts).
+		const doorsTouched = ['doorL', 'doorR', 'doorRL', 'doorRR'].filter((k) => dt.panelStates[k] !== 'attached');
 		return { panelStates: dt.panelStates, brokenCount, loosenedCount, doorsTouched };
 	} finally {
 		sim.destroy();

@@ -73,25 +73,29 @@ export interface SegmentSpec {
 }
 
 /** Entity ids tagged on segment bodies AND shapes (Body/Shape userData) -- extends the car's reserved
- * id ranges (chassis 1, wheels 2-5, panels 6-10, glass 11-12; occupants 1000+; cardetail 88M+) with
- * 13-21. system.ts's CAR_ENTITY_IDS and welds.ts's hitTouchesCar() treat these as "the car". */
+ * id ranges (chassis 1, wheels 2-5, panels 6-11, glass 12-13; occupants 1000+; cardetail 88M+) with
+ * 14-22. system.ts's CAR_ENTITY_IDS and welds.ts's hitTouchesCar() treat these as "the car".
+ *
+ * RENUMBERED 2026-07-11 (S90 swap): was 13-21 before the rear-door panels (doorRL/doorRR) took the
+ * only free panel slot -- every id here shifted +1 in lockstep with vehicle.ts's GLASS_ENTITY_ID
+ * (see that file's doc comment + docs/loom/p0b-mustang-coupling.md section 5). */
 export const SEGMENT_ENTITY_ID: Record<SegmentKey, number> = {
-	bumperBeam: 13,
-	crushRailLF: 14,
-	crushRailLR: 15,
-	crushRailRF: 16,
-	crushRailRR: 17,
-	engineCradle: 18,
-	trunkFloor: 19,
-	rearRailL: 20,
-	rearRailR: 21,
+	bumperBeam: 14,
+	crushRailLF: 15,
+	crushRailLR: 16,
+	crushRailRF: 17,
+	crushRailRR: 18,
+	engineCradle: 19,
+	trunkFloor: 20,
+	rearRailL: 21,
+	rearRailR: 22,
 };
 
 /** Entity ids tagged on the crush-core SHAPES (chassis-owned backstops, segments.ts createSegments).
  * Extends the segment range: system.ts uses them to (a) keep core strikes routed into the same
  * car-damage pipelines a solid-nose strike used to feed and (b) tell stepSegmentYield WHICH core a
  * barrier is actually pressing (the per-half engagement latch -- see the M2 section doc). */
-export const CORE_ENTITY_ID = { frontPos: 22, frontNeg: 23, rear: 24 } as const;
+export const CORE_ENTITY_ID = { frontPos: 23, frontNeg: 24, rear: 25 } as const;
 
 /** Hit-event id sets per crush chain (segments + cores of that end) -- the contact-evidence lookup
  * system.ts runs while draining hits (CoreHitFlags doc). */
@@ -102,14 +106,14 @@ export const FRONT_CHAIN_HIT_IDS: ReadonlySet<number> = new Set([
 	SEGMENT_ENTITY_ID.crushRailRF,
 	SEGMENT_ENTITY_ID.crushRailRR,
 	SEGMENT_ENTITY_ID.engineCradle,
-	22, // CORE_ENTITY_ID.frontPos (declared below)
-	23, // CORE_ENTITY_ID.frontNeg
+	23, // CORE_ENTITY_ID.frontPos (declared below)
+	24, // CORE_ENTITY_ID.frontNeg
 ]);
 export const REAR_CHAIN_HIT_IDS: ReadonlySet<number> = new Set([
 	SEGMENT_ENTITY_ID.trunkFloor,
 	SEGMENT_ENTITY_ID.rearRailL,
 	SEGMENT_ENTITY_ID.rearRailR,
-	24, // CORE_ENTITY_ID.rear
+	25, // CORE_ENTITY_ID.rear
 ]);
 
 export const SEGMENT_ENTITY_ID_SET: ReadonlySet<number> = new Set([
@@ -121,22 +125,43 @@ export const SEGMENT_ENTITY_ID_SET: ReadonlySet<number> = new Set([
 // Layout constants (chassis-local). Y0 = the hull's ground-clearance bottom line; the whole chain
 // keeps its bottom there so the crush zone still carries nose-dive/tail-drag ground contact.
 // ---------------------------------------------------------------------------------------------
-const Y0 = HULL_BOTTOM_Y_M; // ~-0.07
+const Y0 = HULL_BOTTOM_Y_M; // ~-0.119 (S90; was ~-0.07 Mustang)
 /** Front tip: the old hull's bottom-front edge z (its first-contact feature on a frontal wall),
  * pulled in 0.5mm so the swap can't grow the car's collision length. */
 const FRONT_TIP_Z = HULL_BOTTOM_HALF_LENGTH_M - 0.0005;
 const REAR_TIP_Z = -FRONT_TIP_Z;
-/** Beam depth / rail split planes (front chain z-tiling: cradle | rear cells | front cells | beam). */
-const BEAM_REAR_Z = 2.055;
-const RAIL_SPLIT_Z = 1.7;
-const RAIL_REAR_Z = 1.32;
+/**
+ * RE-DERIVED 2026-07-11 (S90 swap). Beam depth / rail split planes (front chain z-tiling: cradle |
+ * rear cells | front cells | beam) -- these are pure internal-tier-split literals (crash-architecture.
+ * md §A's staged-yield tiers), not directly car-map-derived. Re-derivation method: preserve the
+ * MUSTANG'S tier-depth RATIOS (engineCradle 0.62m : rearCell 0.38m : frontCell 0.355m : beam 0.24m,
+ * summing to the Mustang's total available front-crush length FRONT_TIP_Z(2.2955) - FIREWALL_Z_M(0.7)
+ * = 1.595m) rescaled to the S90's own total available length (FRONT_TIP_Z(2.5005) -
+ * FIREWALL_Z_M(0.95) = 1.5505m, scale factor 0.972): engineCradle 0.603m, rearCell 0.369m, frontCell
+ * 0.345m, beam 0.233m -- chosen over a flat re-measurement because these tiers' STAGED-YIELD RATIOS
+ * (which tier absorbs how much of the crush budget) are the empirically-tuned physics, not the exact
+ * millimeters; preserving the ratio while adapting to the new available length keeps that tuning
+ * intact. Re-verify against sim/crash-realism.test.mjs's measured crush-vs-speed bands (S6).
+ */
+const BEAM_REAR_Z = 2.27;
+const RAIL_SPLIT_Z = 1.92;
+const RAIL_REAR_Z = 1.55;
 /** Rails: outboard frame members. Full rail = 2 cells (front/rear) chained by a weld -- the M2
- * staged-yield tiers need the mid-rail joint (front cell yields before rear cell). */
-const RAIL_X_IN = 0.3;
-const RAIL_X_OUT = 0.66;
+ * staged-yield tiers need the mid-rail joint (front cell yields before rear cell).
+ * S90 SWAP: scaled by the body-width ratio (2.011/1.936 = 1.039) from the Mustang's measured 0.3/0.66. */
+const RAIL_X_IN = 0.31;
+const RAIL_X_OUT = 0.69;
 const RAIL_TOP_Y = 0.38;
-/** Rear chain z-tiling: bulkhead | trunkFloor | rear rails | rear tip. */
-const TRUNK_REAR_Z = -1.62;
+/**
+ * Rear chain z-tiling: bulkhead | trunkFloor | rear rails | rear tip. RE-DERIVED 2026-07-11 (S90 swap)
+ * with the same tier-ratio-preservation method as the front chain above: Mustang's rear crush zone
+ * (BULKHEAD_Z_M(-0.64) to REAR_TIP_Z(-2.2955), total 1.6555m) split trunkFloor 0.98m / rearRail
+ * 0.6755m (59.2%/40.8%); applied to the S90's rear crush zone (BULKHEAD_Z_M(-1.25) to
+ * REAR_TIP_Z(-2.5005), total 1.2505m -- shorter than the Mustang's despite the longer car, because the
+ * S90's BULKHEAD_Z_M moved much further back to give the real 4-door rear seat its own cabin space,
+ * eating into the available rear-crush length) gives trunkFloor 0.740m / rearRail 0.510m.
+ */
+const TRUNK_REAR_Z = -1.99;
 
 function boxSpec(key: SegmentKey, massKg: number, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): SegmentSpec {
 	return {
@@ -152,18 +177,25 @@ function boxSpec(key: SegmentKey, massKg: number, x0: number, x1: number, y0: nu
  * [10 per cell], cradle ~40kg"; rear sized similarly lighter) -- 95kg front + 40kg rear = 135kg total,
  * all deducted from the chassis remainder (vehicle.ts's parity stamp).
  */
+// S90 SWAP 2026-07-11: lateral (x) and vertical (y) literals below scaled by the body-width ratio
+// (2.011/1.936 = 1.039, e.g. engineCradle ±0.75 -> ±0.78, trunkFloor ±0.85 -> ±0.88, rearRail
+// 0.25/0.7 -> 0.26/0.73) and the fractional Y-rescale method (within [Y0, HULL_TOP_Y_M], same as
+// geometry.ts's BELTLINE_Y_M/CANTRAIL_Y_M -- e.g. engineCradle top 0.52 -> 0.54, bumperBeam top
+// 0.3 -> 0.29, trunkFloor top 0.1 -> 0.07, rearRail top 0.42 -> 0.43); every result landed within a
+// few cm of the Mustang original, consistent with these being largely car-size-invariant underbody
+// clearance heights.
 export const SEGMENT_SPECS: readonly SegmentSpec[] = [
 	// Front chain
-	boxSpec('engineCradle', 40, -0.75, 0.75, Y0, 0.52, FIREWALL_Z_M, RAIL_REAR_Z),
+	boxSpec('engineCradle', 40, -0.78, 0.78, Y0, 0.54, FIREWALL_Z_M, RAIL_REAR_Z),
 	boxSpec('crushRailLR', 10, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
 	boxSpec('crushRailLF', 10, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
 	boxSpec('crushRailRR', 10, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
 	boxSpec('crushRailRF', 10, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
-	boxSpec('bumperBeam', 15, -HULL_BOTTOM_HALF_WIDTH_M, HULL_BOTTOM_HALF_WIDTH_M, Y0, 0.3, BEAM_REAR_Z, FRONT_TIP_Z),
+	boxSpec('bumperBeam', 15, -HULL_BOTTOM_HALF_WIDTH_M, HULL_BOTTOM_HALF_WIDTH_M, Y0, 0.29, BEAM_REAR_Z, FRONT_TIP_Z),
 	// Rear chain
-	boxSpec('trunkFloor', 16, -0.85, 0.85, Y0, 0.1, TRUNK_REAR_Z, BULKHEAD_Z_M),
-	boxSpec('rearRailL', 12, 0.25, 0.7, Y0, 0.42, REAR_TIP_Z, TRUNK_REAR_Z),
-	boxSpec('rearRailR', 12, -0.7, -0.25, Y0, 0.42, REAR_TIP_Z, TRUNK_REAR_Z),
+	boxSpec('trunkFloor', 16, -0.88, 0.88, Y0, 0.07, TRUNK_REAR_Z, BULKHEAD_Z_M),
+	boxSpec('rearRailL', 12, 0.26, 0.73, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
+	boxSpec('rearRailR', 12, -0.73, -0.26, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
 ];
 
 const SPEC_BY_KEY: ReadonlyMap<SegmentKey, SegmentSpec> = new Map(SEGMENT_SPECS.map((s) => [s.key, s]));
