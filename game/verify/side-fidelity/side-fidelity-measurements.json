@@ -1,0 +1,382 @@
+{
+  "side-mdb-50": {
+    "readout": {
+      "crush": {
+        "front": {
+          "depthM": 0.006546748802065849,
+          "dentedCount": 20016
+        },
+        "rear": {
+          "depthM": 0,
+          "dentedCount": 5672
+        },
+        "left": {
+          "depthM": 0,
+          "dentedCount": 0
+        },
+        "right": {
+          "depthM": 0.2633172571659088,
+          "dentedCount": 28236
+        }
+      },
+      "mechCrushFrontM": 0.000009919351160458945,
+      "mechCrushRearM": 0.0000011904029495468649,
+      "intrusionM": 0,
+      "panelStates": {
+        "hood": "loosened",
+        "doorL": "loosened",
+        "doorR": "loosened",
+        "doorRL": "loosened",
+        "doorRR": "loosened",
+        "trunk": "loosened"
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 38140,
+      "chassisPeakDecelG": 24.784181135541807,
+      "occupants": [
+        {
+          "seatKey": "frontLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 23.281188430203002,
+          "peakAccelG1Step": 30.114660944081557
+        },
+        {
+          "seatKey": "frontRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 21.495622443486837,
+          "peakAccelG1Step": 23.360655138926194
+        },
+        {
+          "seatKey": "rearLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 29.30738905578604,
+          "peakAccelG1Step": 32.30577597432587
+        },
+        {
+          "seatKey": "rearRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 29.132893882945815,
+          "peakAccelG1Step": 37.92186182230653
+        }
+      ]
+    },
+    "maxStructuralOffsetM": 0.25918447971343994
+  },
+  "side-pole-32": {
+    "readout": {
+      "crush": {
+        "front": {
+          "depthM": 0,
+          "dentedCount": 82
+        },
+        "rear": {
+          "depthM": 0.000006699765435769223,
+          "dentedCount": 83
+        },
+        "left": {
+          "depthM": 0,
+          "dentedCount": 0
+        },
+        "right": {
+          "depthM": 0.1600719839334488,
+          "dentedCount": 2740
+        }
+      },
+      "mechCrushFrontM": 0.000004989925038945131,
+      "mechCrushRearM": 0.0000012591391449490175,
+      "intrusionM": 0,
+      "panelStates": {
+        "hood": "attached",
+        "doorL": "loosened",
+        "doorR": "attached",
+        "doorRL": "loosened",
+        "doorRR": "attached",
+        "trunk": "attached"
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 4025,
+      "chassisPeakDecelG": 20.5429418206409,
+      "occupants": [
+        {
+          "seatKey": "frontLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 20.95886328682466,
+          "peakAccelG1Step": 39.664791952624384
+        },
+        {
+          "seatKey": "frontRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 16.006561770214994,
+          "peakAccelG1Step": 21.4580042201599
+        },
+        {
+          "seatKey": "rearLeft",
+          "alive": true,
+          "ejected": true,
+          "state": "flee",
+          "peakAccelG": 21.786432536590176,
+          "peakAccelG1Step": 28.493811812936922
+        },
+        {
+          "seatKey": "rearRight",
+          "alive": true,
+          "ejected": true,
+          "state": "flee",
+          "peakAccelG": 17.10447198544227,
+          "peakAccelG1Step": 33.090766759135306
+        }
+      ]
+    },
+    "maxStructuralOffsetM": 0.1157679632306099
+  },
+  "iihs-small-64": {
+    "readout": {
+      "crush": {
+        "front": {
+          "depthM": 0.4593116044998169,
+          "dentedCount": 35234
+        },
+        "rear": {
+          "depthM": 0,
+          "dentedCount": 0
+        },
+        "left": {
+          "depthM": 0.0777292400598526,
+          "dentedCount": 10063
+        },
+        "right": {
+          "depthM": 0.0005566754844039679,
+          "dentedCount": 18503
+        }
+      },
+      "mechCrushFrontM": 0.5242337205312217,
+      "mechCrushRearM": 5.210151496903848e-7,
+      "intrusionM": 0.034233720531221756,
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "attached",
+        "doorR": "attached",
+        "doorRL": "attached",
+        "doorRR": "attached",
+        "trunk": "attached"
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 42000,
+      "chassisPeakDecelG": 52.86432107164859,
+      "occupants": [
+        {
+          "seatKey": "frontLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 59.40457798903956,
+          "peakAccelG1Step": 89.2527532557039
+        },
+        {
+          "seatKey": "frontRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 56.06022663131378,
+          "peakAccelG1Step": 79.237839014383
+        },
+        {
+          "seatKey": "rearLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 59.85999681943385,
+          "peakAccelG1Step": 92.36392956956631
+        },
+        {
+          "seatKey": "rearRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 61.05482341460568,
+          "peakAccelG1Step": 86.29291552988548
+        }
+      ]
+    },
+    "maxStructuralOffsetM": 0.4371286924901575
+  },
+  "nhtsa-56": {
+    "readout": {
+      "crush": {
+        "front": {
+          "depthM": 0.40472012758255005,
+          "dentedCount": 38457
+        },
+        "rear": {
+          "depthM": 0,
+          "dentedCount": 0
+        },
+        "left": {
+          "depthM": 0.00012160235928604379,
+          "dentedCount": 12523
+        },
+        "right": {
+          "depthM": 0,
+          "dentedCount": 18836
+        }
+      },
+      "mechCrushFrontM": 0.46331436370514256,
+      "mechCrushRearM": 0.0000010437486233083604,
+      "intrusionM": 0,
+      "panelStates": {
+        "hood": "loosened",
+        "doorL": "attached",
+        "doorR": "attached",
+        "doorRL": "attached",
+        "doorRR": "attached",
+        "trunk": "attached"
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 43233,
+      "chassisPeakDecelG": 47.47933281849159,
+      "occupants": [
+        {
+          "seatKey": "frontLeft",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 54.63851969073705,
+          "peakAccelG1Step": 70.68435229238631
+        },
+        {
+          "seatKey": "frontRight",
+          "alive": true,
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 49.90522182790823,
+          "peakAccelG1Step": 70.00633720417115
+        },
+        {
+          "seatKey": "rearLeft",
+          "alive": true,
+          "ejected": true,
+          "state": "flee",
+          "peakAccelG": 50.025644387728846,
+          "peakAccelG1Step": 69.00699250703356
+        },
+        {
+          "seatKey": "rearRight",
+          "alive": true,
+          "ejected": true,
+          "state": "flee",
+          "peakAccelG": 55.021368963347015,
+          "peakAccelG1Step": 71.21338981736348
+        }
+      ]
+    },
+    "maxStructuralOffsetM": 0.5066721175105844
+  },
+  "free-161": {
+    "readout": {
+      "crush": {
+        "front": {
+          "depthM": 1.3999741077423096,
+          "dentedCount": 45211
+        },
+        "rear": {
+          "depthM": 0,
+          "dentedCount": 0
+        },
+        "left": {
+          "depthM": 0,
+          "dentedCount": 19049
+        },
+        "right": {
+          "depthM": 0.0009979514870792627,
+          "dentedCount": 19064
+        }
+      },
+      "mechCrushFrontM": 1.1161109677351504,
+      "mechCrushRearM": 7.72692199779712e-7,
+      "intrusionM": 0.2672221935470301,
+      "panelStates": {
+        "hood": "broken",
+        "doorL": "sprung",
+        "doorR": "sprung",
+        "doorRL": "sprung",
+        "doorRR": "sprung",
+        "trunk": "attached"
+      },
+      "wheelStates": {
+        "fl": "attached",
+        "fr": "attached",
+        "rl": "attached",
+        "rr": "attached"
+      },
+      "dentedVertexCount": 52355,
+      "chassisPeakDecelG": 138.2060839707274,
+      "occupants": [
+        {
+          "seatKey": "frontLeft",
+          "alive": false,
+          "ejected": false,
+          "state": "dead",
+          "peakAccelG": 154.23484292536344,
+          "peakAccelG1Step": 284.6689389634035
+        },
+        {
+          "seatKey": "frontRight",
+          "alive": false,
+          "ejected": false,
+          "state": "dead",
+          "peakAccelG": 154.32425492649878,
+          "peakAccelG1Step": 284.8086237354983
+        },
+        {
+          "seatKey": "rearLeft",
+          "alive": false,
+          "ejected": false,
+          "state": "dead",
+          "peakAccelG": 154.35576401226172,
+          "peakAccelG1Step": 284.63488817466697
+        },
+        {
+          "seatKey": "rearRight",
+          "alive": false,
+          "ejected": false,
+          "state": "dead",
+          "peakAccelG": 154.4983174400222,
+          "peakAccelG1Step": 285.01705449979494
+        }
+      ]
+    },
+    "maxStructuralOffsetM": 1.2205584644630079
+  }
+}

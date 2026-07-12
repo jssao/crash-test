@@ -1,0 +1,11 @@
+{
+  "runState": "settled",
+  "panelStates": {
+    "hood": "broken",
+    "doorL": "sprung",
+    "doorR": "sprung",
+    "doorRL": "sprung",
+    "doorRR": "sprung",
+    "trunk": "attached"
+  }
+}
