@@ -1,0 +1,24 @@
+S90 LIVE DUMP (2026-07-12T18:16:40.188Z):
+{
+ "totalMeshes": 136,
+ "totalVerts": 279997,
+ "chassisFrontZoneMeshes": 53,
+ "chassisFrontZoneVerts": 81161,
+ "hoodPanelVerts": 8401,
+ "frontZonePlusHoodVerts": 89562,
+ "top6Front": [
+  "chassis-Plane057_3-4=5240",
+  "chassis-Plane057_5-6=4130",
+  "chassis-Vents-69=3825",
+  "chassis-Knobs-74=3782",
+  "chassis-Dashboard-58=3437",
+  "chassis-Stalks-68=2601"
+ ]
+}
+
+MUSTANG BASELINE (recorded 2026-07-11 pre-swap, same dumpDeformables API + same centerLocal.z>0.5 front-zone criterion, per-mesh dump in session log):
+chassis front-zone meshes: Cube002_3=772, Cube002_5=4525, Cube002_9=298, Cube002_6=1597, Cube013_1=1807, Cube013_2=1779, Cube013_5=190, Cube013=4050, Cube013_3=1010, Cube002_10=208 -> chassisFrontZoneVerts ~= 16,236
+hood panel meshes: Cube003=388, Cube003_1=1192, Cube003_3=96 -> hoodPanelVerts = 1,676
+frontZonePlusHood ~= 17,912  |  total registered ~65k verts / 46 meshes
+
+CONDITION: S90 front-crush-zone >= 2x Mustang front-crush-zone.

@@ -1,0 +1,10 @@
+ ✓ sim/damage-benign-driving.test.mjs > damage: benign-driving > 60s of varied mild driving (accelerate/brake/turn, no obstacles) leaves every panel attached 495ms
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > 2x4 fence rail at ~40km/h snaps into exactly 2 box fragments; parent deregistered, fragments mass-registered (spec §E)
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > the same rail at ~6km/h neither fractures nor pops its weld (benign contact breaks NOTHING)
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > mid tree trunk SNAPS into anchored stump + flying top at ~80km/h; at ~40km/h it only leans (no split, no fell)
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > shed plywood cladding splits into >1 fragment on a ~60km/h hit
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > drywall fractures into shards on a ~50km/h house-corner hit
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > bricks NEVER fracture (breakOnly masonry stays wired out of the fracture path) and the fracture rate stays <=1 event/step; chaos body count stays under spawn+cap 406ms
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > determinism: two identical rail crashes produce identical fragment counts, ids and positions (no Math.random leakage)
+ ✓ sim/fracture-materials.test.mjs > fracture: world materials snap into pieces > mass-aware damage factor: a ~1.5kg rail fragment attenuates car damage ~1000x vs a wall (spec §E fix)
+      Tests  9 passed (9)
