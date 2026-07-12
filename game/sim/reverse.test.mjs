@@ -132,7 +132,15 @@ describe('reverse wheel-detach gating (impact required for a drivetrain-force pl
   // gross-overload bypass -- for well past the debounce window. Stands in for the reverse spin-motor's
   // rear-joint plateau (which this flat sim can't produce), but as a clean contactless force with no hit
   // events, exactly the situation the fix must stop from detaching a wheel.
-  const BAND_IMPULSE_NS = 2800; // measured: peaks ~5.2x share (~18.6kN), ~5 consecutive steps over base, stays under the 6x gross bypass
+  // PHASE R RE-MASS CALIBRATION (2026-07-12): 2800 -> 4050. Both WHEEL_DETACH_FORCE_MULT's base
+  // threshold and WHEEL_DETACH_IMPACT_BYPASS_MULT's gross threshold scale with the per-wheel weight
+  // share (carMassKg*GRAVITY_MAG/4), which grew with the re-mass (tuning.ts CHASSIS_MASS_KG doc
+  // comment) -- but WHEEL_MASS_KG also grew (22->25kg), so the SAME fixed impulse produces a smaller
+  // velocity response (Δv = impulse/mass) against a bigger threshold, and the old 2800 no longer even
+  // reached the base threshold (measured 14238N/3.59x, base is 15860N/4x). Re-measured to restore the
+  // same ~5.2x share / stays-under-6x-gross intent: 4050 -> peaks 21490N (5.42x share, base=15860,
+  // gross=23790), 5 consecutive steps over base (clears WHEEL_DETACH_DEBOUNCE_STEPS=3).
+  const BAND_IMPULSE_NS = 4050;
 
   it('a sustained contactless in-band rear-wheel joint load does NOT detach the wheel (the reverse false-positive)', async () => {
     const sim = await createDamageSim();
@@ -217,9 +225,11 @@ describe('reverse wheel-detach gating (impact required for a drivetrain-force pl
     try {
       for (let i = 0; i < 30; i++) sim.step(NEUTRAL_INPUT);
       let detached = false;
-      // 5000 Ns/step measured to peak ~10x share -> well over the 6x contactless bypass, sustained.
+      // PHASE R RE-MASS CALIBRATION (2026-07-12): 5000 -> 7800 Ns/step (same cause as BAND_IMPULSE_NS
+      // above -- WHEEL_MASS_KG grew alongside the per-wheel weight share). Measured: 7800 peaks well
+      // over the 6x gross-bypass threshold (23790N), sustained.
       for (let i = 0; i < 20 && !detached; i++) {
-        if (sim.vehicle.wheels.rl.joint) sim.vehicle.wheels.rl.body.applyLinearImpulseToCenter({ x: 0, y: 0, z: 5000 }, true);
+        if (sim.vehicle.wheels.rl.joint) sim.vehicle.wheels.rl.body.applyLinearImpulseToCenter({ x: 0, y: 0, z: 7800 }, true);
         sim.step(NEUTRAL_INPUT);
         if (!sim.vehicle.wheels.rl.joint) detached = true;
       }

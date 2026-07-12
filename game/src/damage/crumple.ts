@@ -13,6 +13,7 @@
 
 import type { V3 } from '../vehicle/mathUtil';
 import {
+	chassisSpeedCrushCapM,
 	CRUMPLE_CLAMP_CHASSIS_M,
 	CRUMPLE_CLAMP_PANEL_GLASS_M,
 	CRUMPLE_CRUSH_FLOOR_M,
@@ -254,7 +255,14 @@ export function applyImpactToMesh(mesh: DeformableMeshHandle, localPoint: V3, lo
 	// a vertex, never above the absolute per-mesh clamp. Applied per-vertex below against the vertex's
 	// PRE-hit magnitude so it only ever LIMITS new growth, never shrinks an already-deeper dent (that
 	// would "heal" the crumple, violating the never-heals invariant) -- see crush cap logic below.
-	const speedCrushCap = Math.min(mesh.clampM, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_CRUSH_SPEED_CAP_MS));
+	// EXTREME TIER (Stream C C2): chassis-kind deformables use the TIERED chassisSpeedCrushCapM()
+	// (damage-tuning.ts) instead of the flat expression -- identical below CRUMPLE_EXTREME_GATE_MS
+	// (same sub-expression), ramps toward CRUMPLE_CLAMP_EXTREME_CHASSIS_M above it. Panel/glass keep
+	// the flat clamp (mesh.clampM) unchanged -- the extreme tier is a body-shell (chassis) event.
+	const speedCrushCap =
+		mesh.kind === 'chassis'
+			? chassisSpeedCrushCapM(approachSpeedMs)
+			: Math.min(mesh.clampM, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_CRUSH_SPEED_CAP_MS));
 	const base = mesh.basePositions;
 	const pos = mesh.positions;
 	const off = mesh.offsets;

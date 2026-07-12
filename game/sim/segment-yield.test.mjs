@@ -43,12 +43,47 @@ describe('crush M2: mechanical segment yield (segments.ts stepSegmentYield)', ()
 	it('frontal mechanical crush is staged by speed: in reference bands, monotonic, clamped, permanent', async () => {
 		// Reference bands (crash-deformation-reference.md, mech realization; 56 interpolated between
 		// the 40 and 64 rows -- the NHTSA full-frontal speed the lab protocol runs).
+		//
+		// PHASE R CRASH-PULSE RECALIBRATION (2026-07-12): every band shifted by a uniform +0.05m. ROOT
+		// CAUSE of the R3 debt (lab NHTSA-56 chassisPeakDecelG measured 91.7g, target [35,55]g): the
+		// crush core (vehicle/geometry.ts's CRUSH_CORE_INITIAL_RECESS_M) is a shape mounted DIRECTLY ON
+		// THE CHASSIS body, recessed only 0.1m behind the segments' pristine nose position. At NCAP
+		// closing speed (15.56 m/s) that 0.1m is traversed in under one fixed step (~6.4ms of a 16.7ms
+		// step), so the chassis's own rigid core reaches the wall and takes a near-instantaneous, near-
+		// total velocity kill (the plastic-retreat bookkeeping only updates AFTER world.step() resolves
+		// that step's contact, so the FIRST contact is always against a not-yet-retreated, effectively
+		// rigid face).
+		//
+		// FIX part 1: widened CRUSH_CORE_INITIAL_RECESS_M 0.1 -> 0.15m, giving the compliant segment
+		// chain (its own soft welds, tuning.ts TIER_WELD_HERTZ) real additional distance/time to shed
+		// speed before the chassis's rigid core engages. Measured directly (56km/h, raw per-step
+		// metric): peak decel 88.8g -> 47.1g in this sim rig. CAVEAT discovered while closing the LAB
+		// side of the same debt (src/lab/instrumentation.ts's ChassisDecelTracker doc carries the full
+		// story): the sharp 0.13/0.14 -> 0.15 threshold in that sweep is largely contact-TOI SAMPLING
+		// PHASE (whether the 1-2-step solver stop's big velocity bin straddles a fixed-step boundary),
+		// not pure compliance -- which is why the headline lab metric was ALSO de-aliased to a 2-step
+		// windowed measurement (FIX part 2, instrumentation.ts). The recess widening itself remains
+		// real, kept, and is what the crush-depth arithmetic below keys off.
+		//
+		// SIDE EFFECT (and its fix): the recess is an ADDITIVE offset baked into every reported depth
+		// (frontCrushM = recess + retreat, once retreat's ramp-in completes) -- verified by direct
+		// measurement that the WHOLE crush-vs-speed curve translates by *exactly* the +0.05m recess
+		// delta (40: 0.256->0.306, 56: 0.388->0.438, 64: 0.461->0.511, 80: 0.544->0.594, 120:
+		// 0.580->0.630 -- all +0.050 to 3 decimal places), so CORE_STAGE_DECEL_MS2's depth thresholds
+		// (segments.ts) and every hardcoded RATCHET_ZONE_START_M literal were shifted by the same +0.05m
+		// to preserve the ORIGINAL retreat-budget-per-stage and carry-along-onset physics exactly (only
+		// beam/rearL/rearR, which already reference CRUSH_CORE_INITIAL_RECESS_M directly, auto-tracked).
+		// This is why the bands below are the OLD bands + 0.05m rather than independently re-fitted --
+		// the underlying ordering/ratios/shape the reference doc asks for (crash-deformation-reference.md)
+		// are unchanged, only the absolute game-scale numbers shift by the documented, measured amount.
+		// 120's band gets +0.01m extra headroom (0.63 -> 0.64) since the measured value (0.630) landed
+		// within 1mm of a bare +0.05 shift -- not a knife-edge worth re-tuning further.
 		const bands = [
-			{ speed: 40, min: 0.18, max: 0.35 },
-			{ speed: 56, min: 0.33, max: 0.47 },
-			{ speed: 64, min: 0.38, max: 0.52 },
-			{ speed: 80, min: 0.45, max: 0.56 },
-			{ speed: 120, min: 0.5, max: 0.58 },
+			{ speed: 40, min: 0.23, max: 0.4 },
+			{ speed: 56, min: 0.38, max: 0.52 },
+			{ speed: 64, min: 0.43, max: 0.57 },
+			{ speed: 80, min: 0.5, max: 0.61 },
+			{ speed: 120, min: 0.55, max: 0.64 },
 		];
 		const results = [];
 		for (const b of bands) {
@@ -107,9 +142,10 @@ describe('crush M2: mechanical segment yield (segments.ts stepSegmentYield)', ()
 			expect(t.weldCrushM.cellFL).toBeGreaterThan(0.1);
 			expect(t.weldCrushM.cellFR).toBeLessThan(0.02);
 			expect(t.weldCrushM.cellRR).toBeLessThan(0.02);
-			// Total crush still lands in the 64km/h band (the struck side carries it).
-			expect(t.frontCrushM).toBeGreaterThanOrEqual(0.38);
-			expect(t.frontCrushM).toBeLessThanOrEqual(0.52);
+			// Total crush still lands in the 64km/h band (the struck side carries it). PHASE R (2026-07-12):
+			// shifted +0.05m with the frontal band above (same CRUSH_CORE_INITIAL_RECESS_M widening).
+			expect(t.frontCrushM).toBeGreaterThanOrEqual(0.43);
+			expect(t.frontCrushM).toBeLessThanOrEqual(0.57);
 		} finally {
 			sim.destroy();
 		}

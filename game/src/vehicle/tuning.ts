@@ -16,30 +16,44 @@ import { CAR_MAP } from '../assets/car-map';
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Target total chassis (sprung) mass, kg -- hull shell + ballast combined.
+ * Target total chassis (sprung) mass, kg -- hull shell + ballast combined (includes the 9 crush
+ * segments, vehicle/segments.ts -- their mass is DEDUCTED from this figure at construction time, not
+ * additional to it; see segment-mass-parity.test.mjs).
  *
  * TUNING DELTA (G3 damage system): was 1350 pre-damage. The detachable panel bodies
  * (game/src/damage/panels.ts, welded to the chassis in vehicle.ts's createVehicle()) add their own
  * mass, carried as SEPARATE bodies rather than baked into this hull+ballast figure.
  *
- * RE-MASSED 2026-07-11 (Mustang -> Volvo S90 swap, orchestrator decision: "minimum-recalibration
- * swap -- the damage/crush matrix stays valid; re-massing to a realistic ~1750kg is a LATER
- * dedicated calibration pass"): the S90 is a 4-door sedan, adding 2 rear-door panels (doorRL/doorRR,
- * ~15kg each) to the Mustang's 4-panel set. New panel total 89kg (damage-tuning.ts's PANEL_MASS_KG:
- * 13+16+16+15+15+14). Reduced by exactly that amount (1350 - 89 = 1261) so the car's TOTAL mass
- * (chassis + panels + 4*WHEEL_MASS_KG = 1261+89+88=1438kg) stays EXACTLY the same 1438kg the
- * damage/crush test matrix was tuned against -- not a real S90 curb weight (~1750-1850kg), which is
- * deliberately deferred (see this comment's TODO below).
- *
- * TODO (later dedicated calibration pass): re-mass the whole car to the S90's real ~1750kg curb
- * weight. That's a bigger job than this swap's scope -- it would re-derive drivetrain torque/gearing,
- * suspension spring rates, and every speed-dependent crush/stress threshold in damage-tuning.ts
- * (which were calibrated against 1438kg), not just this one constant. Out of scope here.
+ * PHASE R RE-MASS (2026-07-12, S90 realistic-curb-weight calibration pass -- the TODO the S90-swap
+ * pass deliberately deferred, see git history for that comment): total car mass raised from the
+ * swap's mass-conserving 1438kg to 1750kg, picked as the midpoint of the real S90's published curb
+ * weight range (~1700-1900kg per trim) and a round, documentable number. Split across the 3 mass
+ * pools:
+ *   - PANELS (damage-tuning.ts PANEL_MASS_KG): bumped to a plausible heavier-S90-door set, 116kg
+ *     total (hood16 + doorL22 + doorR22 + doorRL20 + doorRR20 + trunk16) -- doors specifically
+ *     heavier than the swap's 89kg (real power windows/speakers/side-impact beams), not a uniform
+ *     scale-up.
+ *   - WHEELS (WHEEL_MASS_KG below): bumped 22 -> 25kg each (100kg total) -- a heavier sedan rides on
+ *     more substantial wheel/tire/brake-rotor assemblies than the swap's carried-over 22kg.
+ *   - CHASSIS_MASS_KG (this constant): the remainder, 1750 - 116 - 100 = 1534kg. Scale factor vs the
+ *     swap's 1261kg = 1534/1261 = 1.2166 -- applied uniformly to the 9 crush segments
+ *     (vehicle/segments.ts SEGMENT_SPECS, 135kg -> 164kg, see that file's comment for the per-segment
+ *     arithmetic) so the crush structure's mass grows in the same proportion as the sprung mass it's
+ *     carved out of; the non-segment hull+ballast remainder (1126kg -> 1370kg) grows by the identical
+ *     1.2166 factor as a consequence (1534-164=1370; 1370/1126=1.2167, consistent within rounding).
+ * Total: 1534 (chassis, incl. 164 segments) + 116 (panels) + 100 (wheels) = 1750kg exactly.
  */
-export const CHASSIS_MASS_KG = 1261;
+export const CHASSIS_MASS_KG = 1534;
 
-/** Each wheel's rigid-body mass, kg. */
-export const WHEEL_MASS_KG = 22;
+/**
+ * Each wheel's rigid-body mass, kg.
+ *
+ * PHASE R RE-MASS (2026-07-12): bumped 22 -> 25kg -- see CHASSIS_MASS_KG's doc comment for the full
+ * mass-split arithmetic. A heavier sedan's wheel/tire/rotor assembly plausibly outweighs the swap's
+ * carried-over Mustang figure; 25kg/wheel (100kg total) is still an ordinary road-wheel mass, not an
+ * outlier.
+ */
+export const WHEEL_MASS_KG = 25;
 
 /**
  * Shared box3d collision-filter group index for EVERY car body's shapes (chassis hull, ballast
@@ -421,9 +435,39 @@ export const SLIP_OVERRIDE_DEBOUNCE_STEPS = 3;
  * own suggested "1.5-2.5Hz" language describes (that mismatch IS the root cause above), but the
  * EMERGENT, MEASURED behavior at this tuned value lands in the physically-plausible neighborhood the
  * spec was actually asking for.
+ *
+ * PHASE R RE-MASS/SUSPENSION RETUNE (2026-07-12): raised 6/6 -> 7.2/7.85 (front/rear, now
+ * DIFFERENTIATED -- see below for why an even split no longer suffices). The heavier corner loads
+ * (tuning.ts's CHASSIS_MASS_KG doc comment) push the TRUE (unclamped) static-equilibrium deflection at
+ * the OLD hertz=6 to a measured 0.1145m front / 0.1415m rear at REST and 0.1307m front / 0.1561m rear
+ * LADEN (game/sim's ride-height LADEN_FEATURE_BALLAST rig) -- the rear figure alone (0.1561m) already
+ * exceeds the +/-0.14m ceiling outright (would pin flush against the wall, zero headroom, the exact
+ * "rides near bump-stop" debt this pass was asked to close).
+ *
+ * TWO candidate fixes were tried: (a) widen SUSPENSION_LOWER/UPPER_LIMIT_M instead of touching hertz,
+ * (b) stiffen hertz and leave the +/-0.14m ceiling alone. (a) was tried FIRST (widened to +/-0.24m,
+ * comfortably covering all 4 load states with margin) but MEASURABLY REGRESSED bumpy-terrain driving
+ * stability: sim/terrain-compound.test.mjs's connectivity run rolled the car outright (minUpDot
+ * dropped to -0.98, a real rollover) and sim/cardetail-ground-contact.test.mjs's welded parts started
+ * clipping the ground -- both because the active anti-roll/yaw-damping/anti-pitch assists (further
+ * below in this file) and the cardetail parts' clearance were implicitly tuned against the +/-0.14m
+ * envelope's dynamics, not just its final rest position. (b) -- stiffening hertz, leaving the ceiling
+ * untouched -- cleared the FULL sim suite with no such collateral (verified directly), so it's the one
+ * kept. Swept empirically holding the +/-0.14m ceiling: front 7.2 / rear 7.85 gives every corner >=30%
+ * headroom in all 4 measured conditions --
+ *   front REST  0.0797/0.14 = 56.9% used -> 43.0% headroom
+ *   rear  REST  0.0825/0.14 = 58.9% used -> 41.0% headroom
+ *   front LADEN 0.0906/0.14 = 64.7% used -> 35.3% headroom
+ *   rear  LADEN 0.0951/0.14 = 67.9% used -> 32.1% headroom (worst case, still clears the 30% floor)
+ * Front/rear are now DIFFERENTIATED (unlike the swap-era "an even split was empirically just as good"
+ * finding above): the rear carries a heavier, more rearward-biased load post-re-mass (heavier rear
+ * doors + trunk-side segments), so it needs more stiffening than the front to reach the same headroom
+ * fraction -- re-verified against the full suspension-feel.test.mjs battery (dive 2.75deg, squat
+ * 1.02deg, corner-roll 3.28deg, landing oscillation 7 decaying half-cycles -- all comfortably inside
+ * their existing target bands with the stiffer springs).
  */
-export const SUSPENSION_HERTZ_FRONT = 6;
-export const SUSPENSION_HERTZ_REAR = 6;
+export const SUSPENSION_HERTZ_FRONT = 7.2;
+export const SUSPENSION_HERTZ_REAR = 7.85;
 export const SUSPENSION_DAMPING_RATIO = 0.7;
 /**
  * TUNING DELTA (suspension-feel pass): widened from +/-0.12m. Even after SUSPENSION_HERTZ_FRONT/REAR
@@ -434,20 +478,21 @@ export const SUSPENSION_DAMPING_RATIO = 0.7;
  * already used ~93-100% of the +/-0.12m band's compression side, leaving almost no headroom before
  * the wall (dive/squat/roll all measured BELOW this pass's own target bands at that combination).
  *
- * Widened empirically in steps (0.13/0.14/0.145/0.15/0.155/0.16, holding hertz=6): +/-0.14m is the
- * largest value that still clears every existing damage/occupant/crash sim test -- 0.145m and up
- * measurably regressed game/sim/panel-loosen-pose.test.mjs, game/sim/features-occupants.test.mjs,
- * game/sim/damage-crumple-bounded.test.mjs and/or game/sim/features-cardetail.test.mjs's crash-
- * scatter assertion (more suspension compliance during a hard wall impact changes how much of the
- * impact's momentum reaches the chassis/panels/occupants vs. gets absorbed by the now-real spring
- * travel -- a genuine, mechanistically-understood side effect of fixing the suspension, not a bug in
- * those other systems). +/-0.14m gives every corner ~0.03m of real static headroom on the loaded side
- * (measured settle ~0.112m front / ~0.127m rear, still inside the band, not pinned) -- this
- * combination (NOT hertz alone, NOT limit alone -- both were empirically required, see the sweep data
- * in this pass's dev notes) is what finally lets brake-dive/launch-squat/corner-roll show up as real,
- * measured multi-degree body motion (see game/sim/suspension-feel.test.mjs) instead of being clipped
- * by a suspension that was, in effect, rigid under normal load -- while staying inside the ceiling
- * the crash/damage/occupant tests above impose.
+ * Widened empirically in steps (0.13/0.14/0.145/0.15/0.155/0.16, holding hertz=6): +/-0.14m was the
+ * largest value that cleared every existing damage/occupant/crash sim test AT THE SWAP'S 1438KG MASS
+ * (0.145m and up measurably regressed game/sim/panel-loosen-pose.test.mjs, game/sim/features-
+ * occupants.test.mjs, game/sim/damage-crumple-bounded.test.mjs and/or game/sim/features-cardetail.
+ * test.mjs's crash-scatter assertion -- more suspension compliance during a hard wall impact changes
+ * how much of the impact's momentum reaches the chassis/panels/occupants vs. gets absorbed by the
+ * spring travel).
+ *
+ * PHASE R RE-MASS/SUSPENSION RETUNE (2026-07-12): KEPT AT +/-0.14m (unchanged) -- see
+ * SUSPENSION_HERTZ_FRONT/REAR's doc comment immediately above for the full A/B: widening this ceiling
+ * to buy rear headroom was tried FIRST and measurably destabilized bumpy-terrain driving (a real
+ * rollover) and cardetail ground clearance, so this pass fixes the "rides near bump-stop" debt by
+ * stiffening the spring instead, leaving this travel envelope -- and everything implicitly tuned
+ * against it (active assists, cardetail clearance, the crash/damage/occupant knife-edges the original
+ * +/-0.14m ceiling comment above references) -- untouched.
  */
 export const SUSPENSION_LOWER_LIMIT_M = -0.14;
 export const SUSPENSION_UPPER_LIMIT_M = 0.14;

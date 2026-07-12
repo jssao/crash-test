@@ -12,7 +12,7 @@
 // Measured numbers backing each band are in the console output; see crash-realism-harness.mjs.
 import { describe, expect, it } from 'vitest';
 import { createCrashRealismSim } from './crash-realism-harness.mjs';
-import { panelDirectionalFactor } from '../src/damage/welds.ts';
+import { panelDirectionalFactor, doorLateralFraction } from '../src/damage/welds.ts';
 import { PANEL_VULNERABILITY } from '../src/damage/damage-tuning.ts';
 
 const brokenList = (states) => Object.entries(states).filter(([, s]) => s === 'broken').map(([k]) => k);
@@ -78,6 +78,40 @@ describe('crash-realism: direction-aware welds', () => {
 			sim.destroy();
 		}
 	}, 20000);
+
+	// C3b (2026-07-12): a real side-struck door JAMS SHUT and caves -- it does not swing open on its
+	// hinge (springing/swinging free is a FRONTAL/oblique phenomenon, not a squarely lateral one -- see
+	// damage-tuning.ts's DOOR_SPRUNG_LATERAL_FRACTION_MAX doc comment). Guards the fix: a moderate
+	// side-mdb-style impact (50 km/h, matching the crash lab's side-mdb-50 protocol -- same proxy
+	// side-fidelity.test.mjs's harness test already uses) must never show ANY door as 'sprung'.
+	it('doorLateralFraction: predominantly-lateral accumulated stress reads high, predominantly-oblique reads low', () => {
+		expect(doorLateralFraction({ stress: 0, lateralStressWeighted: 0 })).toBe(0);
+		expect(doorLateralFraction({ stress: 100, lateralStressWeighted: 95 })).toBeCloseTo(0.95, 5);
+		expect(doorLateralFraction({ stress: 100, lateralStressWeighted: 30 })).toBeCloseTo(0.3, 5);
+	});
+
+	it('a MODERATE side impact (50 km/h, side-mdb-50 style) jams doors instead of springing them open', async () => {
+		const sim = await createCrashRealismSim();
+		try {
+			sim.spawnSideWall(1.05); // matches side-fidelity.test.mjs's side-mdb-50 harness proxy
+			sim.crashSideways(50); // side-mdb-50's own closing speed
+			sim.settle(300);
+			const dt = sim.damageTelemetry();
+			console.log(`[realism] SIDE-MDB-50 states=${JSON.stringify(dt.panelStates)}`);
+			// PRE-FIX (measured in the real crash lab, verify/side-fidelity/side-fidelity-measurements.json
+			// before this slice): the struck-side doors (doorL/doorRL) read 'sprung' at settle -- the bug
+			// this slice fixes. POST-FIX: no door may ever read 'sprung' here -- a predominantly-lateral
+			// impact either jams (loosened) or, if severe enough, tears the door off outright (broken),
+			// but never swings it open on the hinge.
+			const sprungDoors = ALL_DOORS.filter((k) => dt.panelStates[k] === 'sprung');
+			expect(sprungDoors).toEqual([]);
+			// Real damage still lands somewhere (not a silent no-op fix) -- at least one door shows
+			// jammed/caved (loosened) or torn off (broken), not pristine 'attached'.
+			expect(doorsTouched(dt.panelStates).length).toBeGreaterThanOrEqual(1);
+		} finally {
+			sim.destroy();
+		}
+	}, 20000);
 });
 
 describe('crash-realism: crush depth scales with speed and caves inward', () => {
@@ -88,19 +122,22 @@ describe('crash-realism: crush depth scales with speed and caves inward', () => 
 		const r120 = await frontal(120);
 		console.log(`[realism] crush curve: 40=${r40.crush.toFixed(3)} 64=${r64.crush.toFixed(3)} 80=${r80.crush.toFixed(3)} 120=${r120.crush.toFixed(3)}`);
 		// Inward crush present and speed-scaled (bands from crash-deformation-reference.md).
-		// S90 SWAP RECALIBRATION (2026-07-11): lower bound 0.15 -> 0.08. Measured directly: 40km/h crush
-		// is now ~0.102m (64/80/120's bounds are unaffected and still pass with margin: 0.425/0.517/
-		// 0.580m). This lower-speed reading is affected by a KNOWN, separately-tracked issue (not this
-		// swap's scope, and NOT touched here per the orchestrator's explicit instruction): the S90's much
-		// denser BodyShell mesh (~5x the Mustang's front-crush-zone vertex count) makes crumple.ts's
-		// per-vertex jitter noise (CRUMPLE_JITTER_FRACTION) mesh-frequency-visible ("grocery bag"
-		// wrinkling), which measurably affects the max-single-vertex-displacement statistic this test
-		// reads at low impact energy (high-speed crush is deep enough that the smooth base displacement
-		// dominates over the jitter regardless). 0.08 stays comfortably below the measured 0.102 while
-		// still requiring a REAL, non-trivial dent (not weakened to near-zero) -- re-tighten once the
-		// jitter/density interaction is fixed (queued separately).
-		expect(r40.crush).toBeGreaterThan(0.08);
-		expect(r40.crush).toBeLessThan(0.35);
+		// S90 SWAP RECALIBRATION (2026-07-11): lower bound 0.15 -> 0.08 (this floor's history: 0.15 ->
+		// 0.08 -> 0.095 -- see the file's own note). That weakening was measured against 40km/h crush of
+		// ~0.102m at the time.
+		//
+		// PHASE R RE-MASS/CRASH-PULSE CALIBRATION (2026-07-12): 40km/h crush is now measured at 0.164m --
+		// the mass re-derivation (tuning.ts CHASSIS_MASS_KG) and the R3 crash-pulse recess fix (segments.ts
+		// CORE_STAGE_DECEL_MS2 doc comment) between them restored the low-speed dent back toward the
+		// reference's original 0.18-0.35m band without any direct CRUMPLE_* retune (damage-tuning.ts's
+		// crumple magnitude constants are UNCHANGED this pass -- verified unnecessary: the measured value
+		// already lands mid-band). Floor tightened 0.08 -> 0.14 (comfortably below the measured 0.164,
+		// restoring most of the honest margin the swap-era weakening gave up) and the ceiling tightened
+		// 0.35 -> 0.3, matching this pass's own ~0.15-0.3m target -- the previously-flagged jitter/density
+		// interaction (S90's denser mesh making CRUMPLE_JITTER_FRACTION mesh-frequency-visible) no longer
+		// dominates this statistic at the new, deeper baseline reading.
+		expect(r40.crush).toBeGreaterThan(0.14);
+		expect(r40.crush).toBeLessThan(0.3);
 		expect(r64.crush).toBeGreaterThan(r40.crush + 0.08); // clearly deeper than 40
 		expect(r64.crush).toBeGreaterThan(0.32);
 		expect(r80.crush).toBeGreaterThan(r64.crush); // deeper still
@@ -128,7 +165,11 @@ describe('crash-realism: offset front-right concentrates crush on the struck sid
 			// coherentCreaseNoise -- the "grocery bag wrinkle" playtest fix) can legitimately put the whole
 			// deep region slightly under 1.0x. The underlying crush FIELD is unchanged (measured 0.107 here
 			// vs 0.13-0.14 before; a dead mechanism reads ~0.03-0.05, so the floor stays falsifiable).
-			expect(c.rearZ).toBeGreaterThan(0.095); // real crush on the struck corner
+			//
+			// PHASE R RE-MASS/CRASH-PULSE CALIBRATION (2026-07-12): re-measured at 0.224m (same re-mass +
+			// R3 recess fix as the frontal test above, no CRUMPLE_* change). Tightened 0.095 -> 0.15,
+			// comfortably below the measured value while restoring most of the honest margin.
+			expect(c.rearZ).toBeGreaterThan(0.15); // real crush on the struck corner
 			expect(ext.right).toBeGreaterThan(ext.left + 0.3); // concentrated on the struck (right) side
 			expect(doorsBroken(dt.panelStates)).toEqual([]); // struck door jams but stays attached
 		} finally {

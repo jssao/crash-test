@@ -34,6 +34,7 @@ const WHEEL_ORDER: readonly WheelKey[] = ['fl', 'fr', 'rl', 'rr'];
 const STATE_COLOR: Record<string, string> = {
 	attached: '#3ddc72',
 	loosened: '#ffcc4d',
+	sprung: '#ff9933',
 	broken: '#ff5c5c',
 	detached: '#ff5c5c',
 };

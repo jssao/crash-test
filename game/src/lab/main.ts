@@ -27,7 +27,7 @@ import { FixedStepAccumulator, InterpolatedTransform } from '../core/loop';
 import { installPointerInput, consumeDragDelta, consumeZoomDelta } from '../input/pointer';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageEvent } from '../damage/system';
 import { registerCarDeformables, syncCarDeformablesToThree, checkCarDeformablesSync, type CarDeformableBindings } from '../scene/carDeformables';
-import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, maxStructuralOffsetM, type StructuralCrushState } from '../scene/structuralCrush';
+import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, lateralInputsFromRegistry, maxStructuralOffsetM, type StructuralCrushState } from '../scene/structuralCrush';
 import { getSegmentTelemetry } from '../vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from '../scene/panelVisuals';
 import { resetCrumpleRegistry } from '../damage/crumple';
@@ -103,6 +103,16 @@ declare global {
 			maxStructuralOffsetM: () => number;
 			/** Diagnostic: per-panel accumulated weld stress (damage-tuning.ts threshold calibration). */
 			panelStress: () => Record<string, number>;
+			/** Diagnostic (Phase R crash-pulse): raw chassis speed, m/s. */
+			chassisSpeedMs: () => number;
+			/** Diagnostic (Phase R crash-pulse): the current run's guided-approach release time (s). */
+			vehicleGuideEndS: () => number;
+			/** Diagnostic (Stream C slice C1): peak forward speed (m/s) this run ever reached -- the
+			 * same signal the door-sprung/break speed gates read. */
+			peakForwardSpeedMs: () => number;
+			/** Diagnostic (Stream C slice C3): the lateral field's own registry-derived per-side driver
+			 * stats (scene/structuralCrush.ts's lateralInputsFromRegistry()). */
+			lateralInputs: () => { sidePos: { depthM: number; centerZ: number; spanM: number }; sideNeg: { depthM: number; centerZ: number; spanM: number } };
 		};
 	}
 }
@@ -188,7 +198,7 @@ async function main() {
 		mesh.material = shattered;
 	}
 	function handleDamageEvent(event: DamageEvent): void {
-		if (event.type === 'panelLoosened' || event.type === 'panelBroken') {
+		if (event.type === 'panelLoosened' || event.type === 'panelSprung' || event.type === 'panelBroken') {
 			const visual = panelVisuals[event.panel];
 			const panelBody = vehicle.panels[event.panel].body;
 			if (visual) {
@@ -205,7 +215,12 @@ async function main() {
 	// doc comment -- barriers must read wall-like), so the lab threads the damage system's own map through
 	// purely to satisfy the shared FeatureContext contract; the occupants feature never writes to it.
 	const featureCtx: FeatureContext = { world, scene, getVehicle: () => vehicle, carRoot: car.root, quality, foreignMasses: damageSystem.foreignMasses };
-	const occupantsFeature: WorldFeature = await createOccupantsFeature(featureCtx);
+	// DIAGNOSTIC SWITCH (Phase R crash-pulse isolation, 2026-07-12): `?noocc` runs the lab WITHOUT the
+	// occupant feature entirely (no ragdolls, no seat pans, no restraints) -- used by the headless
+	// crash-pulse probes to isolate how much of the NHTSA-56 chassis peak decel comes from the
+	// occupants' coupled mass vs the car structure itself. Never set by the interactive lab UI.
+	const noOccupants = new URLSearchParams(window.location.search).has('noocc');
+	const occupantsFeature: WorldFeature = noOccupants ? { name: 'occupants-disabled', bodyCount: () => 0 } : await createOccupantsFeature(featureCtx);
 	const occHooks = () => occupantsFeature.hooks as { occupantStates?: () => OccupantStateLike[]; matchVehicleVelocity?: () => void } | undefined;
 
 	const chassisTransform = new InterpolatedTransform();
@@ -459,7 +474,10 @@ async function main() {
 		if (barrierRig) guideBarrierRig(barrierRig, runElapsedS);
 		if (vehicleGuideVelocity && runElapsedS < vehicleGuideEndS) applyVehicleVelocity(vehicle, vehicleGuideVelocity);
 		stepDamageSystem(damageSystem, world, FIXED_DT);
-		updateStructuralCrush(structuralCrush, structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)));
+		updateStructuralCrush(structuralCrush, {
+			...structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)),
+			...lateralInputsFromRegistry(damageSystem.registry.meshes),
+		});
 		syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
 		occupantsFeature.afterFixedStep?.(FIXED_DT);
 		crashTarget?.afterFixedStep(FIXED_DT);
@@ -579,7 +597,24 @@ async function main() {
 		deformableSyncCheck: () => checkCarDeformablesSync(carDeformables, vehicle.panels, structuralCrush),
 		setRigVisible: (visible) => setBarrierHidden(!visible),
 		maxStructuralOffsetM: () => maxStructuralOffsetM(structuralCrush),
+		// Stream C slice C3 diagnostic: the lateral field's own registry-derived driver stats (per side)
+		// -- lets a headless probe see WHY the field did/didn't engage, independent of the combined
+		// maxStructuralOffsetM() readout.
+		lateralInputs: () => lateralInputsFromRegistry(damageSystem.registry.meshes),
 		panelStress: () => ({ ...getDamageTelemetry(damageSystem).stressLevels }),
+		// Phase R crash-pulse diagnostics (2026-07-12): raw chassis speed (m/s) + the guided-approach
+		// release time for the CURRENT run -- lets a headless probe verify the vehicle guide releases
+		// BEFORE first barrier contact (guided-through-contact force-feeds the crush budget at constant
+		// velocity and was one candidate mechanism for the NHTSA-56 91.7g peak-decel spike).
+		chassisSpeedMs: () => {
+			const v = vehicle.chassis.getLinearVelocity();
+			return Math.hypot(v.x, v.y, v.z);
+		},
+		vehicleGuideEndS: () => vehicleGuideEndS,
+		// Stream C slice C1 diagnostic: the same rig-independent "how fast did this crash ever get"
+		// signal the door-sprung/break speed gates read (damage-tuning.ts's DOOR_SPRUNG_GATE_MS doc
+		// comment) -- lets a headless probe confirm the gate actually saw the expected peak.
+		peakForwardSpeedMs: () => Math.abs(vehicle.segments.yieldState.peakForwardSpeedMs),
 	};
 
 	// Crash-target picker (own injected DOM — leaves ./hud.ts untouched).

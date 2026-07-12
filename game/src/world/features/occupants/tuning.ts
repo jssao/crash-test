@@ -512,11 +512,31 @@ export const MUSCLE_TUMBLING_SCALE = 0.35;
  * LIFE/DEATH MODEL. Peak head OR torso linear acceleration during the whole scenario, expressed in g
  * (using 9.81 m/s^2 as the g unit for comparison with real-world crash-safety figures even though the
  * sim's gravity is 10 m/s^2). Above this -> the occupant is KILLED (motors off, springs off, pure limp
- * ragdoll forever, active.ts). Real-world calibration: severe-but-survivable crash head loads run
- * ~40-60g, and the classic head-injury / skull-fracture / AIS-serious neighborhood begins ~60-80g+
- * (Head Injury Criterion territory); 65g sits at the lethal edge of that band. Measured against the
- * occupants-active tests: a ~70 km/h wall crash leaves ejected occupants below this (they survive and
- * flee), while a 140 km/h crash drives belted occupants well past it (they die in the seat). */
+ * ragdoll forever, active.ts). Real-world calibration: real belted-occupant chest/head accelerometer
+ * traces put ~50% fatality risk (AIS-5+/skull-fracture territory) around 60-70g of CFC-filtered peak
+ * accel; 65g sits centered in that band.
+ *
+ * OCCUPANT DE-ALIASING RE-DERIVATION (2026-07-12): this constant is now measured against the WINDOWED
+ * peakAccelG (active.ts's updateLifeDeath(), same 2-step/33ms sliding-window technique as game/src/lab/
+ * instrumentation.ts's ChassisDecelTracker -- see that file's doc comment for the shared root cause).
+ * The PRE-FIX raw single-step reading aliased the same way the chassis metric did: it ran roughly 1.7-2x
+ * the windowed value at every speed tested (measured sweep below), which is what made lab NHTSA-56
+ * (56km/h) belted occupants read 69-71g raw against this same 65g threshold and die outright -- a speed
+ * real belted NCAP dummies survive. Fixing the MEASUREMENT (not this threshold) resolves it: this value
+ * is unchanged from its prior calibration because that calibration's real-world grounding (60-70g ~
+ * 50%-fatality band) was always meant for a filtered/windowed reading, not a raw 60Hz sample derivative --
+ * the raw form was simply the wrong signal feeding a right-sized gate.
+ *
+ * MEASURED SWEEP (sim, browser-faithful loop incl. damage system, windowed peakAccelG, wall crash from
+ * a settled rig): 30km/h ~8g (all seated) / 40km/h ~26g (all seated) / 45km/h front ~31-32g seated,
+ * rear ~44g ejected-alive / 55km/h front ~41g seated, rear ~52-54g ejected-alive / 64km/h front ~48g
+ * seated, rear ~54-55g ejected-alive-settled / 70km/h front ~52g seated, rear ~54-55g ejected-alive-
+ * settled / 80km/h front ~68g DEAD, rear ~76-77g DEAD / 140km/h ~131-146g DEAD. The lethal crossover
+ * sits cleanly between 70 and 80km/h (all 4 alive through 70, all 4 dead by 80) -- physically sensible
+ * tiers: low speed (30-40) genuinely safe, mid speed (45-70) ejects the unbelted rears but everyone
+ * SURVIVES (belted fronts never even eject), high speed (80+) is lethal for all. Cross-referenced
+ * against game/verify/crash-lab.mjs's real-GLB NHTSA-56 (56km/h) run, which now reads belted occupants
+ * alive with a comparable windowed peak (see that file's assertion). */
 export const DEATH_PEAK_ACCEL_G = 65;
 export const GRAVITY_G_UNIT = 9.81;
 

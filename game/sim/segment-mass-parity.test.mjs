@@ -95,16 +95,20 @@ describe('crush M1: segment mass-parity deduction (geometry.ts)', () => {
 	});
 
 	// CRUSH M1 (landed): the REAL production segment table (vehicle/segments.ts, 9 bodies) round-trips
-	// through the same deduction math -- 135kg of crush structure against the tuned chassis mass, exact
-	// mass/COM/inertia recomposition. The engine-integrated equivalent (box3d's own mass integration of
-	// the live bodies) is asserted by sim/segment-structure.test.mjs + hull-cabin-tub.test.mjs.
+	// through the same deduction math -- originally 135kg of crush structure against the tuned chassis
+	// mass, exact mass/COM/inertia recomposition. The engine-integrated equivalent (box3d's own mass
+	// integration of the live bodies) is asserted by sim/segment-structure.test.mjs + hull-cabin-tub.
+	// test.mjs.
+	// PHASE R RE-MASS (2026-07-12): 135 -> 164kg -- segments.ts's SEGMENT_SPECS scaled by the chassis
+	// sprung-mass growth factor 1.2166 (see that file's + tuning.ts's CHASSIS_MASS_KG doc comments for
+	// the full arithmetic: 49+12+12+12+12+18+19+15+15=164).
 	it('the REAL segment table (segments.ts) deducts + recomposes exactly against the tuned chassis mass', () => {
 		const real = segmentMassSpecs();
 		const parity = { ...PARITY, mass: CHASSIS_MASS_KG };
 		const total = segmentCompositeMass(real);
-		expect(total.mass).toBeCloseTo(135, 9);
+		expect(total.mass).toBeCloseTo(164, 9);
 		const chassis = deductSegmentsFromParity(parity, real);
-		expect(chassis.mass).toBeCloseTo(CHASSIS_MASS_KG - 135, 9);
+		expect(chassis.mass).toBeCloseTo(CHASSIS_MASS_KG - 164, 9);
 		const composite = composeSegmentsWithChassis(chassis, real, parity.center);
 		expect(composite.mass).toBeCloseTo(parity.mass, 9);
 		expect(composite.center.x).toBeCloseTo(parity.center.x, 9);

@@ -31,6 +31,7 @@ import {
 	PANEL_DESPAWN_DISTANCE_M,
 	PANEL_HIT_EVENTS_DISABLE_AFTER_S,
 	STRESS_MIN_APPROACH_SPEED_MS,
+	WINDSHIELD_SHATTER_FRONT_CRUSH_M,
 } from './damage-tuning';
 import { createDamageEventEmitter, DamageEventEmitter, type DamageEvent } from './events';
 import { PANEL_ENTITY_ID, PANEL_KEYS, totalPanelMassKg, type PanelHandle, type PanelKey } from './panels';
@@ -77,7 +78,7 @@ function foreignMassForHit(system: DamageSystem, userDataA: number, userDataB: n
 }
 
 export interface DamageTelemetry {
-	panelStates: Record<PanelKey, 'attached' | 'loosened' | 'broken'>;
+	panelStates: Record<PanelKey, 'attached' | 'loosened' | 'sprung' | 'broken'>;
 	stressLevels: Record<PanelKey, number>;
 	wheelStates: Record<WheelKey, 'attached' | 'detached'>;
 	dentedVertexCount: number;
@@ -486,6 +487,7 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	}
 
 	stepWeldsAndWheels({
+		world,
 		vehicle: system.vehicle,
 		panels: system.panels,
 		hits,
@@ -500,6 +502,16 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	// constraint forces/poses it reads reflect this step's solve. ----
 	for (const ev of stepSegmentYield(world, system.vehicle.chassis, system.vehicle.segments, coreHits)) {
 		system.emitter.emit({ type: 'segmentTorn', weld: ev.weld });
+	}
+
+	// ---- EXTREME TIER (Stream C C2): windshield shatters once MECHANICAL front crush (rig-
+	// independent physics truth, not a contact-dent-pipeline hit on the glass mesh specifically)
+	// crosses WINDSHIELD_SHATTER_FRONT_CRUSH_M -- reference: 100mph+ crush reaches the A-pillar/
+	// windshield frame, by which point the glass is gone regardless of whether the impact point
+	// happened to land on the glass deformable mesh directly. Reuses the existing glass-pane shatter
+	// path (shatterGlassPane, idempotent + already a no-op once the pane's shape is gone). ----
+	if (getSegmentTelemetry(system.vehicle.chassis, system.vehicle.segments).frontCrushM >= WINDSHIELD_SHATTER_FRONT_CRUSH_M) {
+		shatterGlassPane(system, 'windshield');
 	}
 
 	// ---- Crush M3: panel collision follows the dents (refreshPanelHulls' doc above). ----
@@ -535,7 +547,7 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 }
 
 export function getDamageTelemetry(system: DamageSystem): DamageTelemetry {
-	const panelStates = {} as Record<PanelKey, 'attached' | 'loosened' | 'broken'>;
+	const panelStates = {} as Record<PanelKey, 'attached' | 'loosened' | 'sprung' | 'broken'>;
 	const stressLevels = {} as Record<PanelKey, number>;
 	for (const key of PANEL_KEYS) {
 		panelStates[key] = system.panels[key].state;

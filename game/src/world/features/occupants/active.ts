@@ -215,11 +215,19 @@ export interface OccupantRuntime {
 	timeSec: number;
 	alive: boolean;
 	state: FsmState;
-	/** Peak head/torso linear acceleration seen so far, in g (9.81 m/s^2 units). */
+	/** Anti-aliased peak head/torso linear acceleration seen so far, in g (9.81 m/s^2 units): max |dv|
+	 * over any 2-fixed-step (33ms) window / (2*dt). The headline metric (HUD + DEATH_PEAK_ACCEL_G gate)
+	 * -- see updateLifeDeath()'s doc comment for why. */
 	peakAccelG: number;
+	/** Raw single-step peak (g) -- phase-aliased (same failure mode as instrumentation.ts's
+	 * ChassisDecelTracker.peakG1Step); diagnostic only, never gates death. */
+	peakAccelG1Step: number;
 	/** Previous-step linear velocities for the accel estimate (head + torso drive life/death). */
 	prevHeadVel: V3 | null;
 	prevTorsoVel: V3 | null;
+	/** Two-steps-back linear velocities -- the windowed metric's other endpoint (see updateLifeDeath()). */
+	prevPrevHeadVel: V3 | null;
+	prevPrevTorsoVel: V3 | null;
 	// FSM bookkeeping
 	tumbleStartSec: number;
 	settledStartSec: number;
@@ -254,8 +262,11 @@ export function createOccupantRuntime(): OccupantRuntime {
 		alive: true,
 		state: 'seated',
 		peakAccelG: 0,
+		peakAccelG1Step: 0,
 		prevHeadVel: null,
 		prevTorsoVel: null,
+		prevPrevHeadVel: null,
+		prevPrevTorsoVel: null,
 		tumbleStartSec: 0,
 		settledStartSec: 0,
 		recoverStartSec: 0,
@@ -273,10 +284,18 @@ export function createOccupantRuntime(): OccupantRuntime {
 }
 
 /** Re-baselines the accel estimator (call right after any EXTERNAL velocity set -- crashSetup /
- * matchOccupantVelocity -- so the artificial one-step velocity jump isn't read as a lethal impact). */
+ * matchOccupantVelocity -- so the artificial one-step velocity jump isn't read as a lethal impact).
+ * The raw 1-step diagnostic anchor is seeded with the just-injected velocity (so its very next real
+ * sample reads the genuine post-injection delta); the windowed (headline) anchor is instead fully
+ * NULLED, mirroring instrumentation.ts's resetChassisDecelTracker() -- seeding it with the injected
+ * velocity too would only half-weight the first post-injection window instead of cleanly excluding the
+ * jump, and two ordinary physics steps re-warm it (see updateLifeDeath()), comfortably inside every
+ * scenario's settle-to-impact gap. */
 export function resetOccupantAccelBaseline(occupant: Occupant, runtime: OccupantRuntime): void {
 	runtime.prevHeadVel = occupant.parts.head.body.getLinearVelocity();
 	runtime.prevTorsoVel = occupant.parts.torso.body.getLinearVelocity();
+	runtime.prevPrevHeadVel = null;
+	runtime.prevPrevTorsoVel = null;
 	// Also re-baseline the chassis g-load estimator (same reason: an external velocity jump is not a
 	// real acceleration, and must neither kill the occupant nor spike the brace scheduler).
 	runtime.prevChassisVel = null;
@@ -398,20 +417,45 @@ function applyCoreColumnAssist(occupant: Occupant, pelvisTargetPos: V3, faceDir:
 
 // -- Life/death ------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------------
+// OCCUPANT INJURY SAMPLING DE-ALIASING (2026-07-12). This mirrors, part for part, the SAME fix
+// applied to the chassis's own peak-decel readout -- see game/src/lab/instrumentation.ts's
+// ChassisDecelTracker section doc comment for the full root-cause writeup (SAE-J211 CFC filtering
+// rationale, 60Hz/Nyquist argument, and the measured phase-sensitivity evidence). The identical
+// artifact was present here: peakAccelG was the raw single-fixed-step |dv|/dt of the head/torso
+// bodies, which aliases a real 1-2-step solver stop depending on centimeter-scale contact-TOI phase
+// within a step -- exactly the mechanism the chassis writeup traced. MEASURED CONSEQUENCE (Phase R,
+// pre-fix): at lab NHTSA-56 (56km/h) belted front occupants read 69-71g raw against the pre-fix
+// DEATH_PEAK_ACCEL_G=65 and were killed outright -- a speed real belted NCAP dummies survive (NCAP
+// full-frontal-56 is explicitly a "good/survivable" restrained-occupant benchmark). FIX: the headline
+// peakAccelG is now the max |dv| over a 2-fixed-step (33ms) sliding window / (2*dt) -- phase-robust by
+// construction, and comparable to real chest/head accelerometer traces (which are themselves CFC60-
+// filtered, never raw 60Hz sample derivatives). The raw 1-step reading is retained as peakAccelG1Step
+// for diagnostics only and never gates death. DEATH_PEAK_ACCEL_G itself was RE-DERIVED against this
+// new windowed measure (tuning.ts's doc comment there has the measured sweep + the chosen value).
+// ---------------------------------------------------------------------------------------------
 function updateLifeDeath(occupant: Occupant, runtime: OccupantRuntime, dt: number): void {
 	const headVel = occupant.parts.head.body.getLinearVelocity();
 	const torsoVel = occupant.parts.torso.body.getLinearVelocity();
 	if (runtime.prevHeadVel && runtime.prevTorsoVel && dt > 0) {
-		const headAccelG = length(sub(headVel, runtime.prevHeadVel)) / dt / GRAVITY_G_UNIT;
-		const torsoAccelG = length(sub(torsoVel, runtime.prevTorsoVel)) / dt / GRAVITY_G_UNIT;
-		const peak = Math.max(headAccelG, torsoAccelG);
-		if (peak > runtime.peakAccelG) runtime.peakAccelG = peak;
-		if (peak > DEATH_PEAK_ACCEL_G && runtime.alive) {
+		const headAccelG1 = length(sub(headVel, runtime.prevHeadVel)) / dt / GRAVITY_G_UNIT;
+		const torsoAccelG1 = length(sub(torsoVel, runtime.prevTorsoVel)) / dt / GRAVITY_G_UNIT;
+		const peak1 = Math.max(headAccelG1, torsoAccelG1);
+		if (peak1 > runtime.peakAccelG1Step) runtime.peakAccelG1Step = peak1;
+	}
+	if (runtime.prevPrevHeadVel && runtime.prevPrevTorsoVel && dt > 0) {
+		const headAccelG2 = length(sub(headVel, runtime.prevPrevHeadVel)) / (2 * dt) / GRAVITY_G_UNIT;
+		const torsoAccelG2 = length(sub(torsoVel, runtime.prevPrevTorsoVel)) / (2 * dt) / GRAVITY_G_UNIT;
+		const peak2 = Math.max(headAccelG2, torsoAccelG2);
+		if (peak2 > runtime.peakAccelG) runtime.peakAccelG = peak2;
+		if (peak2 > DEATH_PEAK_ACCEL_G && runtime.alive) {
 			runtime.alive = false;
 			runtime.state = 'dead';
 			setOccupantLimp(occupant); // motors off + springs off -> pure limp ragdoll forever
 		}
 	}
+	runtime.prevPrevHeadVel = runtime.prevHeadVel;
+	runtime.prevPrevTorsoVel = runtime.prevTorsoVel;
 	runtime.prevHeadVel = headVel;
 	runtime.prevTorsoVel = torsoVel;
 }

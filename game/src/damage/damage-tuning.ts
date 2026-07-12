@@ -16,19 +16,21 @@ import type { PanelKey } from './panels';
 // ---------------------------------------------------------------------------------------------
 
 /** Per-panel mass, kg -- spec: "mass 12-18kg (door heavier than hood)". S90 4-door set (no roof):
- * hood + 4 doors + trunk lid. RENUMBERED/RE-MASSED 2026-07-11 (S90 swap): rear doors added at ~15kg
- * each (orchestrator decision -- minimum-recalibration swap, not a full re-mass to a realistic ~1750kg
- * S90 curb weight). Sum (89kg) is exactly what game/src/vehicle/tuning.ts's CHASSIS_MASS_KG was
- * reduced by (1350 - 89 = 1261), so total car mass stays EXACTLY 1438kg (1261 + 89 + 88 = 1438kg) --
- * same total the damage/crush matrix was tuned against. See tuning.ts's CHASSIS_MASS_KG doc comment
- * for a TODO on a later dedicated re-mass pass to the S90's real curb weight. */
+ * hood + 4 doors + trunk lid.
+ *
+ * PHASE R RE-MASS (2026-07-12, see vehicle/tuning.ts's CHASSIS_MASS_KG doc comment for the full
+ * total-mass arithmetic): bumped from the S90-swap's mass-conserving 89kg total to a plausible
+ * heavier-S90-door set, 116kg total -- doors specifically heavier (real power windows, speakers,
+ * side-impact door beams on a real S90) rather than a uniform scale-up: hood +3kg (13->16, still the
+ * lightest panel), front doors +6kg each (16->22), rear doors +5kg each (15->20), trunk +2kg (14->16).
+ */
 export const PANEL_MASS_KG: Record<PanelKey, number> = {
-	hood: 13,
-	doorL: 16,
-	doorR: 16,
-	doorRL: 15,
-	doorRR: 15,
-	trunk: 14,
+	hood: 16,
+	doorL: 22,
+	doorR: 22,
+	doorRL: 20,
+	doorRR: 20,
+	trunk: 16,
 };
 
 /** Panel hull thickness (full, meters) -- spec: "thin box hull (panel bbox, thickness 5cm)". */
@@ -203,6 +205,103 @@ export const PANEL_BREAK_S2_MULT: Record<PanelKey, number> = {
 	trunk: 1,
 };
 
+// ---------------------------------------------------------------------------------------------
+// Weld stress model -- DOOR SPRUNG state (Stream C slice C1, 2026-07-12): a door's LATCH failing
+// while its HINGE holds -- swings open freely instead of tearing off outright. DOORS ONLY (hood/
+// trunk keep their existing loosen/break-only escalation): attached -> loosened -> SPRUNG -> broken.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * DOORS ONLY: the existing S2 crossing (STRESS_BREAK_S2 * PANEL_BREAK_S2_MULT[key], == STRESS_BREAK_S2
+ * for every door key since their mult is 1) is repurposed as the SPRUNG threshold instead of BREAK --
+ * this is exactly the stress level a door used to fully detach at from a hard-enough hit (e.g.
+ * crash-realism.test.mjs's side-130 impact, which measures 260-600, far past it either way). BREAK now
+ * sits this multiplier above THAT threshold instead.
+ */
+export const DOOR_SPRUNG_TO_BREAK_STRESS_MULT = 1.5;
+
+/**
+ * DOORS ONLY, a SECOND (OR'd, not layered) trigger alongside the stress path above: peak forward speed
+ * (m/s, segments.ts's SegmentAssembly.yieldState.peakForwardSpeedMs -- the same rig-independent "how
+ * fast did this crash ever get" signal WHEEL_DETACH_EXTREME_GATE_MS already gates on) past which a door
+ * becomes SPRUNG-eligible (paired with DOOR_STRESS_TOUCH_MIN below, so it still needs to have actually
+ * been near something).
+ *
+ * WHY A SECOND TRIGGER IS NEEDED, NOT JUST A LOWER STRESS THRESHOLD (measured directly, sim/
+ * extreme-tier.test.mjs's frontalCrash helper, BEFORE this feature existed): a door's PANEL_VULNERABILITY
+ * (floor=0, sharpness=3) makes it near-immune to a clean frontal by design (FMVSS-206) -- what little
+ * door stress a frontal DOES accumulate comes entirely from incidental secondary/chaotic contact (spin,
+ * ground scrape), whose magnitude does NOT scale cleanly with speed the way hood/chassis stress does.
+ * Measured front-door stress: ~9.2 @100km/h, ~8.2 @120km/h (a DIP, not a rise), ~19.1 @161km/h,
+ * ~19.0 @193km/h, ~42.5 @322km/h -- nowhere near STRESS_BREAK_S2=90 at ANY tested frontal speed. This
+ * confirms the reference behavior "doors tear off around 161-193km/h" describes the crash LAB rig
+ * (occupants + longer contact dwell reads 3x+ higher stress than this bare sim harness for the same
+ * nominal crash -- see HOOD_BREAK_MIN_FRONT_CRUSH_M's doc comment for the identical rig-divergence
+ * problem, already solved once here the same way) -- NOT the plain sim harness extreme-tier.test.mjs
+ * actually runs against. There is also no single stress value that could stand in for it: 100km/h's
+ * peak (~9.2) sits ABOVE 120km/h's (~8.2), so no threshold cleanly separates "100/120km/h: never" from
+ * "161+km/h: always" using the stress number alone. Gating on mechanical peak speed instead sidesteps
+ * the rig-dependent noise entirely (same fix SHAPE as HOOD_BREAK_MIN_FRONT_CRUSH_M/
+ * WHEEL_DETACH_EXTREME_GATE_MS): 40 m/s sits comfortably above 120km/h's peak (33.3 m/s) and below
+ * 161km/h's (44.7 m/s) -- deliberately reusing WHEEL_DETACH_EXTREME_GATE_MS's exact value (both mark the
+ * same "genuinely 100mph+" line from the reference footage).
+ *
+ * This is an OR against the stress path, not a replacement: a pure SIDE impact (crash-realism.test.mjs's
+ * side-130, crashSideways()) reports ~zero peak FORWARD speed throughout (the launch velocity is
+ * entirely lateral) yet must still reach BREAK -- confirmed it does, via the stress path alone (measured
+ * 260-600, comfortably past DOOR_SPRUNG_TO_BREAK_STRESS_MULT's raised threshold too). Each path fires
+ * independently; whichever crosses first wins.
+ */
+export const DOOR_SPRUNG_GATE_MS = 40;
+
+/** DOORS ONLY: peak forward speed (m/s) past which a door is BREAK-eligible via the speed path -- 1.5x
+ * DOOR_SPRUNG_GATE_MS (mirroring DOOR_SPRUNG_TO_BREAK_STRESS_MULT's own ratio), landing at 60 m/s
+ * (~216 km/h): comfortably above 193 km/h (53.6 m/s, measured to stay at sprung) and below 322 km/h
+ * (89.4 m/s, measured well past it) -- see extreme-tier.test.mjs's door-sprung matrix. */
+export const DOOR_BREAK_GATE_MS = 60;
+
+/** DOORS ONLY: minimum accumulated stress (same units as STRESS_K's output) a door must ALSO show
+ * before either speed gate above can fire -- confirms THIS SPECIFIC door was actually near some contact
+ * during the crash (not just "the car was fast somewhere"), without trying to pin an exact
+ * rig-dependent magnitude the way STRESS_LOOSEN_S1/STRESS_BREAK_S2 do. Comfortably below every measured
+ * front-door stress at 161+ km/h (9.9-42.5) and above the near-zero reading of a door nothing came near. */
+export const DOOR_STRESS_TOUCH_MIN = 1;
+
+/**
+ * C3b REALISM FIX (2026-07-12, user side-impact top-view reference vs the C1x C3 interaction): a
+ * STRUCK-side door in a real side impact jams shut and caves inward -- it does not spring open on its
+ * hinge. Springing/swinging free is a FRONTAL/oblique phenomenon (the latch fails from LONGITUDINAL
+ * inertia overloading it fore-aft while the hinge, mounted perpendicular to that load, still holds); a
+ * squarely lateral push-in instead crushes the door/hinge/latch assembly together and jams it. Gates
+ * welds.ts's SPRUNG transition (DOORS ONLY): skip sprung (stay 'loosened' -- the jammed/caved read,
+ * previously masked by the door swinging open) once doorLateralFraction(panel) -- welds.ts's
+ * stress-weighted running average of |dirLocal.x| across every hit contributing to this door's stress,
+ * see panels.ts's lateralStressWeighted doc comment -- exceeds this fraction. shouldBreak is NOT gated
+ * by this (a T-bone can still tear a predominantly-lateral door clean off; it just never passes through
+ * the sprung tier first).
+ *
+ * MEASURED (sim harness, 300-step settle; see the now-deleted sim/_probe-lateral-fraction.test.mjs):
+ *   side-mdb-50 proxy (spawnSideWall(1.05)+crashSideways(50)): doorL 0.798, doorR 0.794, doorRL 0.826,
+ *     doorRR 0.821 -- all squarely lateral, as expected for a door-centred MDB strike.
+ *   side-pole-32 proxy (rigid capsule pole + crashSideways(32)): doorL 0.997, doorR 0.997, doorRL 0.997,
+ *     doorRR 0.997 -- even more purely lateral (a pole's narrow single-point contact has near-zero
+ *     fore-aft component).
+ *   frontal 161 km/h (extreme-tier.test.mjs's own scenario): doorL 0.323, doorR 0.334, doorRL 0.316,
+ *     doorRR 0.334 -- the incidental secondary/chaotic contact (spin, ground scrape) that gives a
+ *     frontal-crash door ANY stress at all (damage-tuning.ts's DOOR_SPRUNG_GATE_MS doc comment) still
+ *     reads clearly LESS lateral than a genuine side impact.
+ *   frontal 193 km/h: doorL 0.292, doorR 0.281, doorRL 0.292, doorRR 0.277 -- same band as 161.
+ * Clean, wide separation (frontal max 0.334 vs side min 0.794, a >0.46 gap) -- 0.6 sits almost exactly
+ * at the midpoint (0.564), comfortably inside the brief's suggested 0.6-0.7 band and far from either
+ * cluster, so ordinary measurement noise on either side cannot flip the outcome.
+ */
+export const DOOR_SPRUNG_LATERAL_FRACTION_MAX = 0.6;
+
+/** DOORS ONLY: outward swing limit (radians) for the SPRUNG hinge (RevoluteJointOptions.enableLimit),
+ * measured from the closed (0) position -- real doors typically stop well short of a full 90deg. See
+ * panels.ts's sprungPanelWeld(). */
+export const DOOR_SWING_MAX_RAD = (75 * Math.PI) / 180;
+
 /**
  * HOOD BREAK is additionally gated on MECHANICAL front crush depth (vehicle/segments.ts telemetry):
  * the hood only tears off once the front structure carrying its hinges+latch has collapsed this far.
@@ -339,6 +438,57 @@ export const WHEEL_DETACH_IMPACT_BYPASS_MULT = 6;
  * filters a single-step transient solver spike). */
 export const WHEEL_DETACH_DEBOUNCE_STEPS = 3;
 
+/**
+ * EXTREME TIER (Stream C slice C2): above this chassis PEAK forward speed (m/s, segments.ts
+ * SegmentAssembly.yieldState.peakForwardSpeedMs -- the same "how fast did this crash ever get"
+ * signal the mechanical crush extreme tier gates on), a wheel-joint detach breach only needs to
+ * persist WHEEL_DETACH_EXTREME_DEBOUNCE_STEPS steps, not the full WHEEL_DETACH_DEBOUNCE_STEPS.
+ *
+ * MEASURED NECESSITY (extreme-tier probe, 161-322 km/h rigid-barrier frontal): the wheel-joint force
+ * breach at these speeds is a genuine, catastrophic overload (measured 3-68x the per-wheel weight
+ * share, comfortably past WHEEL_DETACH_IMPACT_BYPASS_MULT=6x at 193+ km/h) but lasts EXACTLY ONE
+ * fixed step -- the car's own bullet-CCD kills essentially its whole closing speed in the single step
+ * the TOI lands on (the same one-step-mega-kill phenomenon segments.ts's CORE_MAX_RETREAT_STEP_EXTREME_M
+ * doc comment records for the mechanical crush tier), so the standard 3-step debounce (correctly, for
+ * ordinary driving spikes) filters the ENTIRE crash as noise and no wheel ever tears off, contradicting
+ * the reference footage (wheels torn/car airborne by 120mph). 40 m/s (~144 km/h) sits comfortably above
+ * every speed in the existing calibrated matrix (120 km/h = 33.3 m/s is the fastest crash in
+ * damage-threshold-ordering.test.mjs / crash-realism.test.mjs), so this is provably inert for the
+ * ≤120 km/h regression suite -- confirmed by the full suite staying green.
+ */
+export const WHEEL_DETACH_EXTREME_GATE_MS = 40;
+export const WHEEL_DETACH_EXTREME_DEBOUNCE_STEPS = 1;
+
+/**
+ * C3c REGRESSION FIX: extra wheel-detach patience while at least one door is in the 'loosened' (JAMMED,
+ * C3b) state. side-mdb-50 tore off 3 of 4 wheels post-C3b (0 of 4 pre-C3b), even though a real 50 km/h
+ * side-MDB test never sheds a wheel. ROOT CAUSE (measured, throwaway sim/_probe-c3c-wheel-force.test.mjs,
+ * a headless replica of the real guided-trolley rig -- exact geometry/mass/speed from lab/protocols.ts +
+ * lab/barriers.ts's mdb-trolley case, deleted after use): C3b correctly made a squarely-lateral-struck
+ * door JAM instead of springing open (a real side-struck door does jam) -- but a jammed door keeps
+ * transmitting the trolley's continued push into the chassis/suspension for longer than a door that
+ * swings away and sheds some of that energy, nudging the struck-side wheel joints' sustained
+ * constraint-force plateau right up against WHEEL_DETACH_DEBOUNCE_STEPS. MEASURED: fl/rl/rr each reach 2
+ * CONSECUTIVE steps over the base 4x threshold (fl peaks 100.9kN = 25.4x share, rl 68.5kN = 17.3x, rr
+ * 22.8kN = 5.7x) -- one step short of the 3-step debounce in this simplified replica (no occupants/
+ * cardetail chassis ballast, no crush-M3 panel-collision setHull refresh); the real full crash lab
+ * evidently tips this over 3 for 3 of the 4 wheels.
+ *
+ * GATED SPECIFICALLY on the 'loosened' (jammed) state -- deliberately NOT 'sprung' (a frontal/oblique
+ * door SWINGS instead of jamming, so extreme-tier's 161/193/322 km/h frontal crashes read all doors
+ * 'sprung', never 'loosened' -- measured inert there; extreme-tier.test.mjs's own 2/2/4 wheel-detach
+ * pin is unaffected, and its EXTREME_GATE check is evaluated first below so an extreme-speed frontal
+ * crash can never be slowed back down by this gate even if a door were somehow also 'loosened') and NOT
+ * 'broken' (side-130's doors tear off entirely within the first fixed step of contact -- measured
+ * doorRL/doorR broken@step 0, while wheels fl/rl don't detach until step 2-3 -- so by the time wheel
+ * forces are ramping up, the jammed-door transmission path is already severed and this gate has already
+ * turned itself back off; side-130's existing 2-wheel loss is unaffected, confirmed by the same probe).
+ * Chosen at 2x the base debounce (6, from 3): comfortably past the measured 2-consecutive-step near-miss
+ * with margin for the real lab's somewhat-worse-than-this-replica conditions, while staying a modest,
+ * bounded multiple of the base value rather than an unbounded patience.
+ */
+export const WHEEL_DETACH_JAMMED_DOOR_DEBOUNCE_STEPS = 6;
+
 // ---------------------------------------------------------------------------------------------
 // Broken-panel lifecycle
 // ---------------------------------------------------------------------------------------------
@@ -406,6 +556,53 @@ export const CRUMPLE_CRUSH_FLOOR_M = 0.09;
 export const CRUMPLE_CRUSH_SPEED_COEF_M = 0.021;
 export const CRUMPLE_CRUSH_SPEED_CAP_MS = 24;
 
+// ---------------------------------------------------------------------------------------------
+// EXTREME TIER (Stream C slice C2, 2026-07-12): 100-200mph reference footage (crush-to-A-pillar,
+// hood torn, cabin collapse beginning, near-total destruction) needs CHASSIS crush headroom well
+// past the NCAP-class 0.58m clamp above -- but every ≤80 km/h (22.2 m/s) crash in the calibrated
+// matrix must stay BYTE-IDENTICAL (the whole game/sim test suite pins it). Rather than raising
+// CRUMPLE_CLAMP_CHASSIS_M flatly (which would also loosen the NCAP-tier bands), this ADDS a
+// speed-gated ramp strictly ABOVE the point the existing speed-scaled cap already saturates
+// (CRUMPLE_CRUSH_SPEED_CAP_MS = 24 m/s / 86.4 km/h -- comfortably past every guarded speed:
+// 40/64/80/120 km/h = 11.1/17.8/22.2/33.3 m/s). chassisSpeedCrushCapM() below is a TIERED
+// replacement for the flat "min(clampM, floor+coef*speed)" expression: for approachSpeedMs at or
+// under the gate it evaluates to the EXACT SAME float as before (same sub-expression, same inputs);
+// above the gate it ramps linearly toward CRUMPLE_CLAMP_EXTREME_CHASSIS_M, which becomes the new
+// (still-tiered, never a flat raise) absolute ceiling once fully engaged. Chassis-mesh-kind only
+// (crumple.ts's clampMFor()) -- panel/glass keep their flat CRUMPLE_CLAMP_PANEL_GLASS_M path,
+// since the reference's extreme-tier read (A-pillar crush, cabin collapse) is a BODY-SHELL event.
+// ---------------------------------------------------------------------------------------------
+
+/** Closing speed (m/s) at/under which the extreme tier contributes nothing -- deliberately equal to
+ * CRUMPLE_CRUSH_SPEED_CAP_MS (the existing speed-scaled cap's own saturation point), so the two
+ * expressions are identical by construction at the gate and every guarded speed sits well below it. */
+export const CRUMPLE_EXTREME_GATE_MS = CRUMPLE_CRUSH_SPEED_CAP_MS;
+
+/** Closing speed (m/s) at which the extreme tier reaches full scale -- ~45 m/s = 162 km/h, just
+ * past the reference's "100mph" tier, so 161/193/322 km/h (44.7/53.6/89.4 m/s) all sit at or past
+ * full ramp (the reference's ordering above 100mph is read through structuralCrush.ts's cabin-
+ * extension field, not a deeper raw chassis-mesh clamp -- see that file's own extreme-tier doc). */
+export const CRUMPLE_EXTREME_SPEED_CAP_MS = 45;
+
+/** Absolute chassis crush clamp (m) once the extreme tier is fully engaged. Reference: "crushed all
+ * the way to the A-pillar" at 100mph -- FIREWALL_Z_M=0.95 sits ~1.55m behind the nose tip
+ * (segments.ts's FRONT_TIP_Z), so 1.4m of persistent per-vertex accumulator lets the deepest nose
+ * vertices reach past the firewall plane; combined with structuralCrush.ts's cabin-extension field
+ * (what actually reads as "at the A-pillar" from every angle) this is what the eyes-on gate judges. */
+export const CRUMPLE_CLAMP_EXTREME_CHASSIS_M = 1.4;
+
+/** Tiered replacement for the flat "min(CRUMPLE_CLAMP_CHASSIS_M, floor+coef*min(speed,cap))"
+ * expression used for chassis-kind deformables (crumple.ts's applyImpactToMesh). Identical to that
+ * flat expression for approachSpeedMs <= CRUMPLE_EXTREME_GATE_MS (same sub-expression, byte-for-byte
+ * -- see this file's guard-pin test, sim/extreme-tier.test.mjs); ramps linearly to
+ * CRUMPLE_CLAMP_EXTREME_CHASSIS_M by CRUMPLE_EXTREME_SPEED_CAP_MS above that. */
+export function chassisSpeedCrushCapM(approachSpeedMs: number): number {
+	const flat = Math.min(CRUMPLE_CLAMP_CHASSIS_M, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_CRUSH_SPEED_CAP_MS));
+	if (approachSpeedMs <= CRUMPLE_EXTREME_GATE_MS) return flat;
+	const t = Math.min(1, (approachSpeedMs - CRUMPLE_EXTREME_GATE_MS) / (CRUMPLE_EXTREME_SPEED_CAP_MS - CRUMPLE_EXTREME_GATE_MS));
+	return CRUMPLE_CLAMP_CHASSIS_M + t * (CRUMPLE_CLAMP_EXTREME_CHASSIS_M - CRUMPLE_CLAMP_CHASSIS_M);
+}
+
 /** A vertex counts as "dented" (telemetry.dentedVertexCount) once its accumulated displacement
  * magnitude exceeds this (meters) -- small enough to catch real denting, large enough to ignore
  * floating-point noise. */
@@ -414,6 +611,15 @@ export const CRUMPLE_DENT_EPSILON_M = 0.0015;
 /** Accumulated glass displacement (meters) past which that glass mesh "shatters" (material swap +
  * event), once, per mesh. */
 export const GLASS_SHATTER_THRESHOLD_M = 0.04;
+
+/** EXTREME TIER (Stream C slice C2): mechanical FRONT crush (segments.ts SegmentTelemetry.frontCrushM,
+ * rig-independent physics truth) past which the windshield shatters outright, regardless of whether
+ * the contact-dent pipeline's impact point happened to touch the glass deformable mesh directly.
+ * Reference: 100mph+ frontal crush reaches the A-pillar/windshield frame -- by that point the glass
+ * is gone. 0.7m sits comfortably above the NCAP-tier ceiling (CRUMPLE_CLAMP_CHASSIS_M=0.58, the
+ * ≤120km/h calibrated max) so no existing crash reaches it; only the new extreme tier (161+ km/h)
+ * does. Coupled via the existing glass-pane shatter path (damage/system.ts's shatterGlassPane()). */
+export const WINDSHIELD_SHATTER_FRONT_CRUSH_M = 0.7;
 
 /** Perf guard: meshes beyond the 2 nearest-to-impact candidates are skipped for an event if they
  * have more than this many vertices. */

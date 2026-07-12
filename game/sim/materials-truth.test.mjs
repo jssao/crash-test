@@ -87,8 +87,16 @@ describe('materials-truth: crashed debris settles (does not spin forever)', () =
 			const wall = buildBrickWall(world);
 			const vehicle = createVehicle(world, { x: BRICK_WALL_CENTER.x, y: 0.5, z: 8 });
 			launch(vehicle, 90);
-			// Impact + a long coast so debris has time to settle (400 steps ~= 6.7s).
-			for (let i = 0; i < 400; i++) {
+			// Impact + a long coast so debris has time to settle.
+			// PHASE R RE-MASS (2026-07-12): window widened 400 -> 600 steps (6.7s -> 10s). The heavier
+			// re-massed car (vehicle/tuning.ts's CHASSIS_MASS_KG doc comment, 1438 -> 1750kg) transfers
+			// more momentum into the brick wall at the same 90km/h, so debris scatters harder and at
+			// slightly later moments -- measured directly (this test's own probe, extended run): at 6.7s
+			// one outlier brick was still mid-tumble (maxOmega 19.1 rad/s, settledFrac 92%) but the WHOLE
+			// field is fully at rest (maxOmega 0.00, settledFrac 100%) by 10s and stays there through
+			// 20s+ -- i.e. debris still settles, just needs a bit more real time under the new mass, not
+			// the "pirouettes forever" regression (issue #1) this test guards against.
+			for (let i = 0; i < 600; i++) {
 				stepVehicle(vehicle, COAST, FIXED_DT);
 				world.step(FIXED_DT, FIXED_SUBSTEPS);
 				pollStructureBreaks(wall);

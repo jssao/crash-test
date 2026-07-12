@@ -94,18 +94,51 @@ describe('ride-height (laden)', () => {
     }
   });
 
-  it('the laden static suspension genuinely rests near its rear bump stop (documents WHY the lift is a visual seat, not a physics sag reduction)', async () => {
+  // PHASE R RE-MASS/SUSPENSION RETUNE (2026-07-12): this test used to document the rear axle sitting
+  // pinned within ~1mm of the compression limit under laden load (the "rides near bump-stop" debt
+  // this pass was asked to close, see tuning.ts's SUSPENSION_HERTZ_FRONT/REAR doc comment). Fixed by
+  // stiffening SUSPENSION_HERTZ_FRONT/REAR (6/6 -> 7.2/7.85) rather than widening the travel band --
+  // a wider band (tried first, -0.14/+0.14 -> -0.24/+0.24) measurably destabilized bumpy-terrain
+  // driving (terrain-compound's connectivity test rolled the car, minUpDot -0.98) and clipped
+  // cardetail parts into the ground, because the active anti-roll/yaw/pitch assists and cardetail
+  // clearance were implicitly tuned against the +/-0.14m envelope; stiffening the spring instead
+  // keeps that envelope untouched while still buying real headroom. Renamed + re-asserted for the
+  // fixed behavior; VISUAL_RIDE_LIFT_M is unaffected (front laden deflection actually DROPPED with
+  // the stiffer front spring: 0.1307 -> 0.0906m -- see this file's rest-gap test above, unchanged and
+  // still green with an even larger margin).
+  it('the laden static suspension has real headroom at the rear (>=30%), not pinned at its bump stop', async () => {
     const sim = await settleLaden();
     try {
       const rl = getSuspensionDeflection(sim.vehicle, 'rl');
       const rr = getSuspensionDeflection(sim.vehicle, 'rr');
       const rearDefl = (rl + rr) / 2;
-      console.log(`[ride-height] laden rear deflection=${rearDefl.toFixed(4)} / limit ${SUSPENSION_UPPER_LIMIT_M}`);
-      // The rear sits within ~1mm of the +0.14m compression limit under the full feature load -- the
-      // physics ride height cannot be raised by softening/geometry here (the spring is already pinned),
-      // which is exactly why the ride-height correction is applied visually (VISUAL_RIDE_LIFT_M).
-      expect(rearDefl).toBeGreaterThan(SUSPENSION_UPPER_LIMIT_M - 0.01);
-      expect(rearDefl).toBeLessThanOrEqual(SUSPENSION_UPPER_LIMIT_M + 1e-3);
+      const headroomFrac = 1 - rearDefl / SUSPENSION_UPPER_LIMIT_M;
+      console.log(`[ride-height] laden rear deflection=${rearDefl.toFixed(4)} / limit ${SUSPENSION_UPPER_LIMIT_M} (headroom ${(headroomFrac * 100).toFixed(1)}%)`);
+      // Measured 0.0951m / 0.14m limit = 67.9% used -> 32.1% headroom (comfortably clears the 30% floor).
+      expect(headroomFrac).toBeGreaterThanOrEqual(0.3);
+      // Sanity: still a real, substantial laden sag (not vacuously near-zero deflection).
+      expect(rearDefl).toBeGreaterThan(0.05);
+    } finally {
+      sim.destroy();
+    }
+  });
+
+  // PHASE R (2026-07-12): the R2 spec requires >=30% headroom at REST too (not just laden) -- the bare
+  // sim harness (no cardetail/occupant ballast) is the REST operating point. Measured (this test's own
+  // console.log): front 0.0797m, rear 0.0825m against the 0.14m limit -> 43.0%/41.0% headroom, both
+  // comfortably clearing the 30% floor.
+  it('the bare (unladen) rest suspension has >=30% headroom on every corner', async () => {
+    const sim = await createSim();
+    for (let i = 0; i < 240; i++) sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });
+    try {
+      const d = {};
+      for (const k of ['fl', 'fr', 'rl', 'rr']) d[k] = getSuspensionDeflection(sim.vehicle, k);
+      const headroomFrac = (x) => 1 - x / SUSPENSION_UPPER_LIMIT_M;
+      console.log(
+        `[ride-height] REST bare fl=${d.fl.toFixed(4)} fr=${d.fr.toFixed(4)} rl=${d.rl.toFixed(4)} rr=${d.rr.toFixed(4)} ` +
+          `headroom%=${Object.fromEntries(Object.entries(d).map(([k, v]) => [k, (headroomFrac(v) * 100).toFixed(1)]))}`,
+      );
+      for (const k of ['fl', 'fr', 'rl', 'rr']) expect(headroomFrac(d[k]), `${k} rest headroom`).toBeGreaterThanOrEqual(0.3);
     } finally {
       sim.destroy();
     }

@@ -620,6 +620,13 @@ export function destroyVehicle(vehicle: Vehicle): void {
 			p.weldJoint.destroy();
 			p.weldJoint = null;
 		}
+		// SPRUNG doors (Stream C slice C1) carry a hinge (RevoluteJoint) instead of a weld -- same
+		// "destroy every native handle this module created before its body" rule as weldJoint above
+		// (see this function's own doc comment).
+		if (p.hingeJoint) {
+			p.hingeJoint.destroy();
+			p.hingeJoint = null;
+		}
 		if (!p.despawned) {
 			p.shape.destroy(false);
 			p.body.destroy();

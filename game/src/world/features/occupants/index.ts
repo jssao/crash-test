@@ -131,6 +131,7 @@ export default function createOccupantsFeature(ctx: FeatureContext): WorldFeatur
 						state: e.runtime.state,
 						ejected: e.occupant.ejected,
 						peakAccelG: e.runtime.peakAccelG,
+						peakAccelG1Step: e.runtime.peakAccelG1Step,
 						headHeight: head.y,
 						headPos: head,
 						pelvisPos: e.occupant.parts.pelvis.body.getPosition(),

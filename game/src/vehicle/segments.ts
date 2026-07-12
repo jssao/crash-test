@@ -174,8 +174,15 @@ function boxSpec(key: SegmentKey, massKg: number, x0: number, x1: number, y0: nu
 
 /**
  * The 9 segment boxes. Masses per crush-architecture.md §A ("real-ish: beam ~15kg, rails ~20kg ea
- * [10 per cell], cradle ~40kg"; rear sized similarly lighter) -- 95kg front + 40kg rear = 135kg total,
- * all deducted from the chassis remainder (vehicle.ts's parity stamp).
+ * [10 per cell], cradle ~40kg"; rear sized similarly lighter) -- 95kg front + 40kg rear = 135kg total
+ * originally, all deducted from the chassis remainder (vehicle.ts's parity stamp).
+ *
+ * PHASE R RE-MASS (2026-07-12, see vehicle/tuning.ts's CHASSIS_MASS_KG doc comment): scaled uniformly
+ * by the chassis sprung-mass growth factor 1534/1261 = 1.2166 (rounded to the nearest kg per segment),
+ * so the crush structure's mass grows in proportion to the sprung mass it's carved out of, not
+ * independently re-guessed: engineCradle 40->49 (48.66), crushRailLR/RR/LF/RF 10->12 each (12.165),
+ * bumperBeam 15->18 (18.25), trunkFloor 16->19 (19.46), rearRailL/R 12->15 each (14.6). New total
+ * 49+12+12+12+12+18+19+15+15 = 164kg (was 135kg) -- pinned by segment-mass-parity.test.mjs.
  */
 // S90 SWAP 2026-07-11: lateral (x) and vertical (y) literals below scaled by the body-width ratio
 // (2.011/1.936 = 1.039, e.g. engineCradle ±0.75 -> ±0.78, trunkFloor ±0.85 -> ±0.88, rearRail
@@ -186,16 +193,16 @@ function boxSpec(key: SegmentKey, massKg: number, x0: number, x1: number, y0: nu
 // clearance heights.
 export const SEGMENT_SPECS: readonly SegmentSpec[] = [
 	// Front chain
-	boxSpec('engineCradle', 40, -0.78, 0.78, Y0, 0.54, FIREWALL_Z_M, RAIL_REAR_Z),
-	boxSpec('crushRailLR', 10, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
-	boxSpec('crushRailLF', 10, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
-	boxSpec('crushRailRR', 10, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
-	boxSpec('crushRailRF', 10, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
-	boxSpec('bumperBeam', 15, -HULL_BOTTOM_HALF_WIDTH_M, HULL_BOTTOM_HALF_WIDTH_M, Y0, 0.29, BEAM_REAR_Z, FRONT_TIP_Z),
+	boxSpec('engineCradle', 49, -0.78, 0.78, Y0, 0.54, FIREWALL_Z_M, RAIL_REAR_Z),
+	boxSpec('crushRailLR', 12, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
+	boxSpec('crushRailLF', 12, RAIL_X_IN, RAIL_X_OUT, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
+	boxSpec('crushRailRR', 12, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_REAR_Z, RAIL_SPLIT_Z),
+	boxSpec('crushRailRF', 12, -RAIL_X_OUT, -RAIL_X_IN, Y0, RAIL_TOP_Y, RAIL_SPLIT_Z, BEAM_REAR_Z),
+	boxSpec('bumperBeam', 18, -HULL_BOTTOM_HALF_WIDTH_M, HULL_BOTTOM_HALF_WIDTH_M, Y0, 0.29, BEAM_REAR_Z, FRONT_TIP_Z),
 	// Rear chain
-	boxSpec('trunkFloor', 16, -0.88, 0.88, Y0, 0.07, TRUNK_REAR_Z, BULKHEAD_Z_M),
-	boxSpec('rearRailL', 12, 0.26, 0.73, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
-	boxSpec('rearRailR', 12, -0.73, -0.26, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
+	boxSpec('trunkFloor', 19, -0.88, 0.88, Y0, 0.07, TRUNK_REAR_Z, BULKHEAD_Z_M),
+	boxSpec('rearRailL', 15, 0.26, 0.73, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
+	boxSpec('rearRailR', 15, -0.73, -0.26, Y0, 0.43, REAR_TIP_Z, TRUNK_REAR_Z),
 ];
 
 const SPEC_BY_KEY: ReadonlyMap<SegmentKey, SegmentSpec> = new Map(SEGMENT_SPECS.map((s) => [s.key, s]));
@@ -301,8 +308,19 @@ export interface SegmentAssembly {
 	/** @internal stepSegmentYield()'s inter-step state: the chassis's signed forward speed (m/s) at
 	 * the END of the previous fixed step (the per-step delta is the DIRECTIONAL CRASH GATE), plus the
 	 * per-core engagement latches -- steps remaining on each core's "a barrier hit event touched me
-	 * recently" timer (see stepSegmentYield's coreHits parameter). */
-	yieldState: { prevForwardSpeedMs: number; prevLostE: number; engageSteps: { pos: number; neg: number; rear: number; frontChain: number; rearChain: number } };
+	 * recently" timer (see stepSegmentYield's coreHits parameter) -- plus the OWN-displacement ratchet's
+	 * consecutive-qualifying-step counters (ownRatchetStreak, PHASE R addition -- see its doc comment at
+	 * OWN_RATCHET_DEBOUNCE_STEPS below). */
+	yieldState: {
+		prevForwardSpeedMs: number;
+		prevLostE: number;
+		engageSteps: { pos: number; neg: number; rear: number; frontChain: number; rearChain: number };
+		ownRatchetStreak: { front: number; rear: number };
+		/** EXTREME TIER (Stream C C2): the fastest |forward speed| (m/s) this chassis has reached since
+		 * spawn/reset -- see EXTREME_GATE_SPEED_MS's doc comment below for why PEAK (not current,
+		 * decaying-through-the-crash) speed is the right gate signal. */
+		peakForwardSpeedMs: number;
+	};
 }
 
 /**
@@ -435,7 +453,13 @@ export function createSegments(world: World, chassis: Body, spawnPosition: V3, s
 			frontNeg: mkCore('front', 'neg', CORE_ENTITY_ID.frontNeg, CRUSH_CORE_MAX_RETREAT_FRONT_M),
 			rear: mkCore('rear', 'full', CORE_ENTITY_ID.rear, CRUSH_CORE_MAX_RETREAT_REAR_M),
 		},
-		yieldState: { prevForwardSpeedMs: 0, prevLostE: 0, engageSteps: { pos: 0, neg: 0, rear: 0, frontChain: 0, rearChain: 0 } },
+		yieldState: {
+			prevForwardSpeedMs: 0,
+			prevLostE: 0,
+			engageSteps: { pos: 0, neg: 0, rear: 0, frontChain: 0, rearChain: 0 },
+			ownRatchetStreak: { front: 0, rear: 0 },
+			peakForwardSpeedMs: 0,
+		},
 	};
 }
 
@@ -473,6 +497,8 @@ export function resetSegments(assembly: SegmentAssembly, world: World, spawnPosi
 	assembly.yieldState.prevForwardSpeedMs = 0;
 	assembly.yieldState.prevLostE = 0;
 	assembly.yieldState.engageSteps = { pos: 0, neg: 0, rear: 0, frontChain: 0, rearChain: 0 };
+	assembly.yieldState.ownRatchetStreak = { front: 0, rear: 0 };
+	assembly.yieldState.peakForwardSpeedMs = 0;
 }
 
 /** Seeds every segment body with the car's launch velocity -- MUST be called by anything that
@@ -642,6 +668,32 @@ export function getSegmentTelemetry(chassis: Body, assembly: SegmentAssembly): S
 /** Elastic compression beyond the applied ratchet a segment may carry before the ratchet advances
  * (also the yield "give" a below-threshold bump stays inside -- below this nothing is permanent). */
 const RATCHET_ELASTIC_ALLOWANCE_M = 0.03;
+
+/**
+ * PHASE R ADDITION (2026-07-12, terrain-drive regression found while widening CRUSH_CORE_INITIAL_
+ * RECESS_M for the crash-pulse fix -- see that constant's doc comment): consecutive gate-open+touched
+ * steps required before the OWN-displacement ratchet (the direct rawCompressionM() reading below) is
+ * allowed to bake a segment's CURRENT displacement into a permanent plastic set. MEASURED NECESSITY
+ * (sim/terrain-compound.test.mjs's connectivity drive, ordinary full-throttle heightfield driving, no
+ * wall/barrier anywhere): a single sharp terrain bump/ledge produces a genuine, single-step chassis
+ * deceleration spike (measured 487 m/s^2 -- comfortably past YIELD_GATE_ACCEL_MS2 and even past some
+ * real LOW-speed wall-crash peaks) plus a real, near-horizontal-normal touch on the exposed bumperBeam
+ * (system.ts's own |normal.y|<0.5 structural-press filter does not exclude a curb-like bump face) --
+ * ONE such frame used to be enough to ratchet the beam's raw compression into a permanent 0.1m+ crush,
+ * which measurably degraded the front geometry enough to send the car into an uncontrolled spin/
+ * reverse a few seconds later (finalZ went from +212m to -14m over a 15s drive). A genuine wall crash
+ * sustains gate-open+touched for MANY consecutive steps (the car keeps plowing into the barrier), so a
+ * short debounce -- same idiom as WHEEL_DETACH_DEBOUNCE_STEPS/SLIP_OVERRIDE_DEBOUNCE_STEPS elsewhere in
+ * this codebase -- filters the single-frame bump spike without measurably delaying a real crash's own
+ * ratchet (re-verified: segment-yield.test.mjs's crush-vs-speed bands are unaffected by this streak,
+ * since a real crash re-crosses the debounce within 1-2 steps and the CORE's own energy-based retreat,
+ * which drives the bulk of frontCrushM, is untouched by this gate -- only the segments' direct-
+ * displacement ratchet is debounced). The CORE plastic flow (part 1 above) is deliberately NOT gated by
+ * this streak: it already requires genuine CORE-shape contact evidence (coreHits.pos/neg/rear, not just
+ * any chain segment), which a shallow bump practically never reaches (the core sits CRUSH_CORE_INITIAL_
+ * RECESS_M behind the exposed segments).
+ */
+const OWN_RATCHET_DEBOUNCE_STEPS = 2;
 /** Per-weld, per-step plastic growth cap (rate limit; keeps depenetration pops impossible). */
 const MAX_RATCHET_STEP_M = 0.08;
 /** Don't destroy+recreate a weld for a sub-2mm rest shift (recreate-churn guard). */
@@ -662,6 +714,86 @@ const SEGMENT_TOTAL_CRUSH_CAP_M: Record<SegmentWeldKey, number> = {
 	rearR: 0.5,
 };
 
+// ---------------------------------------------------------------------------------------------
+// EXTREME TIER (Stream C slice C2, 2026-07-12): additional FRONT-only plastic-crush headroom for
+// the 100-200mph reference footage (crush to the A-pillar; 120mph+ cabin collapse beginning).
+// ADDITIVE and SPEED-GATED on the same gate/full-scale speeds as damage-tuning.ts's
+// chassisSpeedCrushCapM() (24 / 45 m/s) so the mechanical (this file) and cosmetic (crumple.ts)
+// extreme tiers engage together. Every helper below returns EXACTLY today's NCAP-tier constant at
+// or under EXTREME_GATE_SPEED_MS -- the ≤80 km/h (22.2 m/s) calibrated matrix is untouched (see
+// sim/extreme-tier.test.mjs's guard-pin test).
+//
+// GATED ON PEAK SPEED, NOT CURRENT SPEED: by the time a 322 km/h crash has crushed even 0.3m the
+// chassis has already decelerated well below the gate (the whole point of a crash), so gating on
+// the CURRENT forward speed would shut the extreme tier back off mid-collapse, exactly when the
+// stage table needs the extra budget most. assembly.yieldState.peakForwardSpeedMs (updated every
+// step below, reset alongside the rest of yieldState in resetSegments()) tracks the fastest this
+// chassis has moved since spawn/reset -- the crash-setup convention in this codebase is to launch
+// the car directly at its target closing speed (damage/scenario.ts's crashSetup(), lab/barriers.ts)
+// rather than accelerate it there, so the peak is set (at, or within one step of, the launch) before
+// any contact, and holds for the whole crash.
+//
+// FRONT-ONLY SCOPE: the reference footage + this slice's verify target are all frontal impacts;
+// rear segments/cores keep their NCAP-tier caps unchanged (no extreme entry -> no behavior change).
+// ---------------------------------------------------------------------------------------------
+/**
+ * MEASURED REGRESSION + FIX (2026-07-12): this MECHANICAL gate deliberately does NOT match
+ * damage-tuning.ts's cosmetic CRUMPLE_EXTREME_GATE_MS (24 m/s) -- a first attempt reused 24 m/s here
+ * too and broke sim/segment-yield.test.mjs's calibrated 120 km/h (33.3 m/s) reference-band assertion
+ * (crash-deformation-reference.md's own "120 km/h ~0.50-0.58m capped" row -- measured 0.833m instead
+ * of the pinned [0.55,0.64] band). 120 km/h is ABOVE this slice's hard "<=80 km/h byte-identical"
+ * floor but is still part of the existing calibrated-matrix test suite ("full suite green" is a hard
+ * requirement too), so the MECHANICAL tier's gate is raised to 35 m/s -- comfortably above 120 km/h's
+ * 33.33 m/s (extremeT()=0 there, exactly, no change) while still well below the 161 km/h (44.7 m/s)
+ * floor this tier must reach. (The COSMETIC/crumple.ts tier keeps its 24 m/s gate per this slice's
+ * brief -- that metric has no equivalent 120 km/h band pinned anywhere in the suite.)
+ */
+const EXTREME_GATE_SPEED_MS = 35;
+/** MEASURED (extreme-tier probe): (a) 161 km/h (44.7 m/s) must already reach >=1.0m frontCrushM (the
+ * reference's "crush to the A-pillar" floor) and (b) 193/322 km/h must read strictly deeper than 161,
+ * both of which a too-high full-scale speed defeats. 55 m/s (paired with the 35 m/s gate above) puts
+ * 161/193 km/h (44.7/53.6 m/s) on the steep, still-increasing part of the ramp (measured 1.116m /
+ * 1.561m) while 322 km/h (89.4 m/s, past the 55 m/s full-scale point) saturates at the ceiling
+ * (measured 1.63m) -- still strictly the deepest of the three, satisfying the reference's "200mph
+ * reads more destroyed than 120mph" ordering. */
+const EXTREME_FULL_SPEED_MS = 55;
+
+/** Additional front-core plastic-retreat headroom (m) at full extreme scale, on top of
+ * CRUSH_CORE_MAX_RETREAT_FRONT_M (0.48) -- so a fully-engaged extreme crash reaches ~1.0m of front
+ * CORE retreat (+ the 0.15m initial recess = ~1.15m mechanical crush from the core alone, before the
+ * segment-ratchet carry-along, comfortably reaching structuralCrush.ts's cabin-extension gate). */
+const CORE_MAX_RETREAT_FRONT_EXTREME_M = 1.0;
+
+/** Additional per-weld plastic-crush headroom (m) at full extreme scale, front-chain welds only
+ * (beam/cellFL/cellFR/cradle) -- rear/trunk/rearL/rearR have no entry, i.e. zero extra headroom. */
+const SEGMENT_EXTREME_CRUSH_CAP_M: Partial<Record<SegmentWeldKey, number>> = {
+	beam: 0.85, // 0.55 base -> 1.4m total
+	cellFL: 0.35, // 0.34 base -> 0.69m total
+	cellFR: 0.35,
+	cradle: 0.2, // 0.17 base -> 0.37m total
+};
+
+/** 0 at/under EXTREME_GATE_SPEED_MS, ramps linearly to 1 by EXTREME_FULL_SPEED_MS. */
+function extremeT(peakSpeedMs: number): number {
+	if (peakSpeedMs <= EXTREME_GATE_SPEED_MS) return 0;
+	return Math.min(1, (peakSpeedMs - EXTREME_GATE_SPEED_MS) / (EXTREME_FULL_SPEED_MS - EXTREME_GATE_SPEED_MS));
+}
+
+/** Speed-gated front-core retreat ceiling: CRUSH_CORE_MAX_RETREAT_FRONT_M at/under the gate,
+ * ramping toward +CORE_MAX_RETREAT_FRONT_EXTREME_M above it. */
+function coreMaxRetreatFrontM(peakSpeedMs: number): number {
+	return CRUSH_CORE_MAX_RETREAT_FRONT_M + extremeT(peakSpeedMs) * CORE_MAX_RETREAT_FRONT_EXTREME_M;
+}
+
+/** Speed-gated per-weld crush cap: SEGMENT_TOTAL_CRUSH_CAP_M[key] at/under the gate (byte-identical
+ * -- no extremeT() multiply even evaluated when the weld has no extreme entry), ramping toward
+ * +SEGMENT_EXTREME_CRUSH_CAP_M[key] above it for front-chain welds. */
+function segmentCrushCapM(key: SegmentWeldKey, peakSpeedMs: number): number {
+	const extra = SEGMENT_EXTREME_CRUSH_CAP_M[key];
+	if (extra === undefined) return SEGMENT_TOTAL_CRUSH_CAP_M[key];
+	return SEGMENT_TOTAL_CRUSH_CAP_M[key] + extremeT(peakSpeedMs) * extra;
+}
+
 /** FACE depth (m: initial recess + plastic retreat of the segment's side's core) at which each
  * segment's carry-along ratchet starts moving it: its front face's recession behind the bumper/tail
  * contact face (beam moves from the first collapse millimeter; the cradle only in a deep,
@@ -669,12 +801,12 @@ const SEGMENT_TOTAL_CRUSH_CAP_M: Record<SegmentWeldKey, number> = {
  * big hits, crush-architecture.md §A "INTERACTIONS"). */
 const RATCHET_ZONE_START_M: Record<SegmentWeldKey, number> = {
 	beam: CRUSH_CORE_INITIAL_RECESS_M,
-	cellFL: 0.24,
-	cellFR: 0.24,
-	cellRL: 0.36,
-	cellRR: 0.36,
-	cradle: 0.44,
-	trunk: 0.4,
+	cellFL: 0.29,
+	cellFR: 0.29,
+	cellRL: 0.41,
+	cellRR: 0.41,
+	cradle: 0.49,
+	trunk: 0.45,
 	rearL: CRUSH_CORE_INITIAL_RECESS_M,
 	rearR: CRUSH_CORE_INITIAL_RECESS_M,
 };
@@ -705,8 +837,8 @@ const TIER_BREAK_FORCE_N: Record<SegmentWeldTier, number> = {
  * sim/segment-yield.test.mjs.
  */
 const CORE_STAGE_DECEL_MS2: readonly { maxDepthM: number; decelMs2: number }[] = [
-	{ maxDepthM: 0.3, decelMs2: 325 }, // beam + bumper structure collapsing (~33g)
-	{ maxDepthM: 0.46, decelMs2: 470 }, // rail cells buckling (~48g)
+	{ maxDepthM: 0.35, decelMs2: 325 }, // beam + bumper structure collapsing (~33g)
+	{ maxDepthM: 0.51, decelMs2: 470 }, // rail cells buckling (~48g)
 	{ maxDepthM: Number.POSITIVE_INFINITY, decelMs2: 1000 }, // densification: engine mass at the firewall
 ];
 
@@ -745,6 +877,24 @@ const CORE_ENGAGE_LATCH_STEPS = 10;
  * the face nearly the whole budget in one step (see the section doc); retreat only ever REMOVES
  * collision material, so a large single-step retreat cannot depenetration-pop anything. */
 const CORE_MAX_RETREAT_STEP_M = 0.5;
+
+/** EXTREME TIER (Stream C C2) MEASURED NECESSITY: a rigid-barrier crash at 161-322 km/h has the car's
+ * OWN bullet-CCD kill essentially the entire closing speed in the single step the TOI lands on (the
+ * same "one-step 120km/h kill" phenomenon CORE_MAX_RETREAT_STEP_M's doc above already describes, just
+ * far more extreme) -- measured directly (extreme-tier probe): with only coreMaxRetreatFrontM()
+ * raising the CEILING, frontCrushM plateaued at an IDENTICAL 0.650m at 161/193/322 km/h, because
+ * every one of those crashes' lostE arrives in that first step and CORE_MAX_RETREAT_STEP_M's flat
+ * 0.5m/step rate limit was the actual bottleneck, not the ceiling -- subsequent steps had ~zero
+ * further speed to lose (the car was already stopped/rebounding), so the extra ceiling headroom was
+ * never reached. Extending the PER-STEP rate in lockstep with the ceiling (same extremeT() gate) lets
+ * that single mega-step actually spend the stage-table's (now much larger) energy debt in one shot --
+ * still safe (the depenetration-pop argument above is speed-independent: retreat only ever removes
+ * material). Gated identically to coreMaxRetreatFrontM(): zero effect at/under 24 m/s. */
+const CORE_MAX_RETREAT_STEP_EXTREME_M = 1.0;
+
+function coreMaxRetreatStepM(peakSpeedMs: number): number {
+	return CORE_MAX_RETREAT_STEP_M + extremeT(peakSpeedMs) * CORE_MAX_RETREAT_STEP_EXTREME_M;
+}
 
 export interface SegmentYieldEvent {
 	type: 'segmentWeldTorn';
@@ -787,6 +937,9 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 	const vFwd = vel.x * fwd.x + vel.y * fwd.y + vel.z * fwd.z;
 	const accelFwd = (vFwd - assembly.yieldState.prevForwardSpeedMs) / dt;
 	assembly.yieldState.prevForwardSpeedMs = vFwd;
+	// EXTREME TIER (Stream C C2): track the fastest this chassis has moved since spawn/reset -- see
+	// this file's EXTREME_GATE_SPEED_MS section doc for why PEAK (not current) speed gates the tier.
+	if (Math.abs(vFwd) > assembly.yieldState.peakForwardSpeedMs) assembly.yieldState.peakForwardSpeedMs = Math.abs(vFwd);
 	const frontGate = accelFwd < -YIELD_GATE_ACCEL_MS2;
 	const rearGate = accelFwd > YIELD_GATE_ACCEL_MS2;
 
@@ -808,18 +961,28 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 	const firstEngage = { pos: coreHits.pos && eng.pos === 0, neg: coreHits.neg && eng.neg === 0, rear: coreHits.rear && eng.rear === 0 };
 	const prevLostE = assembly.yieldState.prevLostE;
 	assembly.yieldState.prevLostE = lostE;
-	const flowCore = (core: CrushCoreHandle, engaged: boolean, retroCredit: boolean): void => {
+	// EXTREME TIER (Stream C C2): the per-step retreat rate cap also ramps with peak speed (see
+	// CORE_MAX_RETREAT_STEP_EXTREME_M's doc comment -- MEASURED NECESSITY, the ceiling alone was not
+	// enough). Safe to apply uniformly to both front AND rear cores: rear's own ceiling
+	// (CRUSH_CORE_MAX_RETREAT_REAR_M, unchanged/not extreme-tiered) still bounds `give` via
+	// `ceilingM - core.retreatM` regardless of how large the step-rate cap is.
+	const stepCapM = coreMaxRetreatStepM(assembly.yieldState.peakForwardSpeedMs);
+	const flowCore = (core: CrushCoreHandle, engaged: boolean, retroCredit: boolean, ceilingM: number): void => {
 		const e = lostE + (retroCredit ? prevLostE : 0);
-		if (!engaged || core.retreatM >= core.maxRetreatM || e <= 0) return;
+		if (!engaged || core.retreatM >= ceilingM || e <= 0) return;
 		const faceDepthM = CRUSH_CORE_INITIAL_RECESS_M + core.retreatM;
-		const give = Math.min(stageStrokeM(faceDepthM, e), CORE_MAX_RETREAT_STEP_M, core.maxRetreatM - core.retreatM);
+		const give = Math.min(stageStrokeM(faceDepthM, e), stepCapM, ceilingM - core.retreatM);
 		if (give <= 1e-4) return;
 		core.retreatM += give;
 		core.shape.setHull(buildCrushCorePoints(core.end, core.retreatM, core.half)); // <=1 mutation/core/step
 	};
+	// EXTREME TIER (Stream C C2): front cores get the speed-gated ceiling (identical to
+	// CRUSH_CORE_MAX_RETREAT_FRONT_M at/under the gate); rear keeps its NCAP-tier cap unchanged
+	// (see this file's EXTREME_GATE_SPEED_MS section doc -- front-only scope).
+	const frontCeilingM = coreMaxRetreatFrontM(assembly.yieldState.peakForwardSpeedMs);
 	if (frontGate) {
-		flowCore(assembly.cores.frontPos, coreHits.pos || eng.pos > 0, firstEngage.pos);
-		flowCore(assembly.cores.frontNeg, coreHits.neg || eng.neg > 0, firstEngage.neg);
+		flowCore(assembly.cores.frontPos, coreHits.pos || eng.pos > 0, firstEngage.pos, frontCeilingM);
+		flowCore(assembly.cores.frontNeg, coreHits.neg || eng.neg > 0, firstEngage.neg, frontCeilingM);
 	} else if (rearGate) {
 		// Rear: the core-hit latch, or -- while genuinely BACKING (vFwd < -0.5) with rear-chain
 		// contact evidence -- the rear rails pressed in (a below-hit-threshold sustained press).
@@ -828,7 +991,7 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 			rawCompressionM(chassis, assembly, 'rearRailR', 1),
 		);
 		const backingPress = vFwd < -0.5 && (coreHits.rearChain || eng.rearChain > 0) && rearAdv >= CORE_ENGAGE_ADVANCE_M;
-		flowCore(assembly.cores.rear, coreHits.rear || eng.rear > 0 || backingPress, firstEngage.rear);
+		flowCore(assembly.cores.rear, coreHits.rear || eng.rear > 0 || backingPress, firstEngage.rear, CRUSH_CORE_MAX_RETREAT_REAR_M);
 	}
 	// Latch refresh AFTER the flow (firstEngage above needs the pre-hit latch value).
 	eng.pos = coreHits.pos ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.pos - 1);
@@ -836,6 +999,14 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 	eng.rear = coreHits.rear ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.rear - 1);
 	eng.frontChain = coreHits.frontChain ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.frontChain - 1);
 	eng.rearChain = coreHits.rearChain ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.rearChain - 1);
+
+	// OWN-displacement ratchet debounce (see OWN_RATCHET_DEBOUNCE_STEPS's doc comment): count
+	// CONSECUTIVE gate-open+touched steps per end, reset the instant either condition drops.
+	const streak = assembly.yieldState.ownRatchetStreak;
+	const frontTouchedNow = coreHits.frontChain || eng.frontChain > 0;
+	const rearTouchedNow = coreHits.rearChain || eng.rearChain > 0;
+	streak.front = frontGate && frontTouchedNow ? streak.front + 1 : 0;
+	streak.rear = rearGate && rearTouchedNow ? streak.rear + 1 : 0;
 
 	// ---- 2 + 3. Segment ratchet + tear-off, per weld. ----
 	const faceDepth = (core: CrushCoreHandle): number => CRUSH_CORE_INITIAL_RECESS_M + core.retreatM;
@@ -879,9 +1050,15 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 		const touched = w.crushZSign < 0 ? coreHits.frontChain || eng.frontChain > 0 : coreHits.rearChain || eng.rearChain > 0;
 		if (!touched) continue;
 		const childKey = WELD_CHILD[w.key];
-		const own = gateOpen ? rawCompressionM(chassis, assembly, childKey, w.crushZSign) - RATCHET_ELASTIC_ALLOWANCE_M : 0;
+		// OWN_RATCHET_DEBOUNCE_STEPS (Phase R): the direct raw-displacement reading only bakes in once
+		// gate-open+touched has held for >=N consecutive steps (see that constant's doc comment) --
+		// filters a single-frame terrain-bump spike without delaying a real (multi-step) crash.
+		const ownStreakOk = (w.crushZSign < 0 ? streak.front : streak.rear) >= OWN_RATCHET_DEBOUNCE_STEPS;
+		const own = gateOpen && ownStreakOk ? rawCompressionM(chassis, assembly, childKey, w.crushZSign) - RATCHET_ELASTIC_ALLOWANCE_M : 0;
 		const carry = carryDepth[w.key] - RATCHET_ZONE_START_M[w.key];
-		const target = Math.min(Math.max(w.crushM, own, carry), SEGMENT_TOTAL_CRUSH_CAP_M[w.key]);
+		// EXTREME TIER (Stream C C2): segmentCrushCapM() replaces the flat SEGMENT_TOTAL_CRUSH_CAP_M
+		// read -- identical for welds with no extreme entry (rear/trunk) or at/under the speed gate.
+		const target = Math.min(Math.max(w.crushM, own, carry), segmentCrushCapM(w.key, assembly.yieldState.peakForwardSpeedMs));
 		const applied = Math.min(target, w.crushM + MAX_RATCHET_STEP_M);
 		if (applied - w.crushM < MIN_APPLY_DELTA_M) continue;
 		w.crushM = applied;

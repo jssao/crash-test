@@ -1,21 +1,33 @@
 // SPDX-License-Identifier: MIT
 //
-// Damage test 5/6: 12 repeated 40 km/h impacts -> max per-vertex displacement stays within the
+// Damage test 5/6: repeated 40 km/h impacts -> max per-vertex displacement stays within the
 // per-mesh clamp (crumple.ts's CRUMPLE_CLAMP_CHASSIS_M / CRUMPLE_CLAMP_PANEL_GLASS_M, applied at
 // registration -- see DeformableMeshHandle.clampM), all normals finite, dentedVertexCount
 // monotonically non-decreasing and eventually plateaus (clamp reached -- persistent, never heals, per
 // crumple.ts's module doc).
+//
+// PHASE R RE-MASS/CRASH-PULSE CALIBRATION (2026-07-12): trial count 12 -> 20. Measured directly (this
+// test's own dentedVertexCount history, extended run): the re-mass + R3 crash-pulse recess/ratchet-zone
+// retune (segments.ts CORE_STAGE_DECEL_MS2 doc comment) changed repeated-impact convergence from a
+// single plateau within ~3 hits to a genuine TWO-STAGE convergence -- 48,74,80,80,80,80,80,80,80,80
+// (plateau 1, hits 1-10), then 93,94,94,94,94,96,97,97,97,97 (plateau 2, hits 11-20), fully flat from
+// hit 17 onward through hit 24 in a 24-trial control run. This is physically sensible: a wider crush
+// budget (segments.ts's carry-along tiers, RATCHET_ZONE_START_M) means a second structural tier's
+// carry-along onset is only crossed after several repeated hits accumulate enough permanent ratchet,
+// not the first hit alone -- still a genuine plateau (clamp reached, never heals), just needing more
+// repeated hits to fully surface within this test's own window. 20 trials is the smallest count that
+// captures the SECOND plateau cleanly (tailGrowth 0 over the last 3 of 20, see below).
 import { describe, expect, it } from 'vitest';
 import { createDamageSim } from './damage-harness.mjs';
 
 describe('damage: crumple-bounded', () => {
-	it('12 repeated 40 km/h impacts stay within clamp bounds', async () => {
+	it('20 repeated 40 km/h impacts stay within clamp bounds', async () => {
 		const sim = await createDamageSim();
 		try {
 			sim.spawnWall(10);
 
 			const dentedHistory = [];
-			for (let trial = 0; trial < 12; trial++) {
+			for (let trial = 0; trial < 20; trial++) {
 				sim.crash(40);
 				for (let i = 0; i < 180; i++) {
 					sim.step({ throttle: 0, brake: 0, steer: 0, handbrake: false });

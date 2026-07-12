@@ -47,7 +47,7 @@ import { installPointerInput, consumeDragDelta, consumeZoomDelta } from './input
 import { ChaseCamera } from './camera/chase';
 import { createDamageSystem, stepDamageSystem, getDamageTelemetry, type DamageSystem, type DamageTelemetry, type DamageEvent } from './damage/system';
 import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBindings } from './scene/carDeformables';
-import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, type StructuralCrushState } from './scene/structuralCrush';
+import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, lateralInputsFromRegistry, type StructuralCrushState } from './scene/structuralCrush';
 import { getSegmentTelemetry, seedSegmentVelocities } from './vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from './scene/panelVisuals';
 import { resetCrumpleRegistry } from './damage/crumple';
@@ -334,7 +334,7 @@ async function main() {
   }
 
   function handleDamageEvent(event: DamageEvent): void {
-    if (event.type === 'panelLoosened' || event.type === 'panelBroken') {
+    if (event.type === 'panelLoosened' || event.type === 'panelSprung' || event.type === 'panelBroken') {
       const visual = panelVisuals[event.panel];
       const panelBody = vehicle.panels[event.panel].body;
       if (visual) {
@@ -559,7 +559,10 @@ async function main() {
     stepDamageSystem(damageSystem, world, FIXED_DT);
     audioSystem.armShapes(collectCarShapes(vehicle, damageSystem));
     audioSystem.processStep(world, vehicle, FIXED_DT);
-    updateStructuralCrush(structuralCrush, structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)));
+    updateStructuralCrush(structuralCrush, {
+      ...structuralInputsFromTelemetry(getSegmentTelemetry(vehicle.chassis, vehicle.segments)),
+      ...lateralInputsFromRegistry(damageSystem.registry.meshes),
+    });
     syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
     sampleDestructibleVisuals(destructibleWorld, destructibleVisuals);
     features.afterFixedStep(FIXED_DT);

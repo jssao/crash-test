@@ -20,6 +20,13 @@ export interface PanelLoosenedEvent {
 	panel: PanelKey;
 }
 
+/** DOORS ONLY (Stream C slice C1): the latch failed but the hinge holds -- panels.ts's
+ * sprungPanelWeld(). */
+export interface PanelSprungEvent {
+	type: 'panelSprung';
+	panel: PanelKey;
+}
+
 export interface PanelBrokenEvent {
 	type: 'panelBroken';
 	panel: PanelKey;
@@ -50,6 +57,7 @@ export interface SegmentTornEvent {
 export type DamageEvent =
 	| ImpactEvent
 	| PanelLoosenedEvent
+	| PanelSprungEvent
 	| PanelBrokenEvent
 	| PanelDespawnedEvent
 	| WheelDetachedEvent

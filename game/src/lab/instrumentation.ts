@@ -77,34 +77,72 @@ export function measureAllCrush(system: DamageSystem): Record<CrushRegion, Crush
 }
 
 // ---------------------------------------------------------------------------------------------
-// Chassis peak deceleration (g) -- a simple running-max of |dv/dt| / g, sampled once per fixed step
-// from the chassis's own linear velocity (no damage-system coupling needed).
+// Chassis peak deceleration (g) -- running-max of the chassis velocity delta over a TWO-fixed-step
+// (33.3ms) sliding window, sampled once per fixed step from the chassis's own linear velocity.
+//
+// PHASE R ANTI-ALIASING FIX (2026-07-12). This metric was originally the raw single-step |dv|/dt --
+// and that raw form is what produced the "91.7g at NHTSA-56" R3 debt. Root-caused by step-by-step
+// CDP tracing of the lab NHTSA-56 run (scratchpad phase-r/exp1-guide.log + exp2-noocc.log):
+//   - The physical stop is REAL and multi-step: the car crushes 0.46m of working structure over
+//     steps 27-29 of the run (speed 15.385 -> 14.862 -> 1.548 -> ~1.2 m/s), i.e. ~42-47g AVERAGED
+//     over the actual event -- squarely the NCAP-like pulse the reference asks for.
+//   - But the solver concentrates most of that Dv (13.3 of 15.4 m/s) inside ONE 16.7ms fixed step,
+//     and WHICH step-bin it lands in depends on where the barrier-vs-core continuous-collision TOI
+//     falls WITHIN a step -- pure sampling phase. Measured phase sensitivity: the sim proxy reads
+//     46.9g at CRUSH_CORE_INITIAL_RECESS_M=0.15 but 88.9g at 0.13 and 92.4g at 0.14 (a 1-2cm
+//     geometry change flips the bin split); the Mustang-era blessed lab baseline "46.8g" is almost
+//     exactly HALF the S90's 91.7g -- its contact TOI happened to land mid-step, splitting the same
+//     kill across two sample bins. The S90's longer nose/approach geometry shifted the phase so the
+//     kill lands in one bin. Two other candidate mechanisms were experimentally RULED OUT first:
+//     the guided approach releases 6 full steps before first contact (speed trace shows ballistic
+//     decay 15.556->15.385 pre-contact), and running the lab with the occupant feature disabled
+//     (?noocc) moves the peak <1g (91.75 -> 90.83).
+//   - A raw 60Hz single-sample derivative therefore ALIASES the pulse: it can read anywhere from
+//     ~46 to ~92 for the IDENTICAL crash depending on centimeter-scale rig phase. Real crash-test
+//     peak-g figures are never raw sample derivatives either -- SAE J211 mandates CFC filtering --
+//     and a 60Hz-stepped sim cannot resolve pulse content above 30Hz (Nyquist) in the first place.
+//
+// FIX: measure |dv| over a 2-step (33.3ms) sliding window / (2*dt). Phase-robust by construction
+// (ANY 2-step window contains the whole 1-2 step kill regardless of TOI phase: lab 91.7 -> ~42-43g,
+// sim 46.9 -> ~46g -- both now read the same crash the same way), and honest against the reference
+// band (the pulse's real duration is ~2 steps, so the window average IS the event's deceleration,
+// not a smoothing-away of a longer event). The raw single-step reading is retained as peakG1Step
+// for diagnostics -- it is deliberately NOT the headline metric.
 // ---------------------------------------------------------------------------------------------
 
 const GRAVITY_G_UNIT = 9.81;
 
 export interface ChassisDecelTracker {
+	/** Anti-aliased peak decel (g): max |dv| over any 2-fixed-step window / (2*dt). The headline
+	 * readout (HUD + verify assertions). */
 	peakG: number;
+	/** Raw single-step peak (g) -- phase-aliased (see the section doc comment); diagnostic only. */
+	peakG1Step: number;
 	prevVel: { x: number; y: number; z: number } | null;
+	prevPrevVel: { x: number; y: number; z: number } | null;
 }
 
 export function createChassisDecelTracker(): ChassisDecelTracker {
-	return { peakG: 0, prevVel: null };
+	return { peakG: 0, peakG1Step: 0, prevVel: null, prevPrevVel: null };
 }
 
 export function resetChassisDecelTracker(t: ChassisDecelTracker): void {
 	t.peakG = 0;
+	t.peakG1Step = 0;
 	t.prevVel = null;
+	t.prevPrevVel = null;
 }
 
 export function sampleChassisDecel(t: ChassisDecelTracker, vel: { x: number; y: number; z: number }, dt: number): void {
 	if (t.prevVel && dt > 0) {
-		const dvx = vel.x - t.prevVel.x;
-		const dvy = vel.y - t.prevVel.y;
-		const dvz = vel.z - t.prevVel.z;
-		const aG = Math.hypot(dvx, dvy, dvz) / dt / GRAVITY_G_UNIT;
-		if (aG > t.peakG) t.peakG = aG;
+		const aG1 = Math.hypot(vel.x - t.prevVel.x, vel.y - t.prevVel.y, vel.z - t.prevVel.z) / dt / GRAVITY_G_UNIT;
+		if (aG1 > t.peakG1Step) t.peakG1Step = aG1;
 	}
+	if (t.prevPrevVel && dt > 0) {
+		const aG2 = Math.hypot(vel.x - t.prevPrevVel.x, vel.y - t.prevPrevVel.y, vel.z - t.prevPrevVel.z) / (2 * dt) / GRAVITY_G_UNIT;
+		if (aG2 > t.peakG) t.peakG = aG2;
+	}
+	t.prevPrevVel = t.prevVel;
 	t.prevVel = { x: vel.x, y: vel.y, z: vel.z };
 }
 
@@ -119,7 +157,10 @@ export interface OccupantStateLike {
 	alive: boolean;
 	state: string;
 	ejected: boolean;
+	/** Anti-aliased (2-step windowed) peak -- see active.ts's updateLifeDeath() doc comment. */
 	peakAccelG: number;
+	/** Raw single-step peak -- phase-aliased diagnostic only, optional for callers that predate it. */
+	peakAccelG1Step?: number;
 }
 
 export interface OccupantSummary {
@@ -128,8 +169,16 @@ export interface OccupantSummary {
 	ejected: boolean;
 	state: string;
 	peakAccelG: number;
+	peakAccelG1Step?: number;
 }
 
 export function summarizeOccupants(states: readonly OccupantStateLike[]): OccupantSummary[] {
-	return states.map((s) => ({ seatKey: s.seatKey, alive: s.alive, ejected: s.ejected, state: s.state, peakAccelG: s.peakAccelG }));
+	return states.map((s) => ({
+		seatKey: s.seatKey,
+		alive: s.alive,
+		ejected: s.ejected,
+		state: s.state,
+		peakAccelG: s.peakAccelG,
+		peakAccelG1Step: s.peakAccelG1Step,
+	}));
 }

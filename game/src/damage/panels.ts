@@ -6,12 +6,12 @@
 // createVehicle() so panels are part of the core vehicle assembly shared by the browser game and the
 // headless sim harness alike (game/sim/harness.mjs), same as chassis/wheels.
 
-import { Body, BodyType, Shape, World, WeldJoint } from '../../../src/ts/index.js';
-import { add, IDENTITY_Q, multiplyQuat, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
+import { Body, BodyType, Shape, World, WeldJoint, RevoluteJoint } from '../../../src/ts/index.js';
+import { add, IDENTITY_Q, multiplyQuat, quatFromAxisAngle, rotateVector, type Q4, type V3 } from '../vehicle/mathUtil';
 import { CAR_GROUP_INDEX, CHASSIS_ORIGIN_HEIGHT_M, EJECTED_ONLY_OCCUPANT_CATEGORY_BITS } from '../vehicle/tuning';
 import { HULL_BOTTOM_Y_M } from '../vehicle/geometry';
 import { CAR_MAP, type Vec3Mm, type Vec4 } from '../assets/car-map';
-import { PANEL_FRICTION, PANEL_HALF_THICKNESS_M, PANEL_MASS_KG, PANEL_THICKNESS_AXIS } from './damage-tuning';
+import { DOOR_SWING_MAX_RAD, PANEL_FRICTION, PANEL_HALF_THICKNESS_M, PANEL_MASS_KG, PANEL_THICKNESS_AXIS } from './damage-tuning';
 
 /** car-map.ts records [x,y,z,w]; box3d's Q4 is {x,y,z,w} -- same numbers, different shape. */
 function q4FromVec4(v: Vec4): Q4 {
@@ -26,6 +26,11 @@ function q4FromVec4(v: Vec4): Q4 {
 export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'doorRL' | 'doorRR' | 'trunk';
 
 export const PANEL_KEYS: readonly PanelKey[] = ['hood', 'doorL', 'doorR', 'doorRL', 'doorRR', 'trunk'];
+
+/** The 4 panels eligible for the SPRUNG state (Stream C slice C1) -- hood/trunk keep their existing
+ * loosen/break-only escalation (a hood "springs" differently -- the tent/buckle behavior already
+ * handles it -- see welds.ts's escalatePanel()). */
+export const DOOR_PANEL_KEY_SET: ReadonlySet<PanelKey> = new Set<PanelKey>(['doorL', 'doorR', 'doorRL', 'doorRR']);
 
 /** car-map.ts node name for each panel (see car-map.ts's `panels` record). */
 export const PANEL_NODE_NAMES: Record<PanelKey, string> = {
@@ -139,10 +144,14 @@ export interface PanelHandle {
 	readonly key: PanelKey;
 	body: Body;
 	shape: Shape;
-	/** Non-null while attached/loosened; null once broken (weld destroyed) -- LOOSEN itself keeps the
-	 * same joint object (softened in place via the runtime hertz/damping setters), see
+	/** Non-null while attached/loosened; null once sprung or broken (weld destroyed) -- LOOSEN itself
+	 * keeps the same joint object (softened in place via the runtime hertz/damping setters), see
 	 * loosenPanelWeld(). */
 	weldJoint: WeldJoint | null;
+	/** Non-null while sprung (DOORS ONLY -- see sprungPanelWeld()); null otherwise. Destroyed (like
+	 * weldJoint) before the panel body dies, either on a further escalation to broken (breakPanelWeld())
+	 * or a full car teardown (vehicle.ts's destroyVehicle()). */
+	hingeJoint: RevoluteJoint | null;
 	/** Chassis-local mount point (== this panel body's local offset from the chassis origin at spawn). */
 	readonly localCenter: V3;
 	/** This panel's GLB node world rotation (car-map.ts's PanelNode.worldQuat, as a Q4) -- the rigid
@@ -153,9 +162,23 @@ export interface PanelHandle {
 	readonly halfExtents: V3;
 	readonly massKg: number;
 	readonly density: number;
-	state: 'attached' | 'loosened' | 'broken';
+	state: 'attached' | 'loosened' | 'sprung' | 'broken';
 	/** Accumulated event-driven stress (game/src/damage/welds.ts). */
 	stress: number;
+	/**
+	 * DOORS ONLY (harmless/always-0 dead weight on hood/trunk): running numerator of a stress-WEIGHTED
+	 * average of |dirLocal.x| (chassis-local lateral alignment) across every hit that has contributed to
+	 * `stress` -- i.e. sum(stressIncrement * |dirLocal.x|) for each qualifying hit, same accumulation
+	 * lifecycle as `stress` itself (monotonic, never reset mid-life). Divide by `stress` to get the
+	 * fraction in [0,1] (see welds.ts's doorLateralFraction()) -- a value near 1 means this door's stress
+	 * came almost entirely from squarely-lateral hits (a real side/T-bone impact); a value well below
+	 * that means the stress came from hits with a real forward/oblique component even though each one
+	 * still had *some* lateral alignment (PANEL_VULNERABILITY's floor=0 already requires nonzero
+	 * |dirLocal.x| for a hit to contribute anything at all -- this statistic distinguishes "mostly
+	 * sideways" from "glancing/oblique" within that already-lateral-gated population). Drives the C3b
+	 * direction-aware sprung/jam split -- see damage-tuning.ts's DOOR_SPRUNG_LATERAL_FRACTION_MAX.
+	 */
+	lateralStressWeighted: number;
 	/** Sim-time (seconds) this panel broke, or null if still attached/loosened. */
 	breakTimeSec: number | null;
 	hitEventsDisabled: boolean;
@@ -229,6 +252,7 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 			body,
 			shape,
 			weldJoint,
+			hingeJoint: null,
 			localCenter,
 			nodeWorldQuat,
 			halfExtents,
@@ -236,12 +260,103 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 			density,
 			state: 'attached',
 			stress: 0,
+			lateralStressWeighted: 0,
 			breakTimeSec: null,
 			hitEventsDisabled: false,
 			despawned: false,
 		};
 	}
 	return result;
+}
+
+/** Conjugate (inverse) of a unit quaternion -- kept as a local copy (same convention as welds.ts's/
+ * system.ts's own private copies of this and rotate()) rather than adding a new shared mathUtil.ts
+ * export just for this one use. */
+function conjugateQuat(q: Q4): Q4 {
+	return { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+}
+
+/**
+ * SPRUNG hinge axis remap: maps a joint frame's own local Z axis (box3d's revolute joint "allows
+ * relative rotation about the z-axis" -- src/ts/joint.ts's RevoluteJoint doc comment) onto the CHASSIS's
+ * own local +Y (vertical) axis -- a -90deg rotation about X. Exactly the same "rotate the joint's Z axis
+ * onto the real swing axis" technique world/features/occupants/physics.ts's HINGE_AXIS_ROTATION uses for
+ * elbow/knee hinges (which target the lateral X axis instead) -- see sprungPanelWeld()'s doc comment for
+ * the full frameA/frameB derivation.
+ */
+const DOOR_HINGE_AXIS_ROTATION: Q4 = quatFromAxisAngle({ x: 1, y: 0, z: 0 }, -Math.PI / 2);
+
+/**
+ * Which sense of the revolute's angle opens each door OUTWARD (away from the car's centerline), given
+ * DOOR_HINGE_AXIS_ROTATION's fixed Z->Y mapping and this engine's standard right-hand quaternion
+ * convention (rotateVector()/multiplyQuat()): a vector pointing from the hinge toward the door's
+ * trailing (rear) edge rotates toward -X under a POSITIVE angle about +Y -- so a LEFT-side door
+ * (+X local, doorL/doorRL) must open through NEGATIVE angles (its trailing edge needs to swing toward
+ * +X, further left) and a RIGHT-side door (-X local, doorR/doorRR) opens through POSITIVE angles.
+ * Derived on paper; confirmed against the eyes-on screenshots (game/verify/door-sprung/) -- flip this
+ * if a future car's door layout reads backwards.
+ */
+const DOOR_OPEN_SIGN: Record<'doorL' | 'doorR' | 'doorRL' | 'doorRR', 1 | -1> = {
+	doorL: -1,
+	doorRL: -1,
+	doorR: 1,
+	doorRR: 1,
+};
+
+/**
+ * SPRUNG (DOORS ONLY, Stream C slice C1): the latch fails but the hinge holds -- destroy the intact
+ * weld (rigid or already-loosened) and replace it with a RevoluteJoint anchored at the door's LEADING
+ * edge: front doors hinge at their front edge, rear doors at their OWN front edge too (adjacent to the
+ * B-pillar) -- both are simply this panel's local +Z edge (car-map.ts convention: +Z = the car's nose;
+ * every door's node.worldQuat is IDENTITY, so "leading edge" is always the +Z edge in the panel's own
+ * body-local frame regardless of front/rear -- see createPanels()'s doc comment).
+ *
+ * FRAME DERIVATION (mirrors world/features/occupants/physics.ts's buildHingeFrames(), generalized: for
+ * a body X whose world rotation is chassisRotation * offsetX, a joint frame LOCAL TO X whose EFFECTIVE
+ * WORLD Z-axis must equal a FIXED chassis-local target axis needs frameX.rotation =
+ * conjugate(offsetX) * TARGET_ROTATION, where TARGET_ROTATION maps Z onto that target axis directly).
+ * Body A here is the CHASSIS itself, whose "offset from itself" is IDENTITY, so frameA.rotation is just
+ * DOOR_HINGE_AXIS_ROTATION unmodified; body B is this panel, whose offset is its own nodeWorldQuat, so
+ * frameB.rotation = conjugate(nodeWorldQuat) * DOOR_HINGE_AXIS_ROTATION (every door's nodeWorldQuat is
+ * IDENTITY in practice, so this reduces to the same quaternion as frameA -- but the general form is kept
+ * for the same reason createPanels()'s own doc comment gives: correct for ANY authored panel orientation).
+ *
+ * SWING LIMIT: [0, DOOR_SWING_MAX_RAD] outward via RevoluteJointOptions.enableLimit/lowerAngle/
+ * upperAngle -- box3d's b3RevoluteJointDef has a real joint-limit field (unlike SphericalJoint's cone,
+ * which has no directional "one-sided" limit), so no fallback approximation was needed here. Sign per
+ * side: see DOOR_OPEN_SIGN.
+ *
+ * FILTER: deliberately UNCHANGED (still CAR_GROUP_INDEX, still EJECTED_ONLY_OCCUPANT_CATEGORY_BITS) --
+ * unlike breakPanelWeld()'s neutral-groupIndex reshape. A sprung door is still swinging on a real hinge
+ * millimeters from the chassis/fender/B-pillar; sharing CAR_GROUP_INDEX with the rest of the car (as it
+ * always did while attached/loosened) keeps it from violently self-colliding with them -- the revolute's
+ * own swing LIMIT is what stops it from clipping the fender, not a collision response. groupIndex only
+ * vetoes SAME-group pairs, so normal world/ground/obstacle collision (default groupIndex 0) is completely
+ * unaffected -- a sprung door swinging into a wall or tree at speed still registers real hits. This is
+ * also why sprungPanelWeld(), unlike breakPanelWeld(), never touches panel.shape at all.
+ */
+export function sprungPanelWeld(world: World, chassis: Body, panel: PanelHandle): void {
+	if (panel.weldJoint) {
+		panel.weldJoint.destroy();
+		panel.weldJoint = null;
+	}
+	const edgeBodyLocal: V3 = { x: 0, y: 0, z: panel.halfExtents.z };
+	const chassisLocalAnchor = add(panel.localCenter, rotateVector(panel.nodeWorldQuat, edgeBodyLocal));
+	const frameBRotation = multiplyQuat(conjugateQuat(panel.nodeWorldQuat), DOOR_HINGE_AXIS_ROTATION);
+	const sign = DOOR_OPEN_SIGN[panel.key as 'doorL' | 'doorR' | 'doorRL' | 'doorRR'] ?? 1;
+	const lowerAngle = sign > 0 ? 0 : -DOOR_SWING_MAX_RAD;
+	const upperAngle = sign > 0 ? DOOR_SWING_MAX_RAD : 0;
+	const hingeJoint = world.createRevoluteJoint(chassis, panel.body, {
+		frameA: { position: chassisLocalAnchor, rotation: DOOR_HINGE_AXIS_ROTATION },
+		frameB: { position: edgeBodyLocal, rotation: frameBRotation },
+		collideConnected: false,
+		targetAngle: 0,
+		enableLimit: true,
+		lowerAngle,
+		upperAngle,
+	});
+	panel.hingeJoint = hingeJoint;
+	panel.state = 'sprung';
 }
 
 /** LOOSEN: soften the intact weld IN PLACE via the runtime hertz/damping-ratio setters (src/ts/
@@ -266,6 +381,12 @@ export function breakPanelWeld(panel: PanelHandle): void {
 	if (panel.weldJoint) {
 		panel.weldJoint.destroy();
 		panel.weldJoint = null;
+	}
+	// A door escalating sprung -> broken has a hinge, not a weld, to destroy first (see
+	// sprungPanelWeld()'s doc comment; both cannot be non-null at once).
+	if (panel.hingeJoint) {
+		panel.hingeJoint.destroy();
+		panel.hingeJoint = null;
 	}
 	panel.shape.destroy(false); // skip the pointless mass recompute with zero shapes momentarily
 	panel.shape = panel.body.createBoxShape({

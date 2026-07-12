@@ -129,6 +129,19 @@ async function main() {
     console.log('[crash-lab] readout:', JSON.stringify(readout));
 
     assert('run settled after 600 fixed steps', runState === 'settled', runState);
+    // PHASE R crash-pulse calibration (2026-07-12): the R3 gate -- lab-measured chassisPeakDecelG
+    // must land in [35,55]g at the NHTSA-56 protocol. TWO fixes deliver this, both documented at
+    // their sources: (1) CRUSH_CORE_INITIAL_RECESS_M widened 0.1->0.15m (vehicle/geometry.ts +
+    // segments.ts CORE_STAGE_DECEL_MS2 doc -- the compliant segment chain gets real distance to work
+    // before the rigid crush-core backstop engages); (2) the metric itself was de-aliased to a 2-step
+    // (33ms) sliding-window measurement (src/lab/instrumentation.ts's section doc comment carries the
+    // full root-cause: the raw single-step derivative read anywhere from ~46g to ~92g for the
+    // IDENTICAL crash depending on centimeter-scale contact-TOI phase within a fixed step -- the
+    // Mustang-era 46.8g baseline and the S90's 91.7g debt were the same 2-step stop sampled at
+    // different phases; guided-approach overlap and occupant coupling were both experimentally ruled
+    // out first, see the instrumentation.ts doc). This is the lab-harness verification the sim-proxy
+    // bands don't cover (real GLB shell, occupant ragdolls, segment chain contacts, guided approach).
+    assert('chassis peak decel in NHTSA-56 target band [35,55]g', readout.chassisPeakDecelG > 35 && readout.chassisPeakDecelG < 55, readout.chassisPeakDecelG);
     assert('front crush within reference band [0.18, 0.50]', readout.crush.front.depthM > 0.18 && readout.crush.front.depthM < 0.5, readout.crush.front);
     // TIGHTENED (playtest 2026-07-10 realism pass): at NCAP speed the hood BUCKLES and stays attached
     // (damage-tuning.ts's PANEL_BREAK_S2_MULT doc) -- it must be exactly 'loosened' here, with the
@@ -156,6 +169,15 @@ async function main() {
     assert('trunk does not BREAK/detach (frontal)', readout.panelStates.trunk !== 'broken', readout.panelStates.trunk);
     assert('dented vertex count > 0', readout.dentedVertexCount > 0, readout.dentedVertexCount);
     assert('4 occupant seats reported', readout.occupants.length === 4, readout.occupants.length);
+    // OCCUPANT DE-ALIASING (2026-07-12): pins the contract this pass fixed -- belted/seated NCAP-56
+    // dummies SURVIVE. peakAccelG (src/world/features/occupants/active.ts's updateLifeDeath()) was a
+    // raw single-fixed-step |dv|/dt, the SAME sampling-phase-aliasing artifact instrumentation.ts's
+    // ChassisDecelTracker had (see that file's + tuning.ts's DEATH_PEAK_ACCEL_G doc comments): at this
+    // same NHTSA-56 protocol it read 69-71g raw against DEATH_PEAK_ACCEL_G=65 and killed all 4 belted/
+    // seated occupants outright -- a speed real belted NCAP dummies survive. peakAccelG is now the
+    // 2-step/33ms windowed measure (same technique, phase-robust by construction); re-measured sim sweep
+    // (tuning.ts) puts the ALL-4-dead crossover between 70-80km/h, well above 56. All 4 must read alive.
+    assert('all 4 occupants ALIVE at NHTSA-56 (belted, seated)', readout.occupants.every((o) => o.alive === true), readout.occupants);
 
     // Crush M2: MECHANICAL structural readout (vehicle/segments.ts telemetry via the lab HUD).
     // Band: the sim-harness 56 km/h frontal measures mech crush 0.382m (sim/segment-yield.test.mjs's

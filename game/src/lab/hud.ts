@@ -30,7 +30,7 @@ const WHEEL_ORDER: readonly WheelKey[] = ['fl', 'fr', 'rl', 'rr'];
 const WHEEL_LABELS: Record<WheelKey, string> = { fl: 'FL', fr: 'FR', rl: 'RL', rr: 'RR' };
 const REGION_ORDER: readonly CrushRegion[] = ['front', 'left', 'right', 'rear'];
 const REGION_LABELS: Record<CrushRegion, string> = { front: 'Front', left: 'Left', right: 'Right', rear: 'Rear' };
-const STATE_COLOR: Record<string, string> = { attached: '#3ddc72', loosened: '#ffcc4d', broken: '#ff5c5c', detached: '#ff5c5c' };
+const STATE_COLOR: Record<string, string> = { attached: '#3ddc72', loosened: '#ffcc4d', sprung: '#ff9933', broken: '#ff5c5c', detached: '#ff5c5c' };
 
 export interface ReadoutData {
 	crush: Record<CrushRegion, CrushMeasurement>;

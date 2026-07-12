@@ -172,6 +172,12 @@ export interface FreeConfigState {
 }
 
 export const FREE_CONFIG_DEFAULT: FreeConfigState = { speedKmh: 56, offsetM: 0, angleDeg: 0 };
-export const FREE_CONFIG_SPEED_RANGE: readonly [number, number] = [20, 160];
+/** EXTREME TIER (Stream C slice C2): upper bound raised 160 -> 340 km/h to cover the 100/120/200mph
+ * reference-footage tiers (161/193/322 km/h) via the free-config slider. Verified (sim/extreme-
+ * tier.test.mjs + eyes-on) that the guided-release + CCD (both car and barrier are box3d "bullet"
+ * continuous-collision bodies, segments.ts's isBullet doc) hold at 320 km/h with no wall tunneling --
+ * see barriers.ts's rigid-barrier depth doc comment for the one change extreme speed did need
+ * (barrier z half-extent, not the speed range itself). */
+export const FREE_CONFIG_SPEED_RANGE: readonly [number, number] = [20, 340];
 export const FREE_CONFIG_OFFSET_RANGE: readonly [number, number] = [-2, 2];
 export const FREE_CONFIG_ANGLE_RANGE: readonly [number, number] = [-45, 45];

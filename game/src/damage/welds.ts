@@ -2,15 +2,23 @@
 //
 // Weld stress model (G3 spec) + wheel detach. Per fixed step: (1) poll each intact panel weld's
 // constraint-force magnitude (direct force-spike trigger), (2) accumulate event-driven stress from
-// nearby qualifying hit events (falls off with distance from the panel centroid), loosening/breaking
-// whichever trigger fires first, and (3) poll each intact wheel joint's constraint force, detaching a
-// wheel outright on a big enough spike. Renderer-free (no three/DOM import).
+// nearby qualifying hit events (falls off with distance from the panel centroid), loosening/springing/
+// breaking whichever trigger fires first (DOORS ONLY escalate through the extra SPRUNG tier -- latch
+// fails, hinge holds, see panels.ts's sprungPanelWeld() -- hood/trunk go straight loosened->broken as
+// before), and (3) poll each intact wheel joint's constraint force, detaching a wheel outright on a big
+// enough spike. Renderer-free (no three/DOM import).
 
+import type { Body, World } from '../../../src/ts/index.js';
 import { length, sub, type Q4, type V3 } from '../vehicle/mathUtil';
 import { GRAVITY_MAG } from '../vehicle/tuning';
 import { CAR_ENTITY_ID, type Vehicle, type WheelKey } from '../vehicle/vehicle';
 import { getSegmentTelemetry, SEGMENT_ENTITY_ID_SET } from '../vehicle/segments';
 import {
+	DOOR_BREAK_GATE_MS,
+	DOOR_SPRUNG_GATE_MS,
+	DOOR_SPRUNG_LATERAL_FRACTION_MAX,
+	DOOR_SPRUNG_TO_BREAK_STRESS_MULT,
+	DOOR_STRESS_TOUCH_MIN,
 	HOOD_BREAK_MIN_FRONT_CRUSH_M,
 	PANEL_BREAK_FORCE_MULT,
 	PANEL_BREAK_S2_MULT,
@@ -25,11 +33,14 @@ import {
 	STRESS_MIN_APPROACH_SPEED_MS,
 	STRESS_RADIUS_M,
 	WHEEL_DETACH_DEBOUNCE_STEPS,
+	WHEEL_DETACH_EXTREME_DEBOUNCE_STEPS,
+	WHEEL_DETACH_EXTREME_GATE_MS,
 	WHEEL_DETACH_FORCE_MULT,
 	WHEEL_DETACH_IMPACT_BYPASS_MULT,
+	WHEEL_DETACH_JAMMED_DOOR_DEBOUNCE_STEPS,
 	type PanelVulnerability,
 } from './damage-tuning';
-import { breakPanelWeld, loosenPanelWeld, PANEL_ENTITY_ID, PANEL_KEYS, type PanelHandle, type PanelKey } from './panels';
+import { breakPanelWeld, DOOR_PANEL_KEY_SET, loosenPanelWeld, PANEL_ENTITY_ID, PANEL_KEYS, sprungPanelWeld, type PanelHandle, type PanelKey } from './panels';
 import type { DamageEvent } from './events';
 
 /**
@@ -81,6 +92,18 @@ export function panelDirectionalFactor(vuln: PanelVulnerability, dirLocal: V3): 
 	const aligned = vuln.signed === 0 ? Math.abs(component) : Math.max(0, vuln.signed * component);
 	const sharpened = Math.pow(aligned < 0 ? 0 : aligned > 1 ? 1 : aligned, vuln.sharpness);
 	return vuln.floor + (1 - vuln.floor) * sharpened;
+}
+
+/**
+ * DOORS ONLY: this door's stress-weighted average |dirLocal.x| in [0,1] -- see panels.ts's
+ * lateralStressWeighted doc comment for the exact accumulation. 0 when the door has accumulated no
+ * stress yet (nothing to divide -- also correctly reads as "not predominantly lateral", since there is
+ * no lateral stress to speak of). Exported for direct unit-testing (sim/*.test.mjs can construct a
+ * PanelHandle-shaped object and check this in isolation, no physics needed).
+ */
+export function doorLateralFraction(panel: Pick<PanelHandle, 'stress' | 'lateralStressWeighted'>): number {
+	if (panel.stress <= 1e-9) return 0;
+	return panel.lateralStressWeighted / panel.stress;
 }
 
 export interface HitEventLike {
@@ -141,13 +164,25 @@ export function hitTouchesCar(hit: HitEventLike, panels: Record<PanelKey, PanelH
 	return false;
 }
 
-function escalatePanel(panel: PanelHandle, shouldBreak: boolean, shouldLoosen: boolean, timeSec: number, emit: (e: DamageEvent) => void): void {
+/**
+ * Escalates one panel by at most one tier this call, per whichever of shouldBreak/shouldSprung/
+ * shouldLoosen fires (checked in that priority order, break winning outright). `shouldSprung` is only
+ * ever true for a door (see stepWeldsAndWheels' callers) -- passing `world`/`chassis` unconditionally
+ * costs nothing when it's false, and keeps this one escalation path shared by hood/trunk/doors alike
+ * (mirrors how shouldBreak/shouldLoosen were already shared before this feature).
+ */
+function escalatePanel(world: World, chassis: Body, panel: PanelHandle, shouldBreak: boolean, shouldSprung: boolean, shouldLoosen: boolean, timeSec: number, emit: (e: DamageEvent) => void): void {
 	if (shouldBreak) {
 		if (panel.state !== 'broken') {
 			breakPanelWeld(panel);
 			panel.breakTimeSec = timeSec;
 			emit({ type: 'panelBroken', panel: panel.key });
 		}
+		return;
+	}
+	if (shouldSprung && (panel.state === 'attached' || panel.state === 'loosened')) {
+		sprungPanelWeld(world, chassis, panel);
+		emit({ type: 'panelSprung', panel: panel.key });
 		return;
 	}
 	if (shouldLoosen && panel.state === 'attached') {
@@ -157,6 +192,9 @@ function escalatePanel(panel: PanelHandle, shouldBreak: boolean, shouldLoosen: b
 }
 
 export interface WeldStepArgs {
+	/** The box3d-js world, needed to create a door's SPRUNG hinge (RevoluteJoint) -- see panels.ts's
+	 * sprungPanelWeld(). */
+	world: World;
 	vehicle: Vehicle;
 	panels: Record<PanelKey, PanelHandle>;
 	hits: readonly HitEventLike[];
@@ -177,7 +215,7 @@ export interface WeldStepArgs {
  * system.ts's stepDamageSystem() -- the ONE central world.hitEvents() drain per step).
  */
 export function stepWeldsAndWheels(args: WeldStepArgs): void {
-	const { vehicle, panels, hits, carMassKg, timeSec, wheelOverThresholdSteps, emit } = args;
+	const { world, vehicle, panels, hits, carMassKg, timeSec, wheelOverThresholdSteps, emit } = args;
 
 	// HOOD crush gate (damage-tuning.ts's HOOD_BREAK_MIN_FRONT_CRUSH_M doc): the hood may only BREAK
 	// once the front structure carrying its hinges+latch has mechanically collapsed past the gate --
@@ -185,6 +223,11 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 	// the sim harness for the same nominal crash). Applied to BOTH break triggers (force spike below +
 	// accumulated stress), never to loosen.
 	const hoodMayBreak = getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushM > HOOD_BREAK_MIN_FRONT_CRUSH_M;
+	// DOORS ONLY: peak forward speed (same rig-independent signal the wheel-detach extreme tier below
+	// gates on) -- the SECOND, speed-gated door sprung/break trigger (damage-tuning.ts's
+	// DOOR_SPRUNG_GATE_MS doc comment has the full derivation for why this is needed alongside, not
+	// instead of, the stress path). Computed once here since part 3 below also reads it.
+	const peakSpeedMs = Math.abs(vehicle.segments.yieldState.peakForwardSpeedMs);
 
 	// ---- 1) Direct weld constraint-force spike ----
 	for (const key of PANEL_KEYS) {
@@ -193,7 +236,11 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		const forceMag = length(panel.weldJoint.getConstraintForce());
 		const weightN = panel.massKg * GRAVITY_MAG;
 		const breakGate = key === 'hood' ? hoodMayBreak : true;
-		escalatePanel(panel, breakGate && forceMag > PANEL_BREAK_FORCE_MULT * weightN, forceMag > PANEL_LOOSEN_FORCE_MULT * weightN, timeSec, emit);
+		// Force-spike stays a 2-outcome mechanism (loosen/break) even for doors -- a T-bone tearing a
+		// door off outright via a genuine single-step overload skips sprung entirely, same as it always
+		// skipped loosened (shouldSprung=false here; the accumulated-stress path in part 2 below is
+		// where a door can land on sprung).
+		escalatePanel(world, vehicle.chassis, panel, breakGate && forceMag > PANEL_BREAK_FORCE_MULT * weightN, false, forceMag > PANEL_LOOSEN_FORCE_MULT * weightN, timeSec, emit);
 	}
 
 	// ---- 2) Accumulated event-driven stress (nearby qualifying hits), now DIRECTION-AWARE ----
@@ -225,14 +272,45 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 			// body e is exactly 1, so `* 1` is an IEEE-754 no-op and this stress figure is bit-identical
 			// to the pre-mass-aware code -- the byte-stable-against-static-obstacles guarantee.
 			const massFactor = massAwareDamageFactor(hit.otherMassKg, carMassKg);
-			panel.stress += STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor * massFactor;
+			const stressIncrement = STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor * massFactor;
+			panel.stress += stressIncrement;
+			// DOORS ONLY (C3b): track the stress-weighted lateral-alignment numerator alongside stress
+			// itself -- see panels.ts's lateralStressWeighted doc comment + doorLateralFraction() below.
+			if (DOOR_PANEL_KEY_SET.has(key)) panel.lateralStressWeighted += stressIncrement * Math.abs(dirLocal.x);
 		}
 	}
 	for (const key of PANEL_KEYS) {
 		const panel = panels[key];
 		if (panel.state === 'broken') continue;
-		const breakGate = key === 'hood' ? hoodMayBreak : true;
-		escalatePanel(panel, breakGate && panel.stress > STRESS_BREAK_S2 * PANEL_BREAK_S2_MULT[key], panel.stress > STRESS_LOOSEN_S1, timeSec, emit);
+		const sprungStressThreshold = STRESS_BREAK_S2 * PANEL_BREAK_S2_MULT[key];
+		let shouldBreak: boolean;
+		let shouldSprung = false;
+		if (DOOR_PANEL_KEY_SET.has(key)) {
+			// DOORS: two independent (OR'd) triggers -- see damage-tuning.ts's DOOR_SPRUNG_GATE_MS doc
+			// comment for why both are needed (a pure side impact reports ~zero peak forward speed and
+			// must reach break via stress alone; the plain sim harness's frontal extreme tier never
+			// accumulates anywhere near the old stress threshold and must reach sprung/break via speed).
+			const touched = panel.stress > DOOR_STRESS_TOUCH_MIN;
+			const breakStressThreshold = sprungStressThreshold * DOOR_SPRUNG_TO_BREAK_STRESS_MULT;
+			const rawShouldSprung = panel.stress > sprungStressThreshold || (touched && peakSpeedMs > DOOR_SPRUNG_GATE_MS);
+			shouldBreak = panel.stress > breakStressThreshold || (touched && peakSpeedMs > DOOR_BREAK_GATE_MS);
+			// C3b REALISM FIX: a STRUCK-side door in a real side impact jams shut and caves -- it does not
+			// spring open on its hinge (springing/swinging free is a FRONTAL/oblique phenomenon: the
+			// latch fails from LONGITUDINAL inertia overloading it fore-aft, while the hinge -- mounted
+			// perpendicular to that load -- still holds; a squarely lateral push-in instead crushes the
+			// door/hinge/latch assembly together, jamming it). Gate the SPRUNG transition on this door's
+			// stress being predominantly OBLIQUE/longitudinal rather than predominantly lateral: skip
+			// sprung (stay 'loosened' -- the jammed/caved read) once doorLateralFraction crosses
+			// DOOR_SPRUNG_LATERAL_FRACTION_MAX. shouldBreak is DELIBERATELY untouched by this gate -- a
+			// T-bone can still tear a predominantly-lateral door straight off (crash-realism.test.mjs's
+			// side-130 pins >=1 broken door), it just never passes through the sprung tier on the way.
+			shouldSprung = rawShouldSprung && doorLateralFraction(panel) <= DOOR_SPRUNG_LATERAL_FRACTION_MAX;
+		} else {
+			// Hood/trunk: unchanged -- sprungStressThreshold is exactly the old S2*mult break threshold.
+			const breakGate = key === 'hood' ? hoodMayBreak : true;
+			shouldBreak = breakGate && panel.stress > sprungStressThreshold;
+		}
+		escalatePanel(world, vehicle.chassis, panel, shouldBreak, shouldSprung, panel.stress > STRESS_LOOSEN_S1, timeSec, emit);
 	}
 
 	// ---- 3) Wheel detach (impact-gated + debounced -- see WHEEL_DETACH_FORCE_MULT's doc comment) ----
@@ -255,19 +333,42 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		impactContext = true;
 		break;
 	}
+	// EXTREME TIER (Stream C C2): see WHEEL_DETACH_EXTREME_GATE_MS's doc comment -- a crash whose peak
+	// speed ever exceeded the gate only needs a 1-step breach to detach (a genuinely extreme crash's
+	// whole force spike lasts one step, same root cause as segments.ts's core-retreat extreme tier).
+	// (peakSpeedMs computed once above, ahead of part 2 -- the door-sprung logic reads it too.)
+	// C3c: a JAMMED (not sprung, not broken) door keeps feeding a sustained lateral push into the
+	// chassis/suspension longer than a door that swings free or has already torn off -- see
+	// WHEEL_DETACH_JAMMED_DOOR_DEBOUNCE_STEPS's doc comment for the measured near-miss this restores
+	// margin against (side-mdb-50) and why it's provably inert for extreme-tier frontal (doors read
+	// 'sprung' there, never 'loosened') and side-130 (doors read 'broken' within the first contact step,
+	// well before the wheel force plateau). Checked using PART 2's already-escalated panel states (this
+	// step's door transitions, if any, have already landed by here), so the gate takes effect on the
+	// exact same step a door first reads 'loosened'. EXTREME TIER wins outright when both could apply
+	// (checked first) -- a genuinely extreme crash must never regain patience from an incidental door
+	// state.
+	let anyDoorJammed = false;
+	for (const key of DOOR_PANEL_KEY_SET) {
+		if (panels[key].state === 'loosened') { anyDoorJammed = true; break; }
+	}
+	const wheelDebounceSteps = peakSpeedMs > WHEEL_DETACH_EXTREME_GATE_MS
+		? WHEEL_DETACH_EXTREME_DEBOUNCE_STEPS
+		: anyDoorJammed
+			? WHEEL_DETACH_JAMMED_DOOR_DEBOUNCE_STEPS
+			: WHEEL_DETACH_DEBOUNCE_STEPS;
 	for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
 		const wheel = vehicle.wheels[key];
 		if (!wheel.joint) continue;
 		const forceMag = length(wheel.joint.getConstraintForce());
 		// Detach-eligible this step iff a contactless gross overload, or a base-threshold breach that
-		// coincides with a real impact. Either way still requires WHEEL_DETACH_DEBOUNCE_STEPS in a row.
+		// coincides with a real impact. Either way still requires wheelDebounceSteps in a row.
 		const detachEligible = forceMag > wheelDetachBypassForceN || (forceMag > wheelDetachForceN && impactContext);
 		if (detachEligible) {
 			wheelOverThresholdSteps[key] = (wheelOverThresholdSteps[key] ?? 0) + 1;
 		} else {
 			wheelOverThresholdSteps[key] = 0;
 		}
-		if (wheelOverThresholdSteps[key] >= WHEEL_DETACH_DEBOUNCE_STEPS) {
+		if (wheelOverThresholdSteps[key] >= wheelDebounceSteps) {
 			wheel.joint.destroy();
 			wheel.joint = null;
 			emit({ type: 'wheelDetached', i: key });
