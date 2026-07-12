@@ -1,0 +1,545 @@
+# P0-B — Mustang → Code Coupling Inventory (Volvo S90 swap prep)
+
+Scope: every place the current "Rigged Car Mustang 1965" GLB and its measured geometry is coupled
+into `game/` code. Read-only investigation, no files modified. Complements:
+`docs/loom/p0b2-sim-verify-couplings.md` (contributed sim/verify slice, merged in below),
+`docs/loom/p0c-occupants-inventory.md` (occupants deep-dive, cross-referenced),
+`docs/loom/2026-07-11-s90-swap-plan.md` (P0-A blend inventory: S90 source is 4-door, no engine
+modeled, 547MB textures, mirror-mesh doors needing L/R split).
+
+Legend: **[AUTO]** regenerated automatically by `npm run analyze-car` / derived at runtime from
+CAR_MAP — safe across a GLB swap as long as node names match. **[HAND]** hardcoded literal that
+must be manually re-measured/re-tuned for the S90. **[VERIFY]** probably car-agnostic but worth a
+second look.
+
+---
+
+## 1. THE ASSET + LOADER
+
+- **[HAND]** Active GLB: `game/public/assets/car/mustang65.glb` (3,202,932 bytes / 3.2MB). Also
+  present: `game/public/assets/car/CarConcept.glb` (11,778,688 bytes — legacy Khronos asset, still
+  loadable via the model-viewer catalog and analyze-car.mjs's `carConcept` CONFIG, not used by the
+  live game/lab). `game/dist/assets/car/` has stale copies of both (build output, regenerate on
+  next `npm run build`, not hand-edited).
+- **[HAND]** Source (pre-processed) asset lives OUTSIDE `game/`, at repo root:
+  `assets-src/cars/mustang-1965/source/MUSTANG_render.glb` (4,453,656 bytes). There is no
+  `game/assets-src/`. A sibling `assets-src/cars/impala-frigontech/impala.glb` (1.56MB) exists but
+  is unused/unreferenced by any code — irrelevant to this swap unless intentionally repurposed.
+- **[HAND]** Load-point references (each is a literal string, one line to change per file, but
+  every one must be updated in lockstep):
+  - `game/src/scene/buildScene.ts:31` — `const CAR_URL = 'assets/car/mustang65.glb';` (live game)
+  - `game/src/lab/labScene.ts:28` — `const CAR_URL = 'assets/car/mustang65.glb';` (crash lab)
+  - `game/src/model-viewer/catalog.ts:31-32` — `MUSTANG_URL` / `CONCEPT_URL` (dev model browser)
+  - `game/src/assets/car-map.ts:4,99` — `sourceFile` doc/field (rewritten by analyze-car.mjs)
+- **[AUTO]** Loader: `game/src/scene/car.ts`'s `loadCar(url)` — plain `THREE.GLTFLoader`, no
+  car-specific hardcoding. Fully CAR_MAP-driven: reads `CAR_MAP.chosenVariantIndex` (material
+  variant selection), `CAR_MAP.logoMaterialsToSanitize` (trademark-texture neutralizing, empty for
+  Mustang), `CAR_MAP.glassMeshNodes` (glass mesh tagging). **This file needs zero changes** for a
+  node-name-compatible swap — it will pick up whatever `CAR_MAP` says.
+- **[HAND — pipeline, not just data]** Preprocessing is a bespoke Blender headless script, NOT
+  car-agnostic like analyze-car.mjs is: `game/scripts/split-mustang.py`. It:
+  - Hardcodes the source path and `REAL_WHEELBASE_M = 2.743` (actual 1965 Mustang wheelbase, used
+    to rescale the model to real-world size from Blender units) — line 30.
+  - Expects specific **vertex group names** on a skinned mesh object named `'main'`: `body`,
+    `Hood_front`, `Hood_Back`, `Door_L`, `Door_R`, `Engine`, `wheel_Front_L/R`, `wheel_Rear_L/R`,
+    plus a `neutral_bone` catch-all (lines 14-27).
+  - Expects an **armature** with bones named `wheel_Front_L`/`wheel_Rear_L` to measure wheelbase
+    before deletion (lines 43-48).
+  - Hardcodes `ENGINE_SPLIT_Z = 0.90` (line 212) — a manual Z-plane cut separating "EngineBlock"
+    from "Drivetrain" out of the single Engine vertex group.
+  - Hardcodes an empirically-derived reorientation matrix (`Rz180`, 180° about Z) and axis-mirror
+    logic (lines 140-158) — tuned by hand against THIS source file's Blender-import quirks (Y-up
+    vs Z-up, left-handedness). **Not guaranteed to be the right transform for a different source
+    GLB** — must be re-derived and re-verified (the script's own comments stress this was found
+    empirically, "verified: dump_gameframe reports...").
+  - Splits glass by hardcoded material names `TransparentGlass`/`refract glass` (line 28).
+  - **Conclusion: this script cannot be pointed at a new GLB and just work.** It is effectively a
+    one-off template to copy and rewrite per the S90 source's actual vertex-group names, armature,
+    bone names, real wheelbase, and reorientation transform (P0-A's blend inventory already found
+    the S90 source has NO comparable clean vertex-group split — it's 139 flat meshes with X-mirrored
+    Door Front/Rear meshes needing a manual mirror+split into L/R).
+- **[VERIFY]** `game/scripts/inspect-mustang.py` — read-only Blender diagnostic dumping object
+  tree/armature/vertex-weight-purity/dims. Generic tool, just repoint `GLB` (line 2) at the new
+  source to re-run. No changes needed to the script itself.
+
+---
+
+## 2. CAR-MAP GENERATION
+
+- **[AUTO — good news]** `src/assets/car-map.ts` is **fully auto-generated**, header literally
+  says `// AUTO-GENERATED by scripts/analyze-car.mjs — DO NOT HAND-EDIT.` No hand-edits found
+  anywhere in the file; every field traces to a script computation.
+- **[AUTO]** Regeneration command: **`npm run analyze-car`** (= `node scripts/analyze-car.mjs`,
+  package.json:11). Optionally `node scripts/analyze-car.mjs path/to/other.glb`.
+- **`scripts/analyze-car.mjs` IS car-agnostic** (unlike split-mustang.py): it walks the raw glTF
+  node graph via manual GLB/JSON/accessor parsing (deliberately not GLTFLoader — no DOM in plain
+  Node), computes exact world-space AABBs from actual geometry, and auto-detects which of a
+  `CAR_CONFIGS` registry entry applies by checking which node names are present
+  (`detect: (names) => names.has('BodyShell') && names.has('WheelFL')` for Mustang, lines 34-58).
+  **For the S90 swap, add a new `CAR_CONFIGS.volvoS90` entry** (mirroring the existing
+  `mustang65`/`carConcept` entries) naming the S90's actual node names for wheels/panels/chassis/
+  glass — the script does NOT need to be rewritten, just extended with one more config object.
+- **Node names the script (and thus the whole pipeline) EXPECTS**, from the `mustang65` CONFIG
+  (scripts/analyze-car.mjs:34-58):
+  - **Wheels**: `WheelFL`, `WheelFR`, `WheelRL`, `WheelRR` (frontLeft/frontRight/rearLeft/rearRight)
+  - **Panels** (damage-detachable): `Hood`, `DoorL`, `DoorR`, `Trunk` — **NO roof panel** (2-door
+    fastback folds roof into shell)
+  - **Chassis** (non-detachable structure): `BodyShell`, `EngineBlock`, `Drivetrain` (falls back to
+    a single `Engine` node if the sub-split wasn't produced)
+  - **Glass**: detected by MATERIAL name (`TransparentGlass`, `refract glass`), not node name; mesh
+    nodes discovered as `Windshield`/`RearWindow` (car-map.ts:358-361) after excluding panel/chassis
+    node meshes that happen to contain a glass primitive (door windows baked into door panel mesh)
+  - **Logo/trademark textures to sanitize**: empty set for Mustang (no logo textures)
+- **Measured output** (`src/assets/car-map.ts`, generated 2026-07-10T00:45:07.566Z):
+  - `overallDimsMm`: length 4591, width 1936, height 1309
+  - `overallCenterMm`: [0, 654, 60]
+  - `wheelbaseMm`: 2743, `trackFrontMm`: 1619, `trackRearMm`: 1620
+  - Wheel radii ~310mm all four corners, width ~222-225mm
+  - Panel bboxes: Hood center [0,809,1520] size [1216,174,1644]; DoorL [748,733,31]
+    size[313,839,1336]; DoorR mirror; Trunk [0,811,-1877] size[1404,139,591]
+  - Chassis bboxes: BodyShell [0,761,60] size[1936,1096,4591]; EngineBlock [-17,501,1419]
+    size[1507,579,1036]; Drivetrain [0,450,-568] size[1568,518,3049]
+  - All node `worldQuat` are IDENTITY (pose baked into vertices at split time — a Mustang-specific
+    convenience from split-mustang.py; the S90's own future split script should aim for the same
+    identity-transform convention since a lot of downstream math (panels.ts's
+    `remapHalfExtentsToBodyLocal`) special-cases/simplifies for axis-permutation quats).
+
+---
+
+## 3. GEOMETRY CONSTANTS DERIVED FROM THE MUSTANG
+
+### [AUTO] Computed from CAR_MAP at runtime (`src/vehicle/tuning.ts`)
+- `WHEEL_RADIUS_FRONT_M` (tuning.ts:155) = `CAR_MAP.wheels.frontLeft.radiusMm / 1000` ≈ 0.310
+- `WHEEL_RADIUS_REAR_M` (tuning.ts:156) ≈ 0.310
+- `WHEELBASE_M` (tuning.ts:159) = `CAR_MAP.wheelbaseMm / 1000` = 2.743
+- `TRACK_FRONT_M` / `TRACK_REAR_M` (tuning.ts:160-161) = 1.619 / 1.620
+- `CAR_LENGTH_M` / `CAR_WIDTH_M` / `CAR_HEIGHT_M` (tuning.ts:164-166) = 4.591 / 1.936 / 1.309
+- `CHASSIS_ORIGIN_HEIGHT_M` (tuning.ts:173) = `WHEEL_RADIUS_FRONT_M` (derived, not literal)
+- `HULL_BOTTOM_HALF_WIDTH_M` / `HULL_BOTTOM_HALF_LENGTH_M` (tuning.ts:207-208) = `CAR_WIDTH_M/2`,
+  `CAR_LENGTH_M/2` — these WILL rescale automatically to the S90's footprint.
+
+### [HAND] Hardcoded literals independent of CAR_MAP — the dangerous set
+These do **not** move when car-map.ts regenerates; every one is a manually-measured/tuned number
+that assumed the Mustang's specific proportions and will silently mismatch the S90's different
+shape (notably: S90 is a longer 4-door sedan, not a 2-door fastback).
+
+1. **`src/vehicle/tuning.ts:209-212`** — `HULL_TOP_HALF_WIDTH_M = 0.75`, `HULL_TOP_HALF_LENGTH_M =
+   0.95`, `HULL_TOP_CENTER_Z_M = -0.15` — the "narrower + rearward" roofline silhouette of the
+   chassis convex hull, hand-picked to approximate the Mustang fastback's greenhouse. Wrong shape
+   for a 4-door sedan roofline (more boxy, roof extends further back over 4 doors + longer cabin).
+2. **`src/vehicle/geometry.ts:84,86`** — `FIREWALL_Z_M = 0.7`, `BULKHEAD_Z_M = -0.64` — front/rear
+   cabin wall planes for the concave cabin-tub decomposition AND the anchor points the crush-segment
+   chain (segments.ts) welds against. These are load-bearing for both occupant-cavity geometry and
+   crush-zone placement.
+3. **`src/vehicle/geometry.ts:88,90,92,94`** — `BELTLINE_Y_M = 0.52`, `FLOORPAN_TOP_Y_M = 0.06`,
+   `CANTRAIL_Y_M = 0.85`, `SILL_INNER_X_M = 0.7` — cabin-tub wall heights, all hand-measured against
+   the Mustang's window-band/sill geometry.
+4. **`src/vehicle/geometry.ts:286-306`** — `WINDSHIELD_BOTTOM/TOP`, `REAR_WINDOW_TOP/BOTTOM` (y/z
+   rail coordinates) and half-widths (lines 311-314) — glass-pane collision gates positioned via
+   extensive iterative MEASUREMENT against seated-occupant envelopes in the Mustang cabin (long doc
+   comments describe multiple rounds of measured correction). **Will need the same measure-and-
+   correct process repeated for the S90's different cabin proportions** — especially since a 4-door
+   sedan's rear-seat geometry (proper seatbacks vs. the Mustang fastback's backless rear bench in
+   the tail volume) is fundamentally different.
+5. **`src/lab/protocols.ts:66`** — `CAR_HALF_WIDTH_M = 0.97` — explicitly commented "calibrated
+   against that [Mustang car-map value], not re-derived here" — drives IIHS small-overlap barrier
+   lateral offset (`protocols.ts:100`) and other lab protocol geometry. Must be updated to the S90's
+   actual half-width (~0.96-0.98m expected but must be re-measured, S90 overall width is similar
+   order but not identical).
+6. **`src/lab/barriers.ts:297,306,316,318`** — front nose-overhang "~2.35m" appears repeatedly in
+   comments and directly drives `releaseMarginM = protocol.barrier === 'rigid-pole' ? 3.0 : 4.35`
+   (line 318) — the guide-release timing margin before a barrier crash. A longer S90 nose overhang
+   will desync this release point (guide could release too late, re-feeding launch velocity through
+   first contact — the exact bug this constant was tuned to avoid, per the file's own doc comment).
+7. **`src/vehicle/segments.ts:130-139`** — `BEAM_REAR_Z = 2.055`, `RAIL_SPLIT_Z = 1.7`,
+   `RAIL_REAR_Z = 1.32`, `RAIL_X_IN = 0.3`, `RAIL_X_OUT = 0.66`, `RAIL_TOP_Y = 0.38`,
+   `TRUNK_REAR_Z = -1.62` — the entire crush-segment chain's z-tiling and rail width/height, hand-
+   fit to the Mustang's front/rear crush-zone proportions. `FRONT_TIP_Z`/`REAR_TIP_Z` (lines
+   127-128) at least derive from `HULL_BOTTOM_HALF_LENGTH_M` (CAR_MAP-driven), but the internal
+   subdivisions (beam/rail/cradle z-splits) are pure literals.
+8. **`src/vehicle/tuning.ts:246-247`** — `BALLAST_RADIUS_M = 0.3`, `BALLAST_LOCAL_Y_M = -0.34` —
+   invisible COM-lowering ballast sphere position, tuned against the Mustang hull's geometric
+   centroid (`COM_LOWER_OFFSET_M = 0.25`, tuning.ts:236). Needs re-solving via
+   `geometry.ts`'s `solveChassisDensities()` against the S90's different hull volume/shape (the
+   solver itself is generic — `hullMassProperties()` numerically integrates whatever hull points
+   are current — but the ballast radius/position inputs are literals that may not "fit" the new
+   hull without throwing the "non-physical mass split" error the function explicitly guards for).
+9. **`src/vehicle/tuning.ts:30`** — `CHASSIS_MASS_KG = 1291` and
+   **`src/damage/damage-tuning.ts:21-26`** — `PANEL_MASS_KG` (hood 13, doorL 16, doorR 16, trunk
+   14, sum 59kg) — exact mass-conservation arithmetic documented as
+   `1291 (chassis) + 59 (panels) + 88 (4×22kg wheels) = 1438kg total`. A 4-door S90 adds two more
+   panel bodies (rear doors) with their own mass, which must be deducted from `CHASSIS_MASS_KG`
+   the same way — this whole arithmetic chain needs re-deriving, not just re-measuring one number.
+10. **`src/world/features/cardetail/tuning.ts:200`** — comment references "car-map whole-body zMax
+    ~2.36m" (front overhang) for envelope containment math — same nose-overhang coupling as #6,
+    independently duplicated in the cardetail feature.
+
+### [VERIFY] Likely car-agnostic (structural/behavioral constants, not geometry)
+- `GROUND_CLEARANCE_M = 0.24` (tuning.ts:199) — a real-car-physics constant (avoids the
+  hull-touches-ground parasitic-friction bug), not shape-derived; probably fine as-is but review if
+  the S90 sits notably lower/higher.
+- `AERO_DRAG_COEFF_AREA_M2 = 0.65` (tuning.ts:901) — tuned to a "sports-coupe 0.6-0.7" Cd·A range
+  from the spec, not measured off the Mustang's actual frontal area; will be somewhat wrong for a
+  sedan's different frontal area/Cd but the file's own sensitivity note says top speed isn't
+  strongly driven by this alone — low urgency.
+- `ENGINE_TORQUE_CURVE`, `GEAR_RATIOS`, `FINAL_DRIVE_RATIO` (tuning.ts:532-540) — tuned against
+  "a ~1350kg RWD car" generically, not Mustang-branded; will need retuning for the S90's mass/drive
+  layout (S90 is typically FWD/AWD, not RWD) but that's a drivetrain-layout decision, not a
+  geometry coupling per se.
+
+---
+
+## 4. MASS / POWERTRAIN CONSERVATION
+
+- Total car mass is held constant via an explicit, documented chain (see #9 above):
+  `CHASSIS_MASS_KG (1291) + sum(PANEL_MASS_KG) (59) + 4×WHEEL_MASS_KG (88) = 1438kg`. The chassis
+  figure is deliberately `1350 - 59` so the total matches a pre-damage-system baseline of 1438kg
+  that the drive-test matrix (sim/*.test.mjs) was tuned against.
+- `src/vehicle/segments.ts:150-167` — `SEGMENT_SPECS` masses (engineCradle 40kg, 4× rail cells
+  10-12kg, bumperBeam 15kg, trunkFloor 16kg, 2× rearRail 12kg — 95kg front + 40kg rear = 135kg
+  total) are ALSO deducted from the chassis via `geometry.ts`'s `deductSegmentsFromParity()`
+  (called from vehicle.ts) so the rigid composite reproduces the captured single-hull mass/COM/
+  inertia. **Any S90 mass rebalancing must re-thread through this same parity-capture mechanism**,
+  not just change `CHASSIS_MASS_KG` in isolation.
+- `WHEEL_MASS_KG = 22` (tuning.ts:33) — flat per-wheel literal, not geometry-derived, presumably
+  fine to reuse (or lightly retune) for the S90's likely-similar-size wheels.
+
+### [HAND] `src/world/features/cardetail/tuning.ts` — engine bay / underbody / exterior detail (27 parts)
+Structural note: `tuning.ts` does **not** import car-map.ts or geometry.ts at all — only
+`CHASSIS_ORIGIN_HEIGHT_M` (itself CAR_MAP-derived) is live. Every part's `localCenter` position is
+a hand-typed mm literal a human chose while reading car-map's numbers at edit time, not re-derived
+at runtime. `shapes.ts` (the mesh builder) is the opposite — every dimension reads `spec.dims` live
+via `bx()`/`cp()` helpers with zero hardcoded sizes, so it auto-rescales to whatever `tuning.ts`
+feeds it; **no changes needed in shapes.ts itself.** `materials.ts` has zero geometric coupling
+(colors/textures only).
+
+- **[AUTO]** `tuning.ts:84,117` — every part's Y offset runs through `CHASSIS_ORIGIN_HEIGHT_M`
+  (imported from vehicle/tuning.ts, itself CAR_MAP-derived) — genuinely live, rescales with wheel
+  radius automatically.
+- **[HAND] "MUSTANG-65 REFIT" group (explicitly re-measured once already, so re-derivable the same
+  way)** — 8 parts with doc comments citing exact car-map figures they were fit against:
+  - `tuning.ts:186-189` — 4× control arms, lateral center `∓720mm` ("stays inside the narrower
+    Mustang body (half-width ~968mm vs concept car's ~1271mm)")
+  - `tuning.ts:192,195` — `frontBumperBeam` Z=2230mm, `rearBumperBeam` Z=-1850mm (fit to measured
+    front/rear overhang, moved forward from the original spec's -2150mm)
+  - `tuning.ts:201-202` — `headlightL/R` Z=2120mm, lateral ∓760mm ("car-map zMax ~2.36m" — same
+    nose-overhang number as barriers.ts's 2.35m, §3 item #6/#10)
+  - `tuning.ts:204-205` — `taillightL/R` Z=-1700mm (rear-overhang corrected)
+  - `tuning.ts:220-221` — `mirrorL/R` up=950mm (dropped from 1150mm — car-map roofline height
+    1149mm), lateral ∓840mm
+  - `tuning.ts:176` — `mufflerTailpipe` Z=-1550mm (rear-overhang corrected)
+- **[HAND — HIGHEST RISK, never audited even once]** 14 parts explicitly commented "UNCHANGED"
+  from the pre-Mustang generic-sports-coupe spec (Khronos CarConcept.glb), "ported wholesale onto
+  the Mustang-65 hero asset" per `tuning.ts:16` (cardetail/tuning.ts doc, cross-referenced at the
+  very top of this investigation): `engineBlock`, `radiatorFan`, `upperHose`, `lowerHose`,
+  `battery`, `brakeBoosterMC`, `strutBrace`, `alternator`, `coolantReservoir`, `fuseBox`,
+  `fuelTank`, `frontSubframe`, `rearSubframe`, `driveshaft` (tuning.ts:139,142-152,177-180). These
+  were never validated against the Mustang's own geometry beyond "front overhang happens to
+  roughly match" — least-trustworthy numbers in the whole file for the S90's different (and per
+  P0-A, engine-less) layout.
+- **[HAND]** `index.ts:34-43` (`CRUSH_ZONE_ANCHOR` table) — decides which cardetail parts get
+  segment-anchored vs. chassis-anchored by comparing each part's Z against Mustang-measured
+  crush-core face positions (e.g. front bumper capsule 2.285, headlights 2.345 vs. core face
+  1.795). Also identifies `headlightL`→`crushRailRF` etc. **by measured X sign**, not by name. Both
+  the anchor-membership decision and the sign-mapping go stale if the S90's overhang/crush-core
+  depth differs and must be re-verified, not just node-renamed.
+- **[HAND]** `index.ts` `MODELED_PROXY_IDS` / `EXTERIOR_PROXY_IDS` (tuning.ts:225-232,251,292-301;
+  index.ts:270-272,412-424) — engineBlock/driveshaft/mufflerTailpipe and headlights/taillights/
+  mirrors/bumper-beam proxies are forced invisible while attached, on the assumption the GLB itself
+  already renders the real engine/driveshaft/exhaust/lights/mirrors at those exact locations. **This
+  assumption may not hold for the S90 GLB at all** — P0-A's blend inventory found the S90 source has
+  NO modeled engine (empty bay under the hood), so the `engineBlock`/hoses/etc. proxy-hiding logic
+  would need to flip to VISIBLE (or the S90 needs an engine added) rather than a simple node rename.
+- **[VERIFY]** Part *dimensions* (`box(...)`/`capZ`/`capX` sizes: battery 260×175×200mm, alternator
+  150×140×160mm, etc.) are generic real-world part sizes independent of car shape — only their
+  *placement* is car-coupled. Force/torque break thresholds (`tuning.ts:347-359`) and ID-base
+  offsets (`tuning.ts:375-376`) are also car-shape-independent.
+- **2-door vs. 4-door**: no live cardetail component assumes a 2-door body — a `rearBench` seat
+  part (the one thing that would have encoded a 2-door coupe layout) was already culled since the
+  GLB itself molds the cabin interior. `mirrorL/R`'s forward offset is tuned to the front door/
+  A-pillar, which exists identically on a 4-door car, so likely reusable as-is (not independently
+  verified against door-panel geometry, which lives in damage/panels.ts).
+
+---
+
+## 5. PanelKey / entity-ID coupling — what a 4-door S90 actually touches
+
+**Is node RENAMING alone enough? No — the panel set is a closed enum, and the entity-ID range is
+numerically almost full.**
+
+- `src/damage/panels.ts:23,25` — `export type PanelKey = 'hood' | 'doorL' | 'doorR' | 'trunk';` and
+  `PANEL_KEYS` array. Comment at line 21 explicitly says "Mustang-65 is a 2-door fastback: 4 damage
+  panels... NO roof panel." **Adding S90 rear doors requires literally adding union members**
+  (e.g. `'doorRearL' | 'doorRearR'`) to this type, not just remapping existing keys to new node
+  names.
+- Every place that keys off `PanelKey` generically via `Record<PanelKey, ...>` and iterates
+  `PANEL_KEYS` (found in `src/damage/welds.ts`, `src/damage/system.ts`, `src/audio/carShapes.ts`)
+  is written generically and will "just work" once the new keys are added and every
+  `Record<PanelKey, X>` table below gets entries for them (TypeScript force-fails compilation on
+  every one of these until new keys are added — compile-time safety net, not silent):
+  - `PANEL_NODE_NAMES` (panels.ts:28-33)
+  - `PANEL_ENTITY_ID` (panels.ts:42-47)
+  - `PANEL_MASS_KG`, `PANEL_THICKNESS_AXIS` (damage-tuning.ts:21-26, 41-46)
+  - `PANEL_BREAK_S2_MULT` (damage-tuning.ts:189 — `{hood:1.65, doorL:1, doorR:1, trunk:1}`) and
+    `PANEL_VULNERABILITY` (damage-tuning.ts:244) — two more `Record<PanelKey,...>` tables not
+    listed above in the first pass; same compile-enforced-addition treatment.
+  - `src/damage/welds.ts` has ONE special case keyed on the literal string `'hood'`
+    (`const breakGate = key === 'hood' ? hoodMayBreak : true;`, appears twice, lines ~195, ~234) —
+    unaffected by new panel keys, just confirms the iteration pattern is generic per-key, not
+    positional.
+  - **NOT compiler-enforced (genuine gap in this list's first pass) — plain `readonly PanelKey[]`
+    arrays, not full-union `Record`s, so TypeScript will happily compile with rear doors silently
+    excluded**: `src/hud/hud.ts:24` — `PANEL_ORDER: readonly PanelKey[] =
+    ['hood','doorL','doorR','trunk']` (plus `PANEL_LABELS`/`PANEL_ABBR` Records at hud.ts:18,25,
+    which ARE compiler-enforced) and `src/lab/hud.ts:16` — an identical `PANEL_ORDER` duplicate
+    (plus its own `PANEL_LABELS` at lab/hud.ts:17). Both drive the in-game/lab damage-chip HUD —
+    if left un-updated, the HUD will simply never show a chip for the new rear-door panels even
+    though the underlying damage model tracks them correctly. Two-file, two-line manual fix.
+- **Entity-ID range is the real blocker for a naive extension.** Documented ranges (segments.ts:76,
+  vehicle.ts:127): chassis=1, wheels=2-5, **panels=6-10 (5 slots)**, glass=11-12, segments=13-21,
+  occupants=1000+, cardetail=88M+. Only 4 of the 5 panel slots are used today (hood=6, doorL=7,
+  doorR=8, trunk=9 — slot 10 is free). **Adding 2 new rear-door panels needs 2 more IDs, but only 1
+  free slot exists before colliding with the glass range (11-12).** This requires renumbering
+  (shift glass to 13-14 and segments to 15-23, or similarly widen the panel band) — a small but
+  real cross-file change (vehicle.ts's `GLASS_ENTITY_ID`, segments.ts's `SEGMENT_ENTITY_ID`/
+  `CORE_ENTITY_ID`, and their exhaustive Sets `FRONT_CHAIN_HIT_IDS`/`SEGMENT_ENTITY_ID_SET`/
+  `SEGMENT_ENTITY_ID_SET`), not just a table addition.
+- **Occupant seating is NOT 2-door-shaped** — good news: `SeatKey = 'frontLeft' | 'frontRight' |
+  'rearLeft' | 'rearRight'` (occupants/tuning.ts:11) already models 4 seats even in the 2-door
+  Mustang (rear passengers currently sit in the fastback's tail volume with no proper seatback —
+  see geometry.ts's REAR_WINDOW doc comment). The 4-door S90 doesn't need new seat keys, but
+  `SEAT_LOCAL` (occupants/tuning.ts, hand-hardcoded chassis-local coordinates, NOT car-map-derived
+  — no seat nodes exist in car-map.ts) will need re-measuring against the S90's actual (longer,
+  4-door) cabin — see `docs/loom/p0c-occupants-inventory.md` §C for the full current table.
+- **Tests exercising exactly 4 panels**: `sim/hull-cabin-tub.test.mjs`, `sim/segment-structure.test.mjs`,
+  `sim/segment-mass-parity.test.mjs`, `sim/cardetail-containment.test.mjs`,
+  `sim/features-cardetail.test.mjs` all pin panel/segment/cardetail-body COUNTS as absolute
+  numbers — see §6 below (merged from p0b2).
+
+---
+
+## 6. TESTS / HARNESSES PINNED TO MUSTANG NUMBERS
+
+*(Merged from two independent passes: `docs/loom/p0b2-sim-verify-couplings.md` — a contributed
+audit from a parallel session — and this session's own dispatched sub-agent, which read every
+sim/verify file line-by-line rather than grep-only. The two agree everywhere they overlap; the
+dispatched sub-agent found several additional dangerous couplings the contributed pass missed,
+folded in below.)*
+
+### TIGHT — will break or silently mismeasure on the S90
+- **`sim/ride-height.test.mjs:44-47`** — `FRONT_FENDER_LOCAL_Y_M = 0.8024`,
+  `FRONT_TIRE_VISUAL_RADIUS_M = 0.384` — literal Mustang fender-arch height + visual tire radius,
+  hand-measured once from the live browser mesh AABB. Drives the fender-clearance gate
+  (`frontArchGap`, asserted `>0.02` at rest / `>0` mid-brake-dive) — will assert nonsense on the S90.
+  Also `LADEN_FEATURE_BALLAST` seat/cluster mm offsets (lines 34-38), calibrated to the Mustang
+  cabin — review against the S90's wider/longer cabin.
+- **`verify/ride-height.mjs:143,149,160`** — hardcodes the GLB node name `'WheelFL'` and regexes
+  `/Wheel|Rim|Tire|Brake|Hub|Disc|Caliper/i` / `/Body|Fender|Panel|Door|Pillar|Hood/i` to find the
+  wheel/body meshes to measure, plus a literal `+0.0132` formula constant. If the S90 GLB uses
+  different node names this probe silently returns `{err:'no WheelFL'}` or measures the wrong mesh
+  — a soft failure, not a crash.
+- **`sim/crash-realism-harness.mjs:80,90` + `sim/crash-realism.test.mjs:65,101,120`** —
+  `spawnSideWall(1.1)` and `spawnOffsetWall(10, 1.55, 1.2)`: barrier offset/width explicitly
+  "re-derived for the narrower Mustang flank (car-map half-width ~0.97m)"; the side-wall box
+  (halfExtents x:0.5, z:1.2) is sized to the Mustang's door span. A different half-width/door span
+  will make these walls miss the door or strike the wrong panel.
+- **Crush-depth bands tied to Mustang nose length/stiffness** (same family, three files):
+  `sim/crash-realism.test.mjs:85-93` (`0.15<crush40<0.35`, `crush64>0.32`, `crush80>0.42`, clamp
+  ≤0.58); `verify/crash-lab.mjs:132,141,164-166,199-205` (crush bands [0.18,0.50]/[0.25,0.52],
+  structural-visual >0.25, intrusion <0.15, offset-64 core-retreat >0.15/<0.05, rail-cell
+  >0.08/<0.02). All need re-measurement against the S90's actual crush-zone geometry.
+- **`sim/damage-wheel-detach.test.mjs:17-23,38`** — impulse direction hardcoded **`-X`**
+  specifically because "on the Mustang's narrower track (car-map 1619mm vs 1952mm) [a +X impulse]
+  detached fr but never fl." A different track width can flip which sign detaches which wheel —
+  fragile, direction-sensitive magic constant, not just a magnitude to rescale.
+- **`sim/hull-cabin-tub.test.mjs:50,143,146-151`** — cabin hull shape count `toBe(10)`, plus
+  cabin-cavity probe bounds `restLocal.y ∈ (-0.05,0.35)`, `|restLocal.x| < 0.72`,
+  `restLocal.z ∈ (-0.66,0.72)` — hardcoded to the Mustang cabin footprint from
+  `buildChassisHullPoints()`/`buildCabinShapes()` (hand-authored, not GLB-derived — see §3 items
+  1-4 above, same constants).
+- **`sim/kicker-jump.test.mjs:100-108`** — `KICKER_ENTRY_SPEED_MS = 18`, comment: "measured Mustang
+  clean-landing band 18-24 m/s," explicitly re-swept once already because of the "smaller-wheel /
+  lower-CoM car" vs. an older concept car — wheel-radius/CoM-dependent, will need re-sweeping again.
+- **`sim/segment-structure.test.mjs:32-41`** — segment count 9 pinned (×4 assertions).
+  **`sim/segment-mass-parity.test.mjs:60,105`** — segment mass sums 95/135kg absolute (these are
+  scalar totals from `vehicle/segments.ts`'s own fixture array, so technically car-agnostic
+  arithmetic identities — but they'll need updating in lockstep if segment masses are rebalanced
+  per §4's mass-conservation chain).
+- **`sim/cardetail-containment.test.mjs` (~150) + `sim/features-cardetail.test.mjs:90,95,180,211`**
+  — `CAR_DETAIL_SPECS`/bodyCount pinned to 27 (10 engine-bay / 0 interior / 17 underbody). The test
+  file itself reads `ENVELOPE`/`CABIN_X` **dynamically from `CAR_MAP`** (so it self-updates after
+  `analyze-car.mjs` reruns), but the 27 *procedural parts it's checking containment of* have
+  hand-tuned Mustang-specific positions (§3's cardetail findings) — so this gate is likely to
+  **fail post-swap even though the test file itself hardcodes nothing**; the fix lives in
+  cardetail/tuning.ts, not in the test. HIGH RISK: S90 has NO modeled engine (per P0-A), so the
+  10-part engine-bay cluster likely needs to change shape/visibility entirely (see §3 cardetail
+  `MODELED_PROXY_IDS` note).
+- **`sim/cardetail-ground-contact.test.mjs:134,138`** — `ATTACHED_SENSOR_OVERRIDE_IDS.size` pinned
+  to 3.
+- **`verify/panel-pose/attached-pose.mjs:8,11-15` (+ `verify/panel-pose/shoot.mjs` which imports
+  it)** — ALREADY STALE independent of this swap: hardcodes `CHASSIS_ORIGIN_HEIGHT_M = 0.39` (the
+  real current value is ~0.31) and hardcoded `PANEL_NODES` centerMm/worldQuat with a -90° quat
+  pattern matching the **legacy CarConcept rig**, not the current Mustang (car-map.ts's own header
+  notes the Mustang split has no such ancestor — every worldQuat is identity). Needs a full rewrite
+  regardless of the S90 swap, and doing it now (reading live from `panels.ts`/`car-map.ts` instead
+  of duplicating) would avoid a second desync later.
+- **`verify/diag/wheel-quat-check.mjs`** — reads `public/assets/car/CarConcept.glb` directly (old
+  legacy asset, unrelated to the live game) with hardcoded node names `WheelFrontL`/`BodyHood`/etc.
+  **`verify/diag/diag-main.ts:25`** — `CAR_URL = '/assets/car/mustang65.glb'`, a one-line path that
+  must be updated alongside the other load-point references in §1.
+- **`verify/playtest/battery.mjs:200`** — `restY=0.39` duplicated literal (~`CHASSIS_ORIGIN_HEIGHT_M`,
+  same staleness class as attached-pose.mjs above — the real value has since moved to ~0.31).
+- **`verify/reset-integrity.mjs:42`** — `const PANEL_KEYS = ['hood', 'doorL', 'doorR', 'trunk'];`, a
+  hand-duplicated (not imported) copy of `panels.ts`'s array, iterated at lines 155/175/209 to build
+  the reset-integrity boot/crash/post-reset panel comparison. **Correction to this doc's own §6 LOOSE
+  list below, which previously (incorrectly, from a grep-only pass) said this file had "no hardcoded
+  geometry assertions" — verified by direct read that it does.** SILENT RISK: if the S90 gets
+  `doorRL`/`doorRR` panels, this literal array will keep passing while never checking whether the new
+  rear-door panels reset correctly — exactly the "tracking asserts passed while broken" failure mode.
+- **`sim/damage-threshold-ordering.test.mjs:31`** — hardcoded `['doorL', 'doorR']` filter array (not
+  imported from `PANEL_KEYS`) — same silent-risk shape as reset-integrity.mjs above: will keep
+  compiling and passing with rear doors added, silently never exercising them.
+- **`sim/impulse-damage.test.mjs:14-16,129`** — `expect(dt.dentedVertexCount).toBeGreaterThanOrEqual(40)`
+  (comment cites "49 dented vertices... crush 0.193/0.439/0.532/0.580m" as the measured Mustang
+  baseline). This threshold is coupled to the Mustang mesh's **vertex tessellation density**, not
+  just its physical size/crush depth — a Volvo GLB with different mesh density (e.g. P0-A's blend
+  inventory already notes some parts are absurdly dense, others very low-poly) could silently pass or
+  fail for reasons unrelated to whether the damage model itself is behaving correctly. HIGH RISK,
+  same "measures the wrong thing" class as the cardetail body-count pins above.
+- **`sim/straight-line-30s.test.mjs:4-6,9-21`** — a ~6° yaw-drift budget over a 30s straight-line run,
+  calibrated to the Mustang's measured (slightly asymmetric) wheel mounts (FL 975mm vs FR -977mm per
+  the file's own comment). A different (or perfectly symmetric) S90 wheel mount could produce a
+  different real drift magnitude while this tolerance band silently still passes — medium risk, worth
+  a re-measurement pass rather than blind reuse.
+- **`sim/diag/friction-instrument.test.mjs:43-64`** and **`sim/diag/crush-door-dent-probe.mjs:12`** —
+  hardcoded `'doorL'`/`'doorR'` panel-key literals in diagnostic (non-gating) probes — low risk since
+  these are manual diagnostics, not CI gates, but would need the same key additions to cover new doors.
+
+### LOOSE — CAR_MAP/tuning-derived at runtime, or fully synthetic; expected to survive
+- `cardetail-containment.test.mjs`'s `ENVELOPE`/`NOSE_AABB`/`CABIN_X` bounds (CAR_MAP-derived, see
+  caveat above); diag instruments importing `WHEEL_RADIUS_*`/`CAR_MAP.wheels.*`/`CHASSIS_MASS_KG`
+  dynamically (`diag/vehicle-nohacks.ts`, `diag/topspeed-instrument.test.mjs`,
+  `diag/airborne-pitch-check-4.test.mjs`, `diag/friction-instrument.test.mjs`); suspension/terrain
+  synthetic geometry; `verify/shoot*.mjs` (no car literals); compound-world `setFixedAngle(2.35)` is
+  a CAMERA radian value, not the nose dimension (do not confuse with the #6/cardetail nose-overhang
+  literal elsewhere in this doc).
+- `sim/structural-crush-visual.test.mjs` — **safe despite appearances**: uses a fully synthetic
+  `buildGridPlane()` proxy (not the real GLB) — a GLB swap doesn't affect it, even though its dims
+  (halfU 0.8/0.9, center z 1.5) visually echo Mustang nose scale.
+- `sim/panel-loosen-pose.test.mjs` — mechanism is self-referential (computed from each panel's own
+  live `localCenter`/`nodeWorldQuat`), safe in structure, but its fixed tolerances (0.05m/3°,
+  0.3m/25°, 0.15m/0.4m) were calibrated to Mustang panel size/mass — medium risk, may need retuning.
+- `scripts/analyze-car.mjs` itself needs no rewrite — already CAR-AGNOSTIC via the `CAR_CONFIGS`
+  registry (§2); the swap just adds a new config entry.
+- Generic driving-dynamics tests (braking/cornering/top-speed/straight-line/surface-grip/
+  step-steer/suspension/idle-stability/handle-stability/occupants/features-buildings/trees/
+  terrain/containment/camera-occlusion/reverse/exploding-barrels/heightfield-drive/audio-tuning/
+  materials-truth) — thresholds are behavioral (speed, g-force, drift, deviation), and
+  wheel-radius/chassis-height flow in dynamically via CAR_MAP-derived tuning.ts constants. Safe
+  from raw-geometry pinning, though physics *feel* will likely need retuning later (out of scope
+  for this inventory).
+- `damage-*.test.mjs` (benign-driving, crumple-bounded, determinism, hard-frontal, moderate-impact,
+  threshold-ordering) — use generic panel keys (`hood`/`doorL`/`doorR`/`trunk`) and relative/
+  monotonic thresholds; safe as keyed, though any *absolute* crush numbers they check follow the
+  same dangerous family as the crush-depth bands above.
+- `verify/crash-realism/shoot-matrix.mjs` — only asserts door-break count = 0 / dented > 0
+  (generic); camera radii are visual framing only, not car geometry.
+- `verify/audit-cardetail.mjs`, `verify/structural-collapse.mjs`,
+  `verify/asymmetric-launch/shoot-asym.mjs`, `verify/reverse-check.mjs`,
+  `verify/feature-cardetail.mjs` — no hardcoded geometry assertions found; "Mustang" appears only in
+  descriptive doc comments. (`verify/reset-integrity.mjs` was INCORRECTLY included in this list in an
+  earlier pass of this document — it DOES hardcode a `PANEL_KEYS` array; moved to the TIGHT section
+  above after a direct-read second pass.)
+- `verify/crash-lab.mjs`'s `occupants.length===4` and "all 7 protocols present" checks are generic
+  counts, safe.
+
+### Gaps (not independently re-verified)
+- `sim/diag/*.test.mjs` one-off probes beyond the four cited above were not read line-by-line.
+- The `verify/playtest*/battery.mjs`, `playtest-r3/*`, `playtest-final/*`, `playtest-soak/*` family
+  are mostly eyes-on screenshot scripts with generic error-count gates, but their *driving
+  maneuvers* (steer amounts, approach distances — e.g. `playtest-r3/battery.mjs:495`'s
+  `targetX=1.6`, `playtest-final/battery.mjs:120-124`'s constant-steer approach) were empirically
+  tuned to Mustang handling/size. These will likely miss their visual framing targets post-swap
+  (a soft/visual failure, not a hard assert) — re-tuning needed for meaningful screenshots, not a
+  code defect. Not exhaustively read line-by-line (dozens of files).
+
+---
+
+## Open items / could NOT fully confirm in this pass
+- The exact numeric overlap/conflict if the entity-ID renumbering (§5) is deferred vs. done eagerly
+  — not a code question, a sequencing decision for P2.
+- `src/world/features/cardetail/*.ts` (§3) and `game/sim/` + `game/verify/` (§6) were each covered
+  by a dedicated dispatched sub-agent that has since returned and been folded in above — no
+  remaining gap in either area beyond the explicitly-noted "not read line-by-line" files in §6's
+  Gaps subsection.
+- `src/world/features/occupants/{tuning,physics,active}.ts` — covered thoroughly by
+  `docs/loom/p0c-occupants-inventory.md` (a separate P0-C worker), cross-referenced in §5 above
+  (SEAT_LOCAL is hand-hardcoded chassis-local, not car-map-derived — no seat nodes exist in
+  car-map.ts). Not independently re-verified line-by-line in this session beyond that cross-check.
+- `src/audio/carShapes.ts` — read in full directly in this session: no geometry literals, purely
+  structural/PanelKey-driven (collects `vehicle.chassisShapes.cabin` + `vehicle.segments.bodies` +
+  attached panel shapes), safe as-is for the swap.
+- `src/lab/protocols.ts`'s `CAR_HALF_WIDTH_M` and `src/lab/barriers.ts`'s nose-overhang literals
+  were independently confirmed by direct read in this session (§3 items 5-6) — solid.
+- **[VERIFY]** `src/camera/chase.ts:78-89` — confirmed by direct read: `distanceBack: 6`,
+  `heightUp: 2`, `lookAheadDistance: 5`, `lookAheadHeight: 0.6`, `minCameraHeightM: 0.4` are all
+  hardcoded default literals — NOT computed from `CAR_LENGTH_M`/`CAR_HEIGHT_M`/CAR_MAP at all.
+  They're generic "6m behind, 2m above" chase-feel numbers, not strictly derived from the
+  Mustang's size. Low urgency: a slightly longer/taller S90 will likely still frame fine at these
+  distances (they're closer to a stylistic choice than a measured fit), but worth an eyes-on check
+  once the S90 is in.
+  - `src/camera/occlusion.ts:37-41` — `CAR_OWNED_ENTITY_IDS` builds itself from
+    `Object.values(PANEL_ENTITY_ID)` dynamically, so it **auto-updates** if PanelKey gains new
+    members (§5's rear-door renumbering) with no code change needed here — genuinely safe.
+  - A dedicated sub-agent covering occupants/tuning.ts + occupants/physics.ts + protocols.ts as a
+    cross-check on the P0-C occupants inventory had not returned at finalization time; the SEAT_LOCAL
+    finding above (hardcoded chassis-local) is already independently confirmed via
+    `docs/loom/p0c-occupants-inventory.md`, so no material gap is expected there, but its return
+    (if it surfaces anything new) should be reconciled against §5 before P2 recalibration begins.
+
+### Independent second-pass verification (2026-07-11, separate session)
+A second, independent read-only pass (own dispatched sub-agents covering tuning.ts/vehicle.ts/
+powertrain.ts, geometry.ts/segments.ts/damage-*, occupants/audio/camera, and sim/verify) cross-checked
+this entire document against the live code. **Every fact independently re-derived matched what's
+written above exactly** (CHASSIS_MASS_KG=1291, PANEL_MASS_KG 13/16/16/14, FIREWALL_Z_M=0.7/
+BULKHEAD_Z_M=-0.64, CAR_HALF_WIDTH_M=0.97, the segments.ts z-tiling literals, the PANEL_ENTITY_ID
+6-10-vs-glass-11-12 collision risk, SEAT_LOCAL's hand-hardcoded coordinates) — strong corroboration.
+Also ran live (this pass, 2026-07-11): `npm run test:sim` → **82 test files, 233 tests: 232 passed,
+1 FAILED** — `sim/handle-stability.test.mjs` throws `ReferenceError: document is not defined` inside
+`src/world/features/occupants/dummySkin.ts:92` (`getCalibrationDiskTexture()` calls
+`document.createElement('canvas')`, which doesn't exist in the headless/vitest environment). This is
+**NOT a Mustang/S90 coupling** — `dummySkin.ts` is new crash-test-dummy visual code (the parallel
+Stream B work per the swap-plan doc), and the bug is a browser-only API called from code that also
+runs in the headless sim harness, unrelated to car geometry. Flagging it here only because the
+swap-plan's stated "233 tests baseline, all green" is **not currently true at the moment of this
+inventory** — worth a heads-up to whoever owns Stream B / the regression gate before P2 recalibration
+uses this suite as a clean baseline. Three genuine additions/corrections surfaced from the coupling
+audit itself and have been folded into the relevant sections above rather than left here:
+1. **Correction**: `verify/reset-integrity.mjs` was miscategorized as having no hardcoded assertions
+   in an earlier pass — it hardcodes `PANEL_KEYS = ['hood','doorL','doorR','trunk']` (line 42);
+   fixed in §6.
+2. **Addition**: `damage-tuning.ts`'s `PANEL_BREAK_S2_MULT` (line 189) and `PANEL_VULNERABILITY`
+   (line 244) are two more `Record<PanelKey,...>` tables needing new-door entries, not previously
+   listed in §5's table enumeration.
+3. **Addition**: `src/hud/hud.ts` and `src/lab/hud.ts` each define a `PANEL_ORDER: readonly
+   PanelKey[]` array (plain array, NOT a full-union `Record`) that TypeScript will **not**
+   force-update for new panel keys — a compiler-blind-spot risk not previously flagged in §5.
+4. **Addition**: `sim/impulse-damage.test.mjs`'s `dentedVertexCount >= 40` threshold is coupled to
+   the Mustang mesh's vertex tessellation density (not just physical crush depth) — flagged HIGH RISK
+   in §6, same "silently measures the wrong thing" family as the cardetail body-count pins.
+5. **Addition**: `sim/damage-threshold-ordering.test.mjs:31` and two `sim/diag/` probes carry the
+   same hardcoded-`['doorL','doorR']`-array silent-risk pattern as reset-integrity.mjs; added to §6.
+
+No contradictions were found between the two passes on any point where they overlapped.
+
+### Third-pass spot-check (2026-07-11, coordinating session)
+Before treating this document as final, the coordinating session independently re-read the loader
+chain (`car.ts`, `wheels.ts`, `carDeformables.ts`, `buildScene.ts`, `catalog.ts`), `damage/panels.ts`
+in full, `split-mustang.py`/`inspect-mustang.py`/`analyze-car.mjs` in full, the full entity-ID chain
+(`vehicle.ts`, `segments.ts`, `damage/system.ts`'s `CAR_ENTITY_IDS`), `damage-tuning.ts`,
+`protocols.ts`, `cardetail/tuning.ts` in full, `occupants/tuning.ts`'s `SEAT_LOCAL`, and
+`git ls-files`/`.gitignore` for the asset-tracking claims in §1 — every fact matched exactly. It also
+independently ran `npm run test:sim`, which is where the corrected test-count note above came from
+(the document previously repeated a stale "233/233 passing" claim from an earlier pass; live re-run
+found 232/233, one pre-existing unrelated failure — corrected above rather than silently left in).
+No other discrepancies found.
