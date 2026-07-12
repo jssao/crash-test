@@ -33,7 +33,9 @@ const CAR_CONFIGS = {
   // transforms baked into vertices (so every node's worldQuat is identity), Z-forward game frame.
   mustang65: {
     sourceFile: 'public/assets/car/mustang65.glb',
-    detect: (names) => names.has('BodyShell') && names.has('WheelFL'),
+    // NOTE: excludes DoorRL so this doesn't also match the 4-door S90 GLB (both assets share
+    // BodyShell/WheelFL node names) — see volvoS90's detect below, which requires DoorRL.
+    detect: (names) => names.has('BodyShell') && names.has('WheelFL') && !names.has('DoorRL'),
     axisConvention:
       'Y-up, X-right (width), Z-forward (length); left/front-left wheel at +X/+Z; wheel-bottoms ~ Y=0; identity node transforms (baked)',
     header:
@@ -54,6 +56,45 @@ const CAR_CONFIGS = {
     // Glass detected by MATERIAL NAME (this asset carries no KHR_materials_transmission extension).
     glassMaterialNames: new Set(['TransparentGlass', 'refract glass']),
     // No KHR_materials_variants and no trademarked-logo textures in this asset (all flat color factors).
+    logoMaterialsToSanitize: [],
+  },
+  // Volvo S90 4-door sedan (replaces the Mustang-65 hero asset). Export-validated: 377,054 verts /
+  // 127 objects, dims 5.00 x 2.01 x 1.43 m. Same axis convention/game-frame as the Mustang split
+  // (identity node transforms baked into vertices, Y-up/X-right/Z-forward, front-left wheel +X/+Z) —
+  // confirmed empirically by reading the raw GLB node translations directly (WheelFL at
+  // x=+0.816/z=+1.610, WheelRL at x=+0.816/z=-1.330 => wheelbase ~2.94m, matches spec).
+  volvoS90: {
+    sourceFile: 'public/assets/car/volvo-s90.glb',
+    // DoorRL (rear-left door) only exists on the 4-door S90, not the Mustang — see mustang65's
+    // detect exclusion above.
+    detect: (names) => names.has('BodyShell') && names.has('WheelFL') && names.has('DoorRL'),
+    axisConvention:
+      'Y-up, X-right (width), Z-forward (length); left/front-left wheel at +X/+Z; wheel-bottoms ~ Y=0; identity node transforms (baked)',
+    header:
+      "// Source: public/assets/car/volvo-s90.glb (exported Volvo S90 4-door sedan, replacing the\n" +
+      "// Mustang-65 hero asset). Axis convention (confirmed empirically from the file, not assumed):\n" +
+      "// Y-up, X-right (width), +Z forward (length); front-left wheel at +X/+Z. Every part is a\n" +
+      "// top-level node with an IDENTITY transform (pose + game-frame reorient baked into vertices\n" +
+      "// at export time, same convention as the Mustang split), so every worldQuat below is identity.\n" +
+      "// Car root sits with wheel bottoms at world Y ~ 0.",
+    wheels: { frontLeft: 'WheelFL', frontRight: 'WheelFR', rearLeft: 'WheelRL', rearRight: 'WheelRR' },
+    // Damage panels: hood + 4 doors (front L/R + rear L/R — a real 4-door sedan, unlike the Mustang
+    // fastback's 2 doors) + trunk. Rear doors are full detachable panels (orchestrator decision,
+    // 2026-07-11 S90-swap plan): PanelKey gains 'doorRL'/'doorRR'.
+    panels: ['Hood', 'DoorL', 'DoorR', 'DoorRL', 'DoorRR', 'Trunk'],
+    // Chassis (non-panel structural body). EngineBlock is a small filler box (72 verts / 36 faces) —
+    // the S90 source has NO modeled engine (empty bay under the hood); no Drivetrain sub-split exists
+    // for this asset (falls through gracefully — see the `if (!nameToIndex.has(...))` guard below).
+    chassis: ['BodyShell', 'EngineBlock', 'Drivetrain', 'Engine'],
+    // Glass detected by MATERIAL NAME. Verified by reading the raw GLB materials + primitive lists:
+    // 'Glass' is used by Windshield, RearWindow, QuarterGlass, Sunroof, and baked as a sub-primitive
+    // into DoorL/DoorR/DoorRL/DoorRR (door windows) and BodyShell (rearview-mirror glass) — same
+    // "baked into panel mesh" pattern as the Mustang. Other glass-ish materials exist (e.g.
+    // 'GlassInterior', 'Glass Taillight', 'Translucent_Glass', 'Black Glass', 'GlassRunninglight',
+    // 'heaxagon glass') but those are lighting-lens/interior-trim glass, not structural panes, and are
+    // deliberately excluded so they don't register as shatterable windshield/window glass.
+    glassMaterialNames: new Set(['Glass']),
+    // No trademarked-logo textures found needing sanitization for this asset.
     logoMaterialsToSanitize: [],
   },
   // Legacy Khronos CarConcept.glb (kept working so the original asset can still be re-analyzed).
