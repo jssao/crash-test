@@ -1,0 +1,17 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "pole": {
+    "runState": "settled"
+  },
+  "barrelBlue": {
+    "runState": "settled"
+  },
+  "barrelRust": {
+    "runState": "settled"
+  },
+  "crate": {
+    "runState": "settled"
+  },
+  "timestamp": "2026-07-15T13:17:28.992Z"
+}

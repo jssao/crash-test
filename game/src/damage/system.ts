@@ -29,7 +29,9 @@ import {
 	PANEL_HULL_REFRESH_MIN_STEPS,
 	PANEL_DESPAWN_AFTER_S,
 	PANEL_DESPAWN_DISTANCE_M,
+	OWN_RATCHET_STRONG_APPROACH_MS,
 	PANEL_HIT_EVENTS_DISABLE_AFTER_S,
+	STRESS_MAX_NORMAL_UP_COMPONENT,
 	STRESS_MIN_APPROACH_SPEED_MS,
 	WINDSHIELD_SHATTER_FRONT_CRUSH_M,
 } from './damage-tuning';
@@ -387,7 +389,7 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	// Crush M2: which crush-core/segment shapes were struck this step (vehicle/segments.ts
 	// CORE_ENTITY_ID / SEGMENT_ENTITY_ID) -- the engagement + contact evidence stepSegmentYield()
 	// needs (its CoreHitFlags doc).
-	const coreHits = { pos: false, neg: false, rear: false, frontChain: false, rearChain: false };
+	const coreHits = { pos: false, neg: false, rear: false, frontChain: false, rearChain: false, frontStrong: false, rearStrong: false };
 	const FRONT_CHAIN_IDS = FRONT_CHAIN_HIT_IDS;
 	const REAR_CHAIN_IDS = REAR_CHAIN_HIT_IDS;
 	for (let i = 0; i < hitsView.count; i++) {
@@ -416,12 +418,20 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 		// to kiss both half-core bottoms on the tarmac, which latched BOTH cores every step and
 		// symmetrized (and destabilized) the collapse.
 		if (Math.abs(c.normal.y) < 0.5) {
+			// P013(c): a chain contact closing above the strong-approach floor is CORROBORATING evidence
+			// for the OWN-displacement ratchet (a genuine crash, not a low-speed heightfield/curb graze).
+			const strong = c.approachSpeed >= OWN_RATCHET_STRONG_APPROACH_MS;
 			for (const id of [c.userDataA, c.userDataB]) {
 				if (id === CORE_ENTITY_ID.frontPos) coreHits.pos = true;
 				else if (id === CORE_ENTITY_ID.frontNeg) coreHits.neg = true;
 				else if (id === CORE_ENTITY_ID.rear) coreHits.rear = true;
-				if (FRONT_CHAIN_IDS.has(id)) coreHits.frontChain = true;
-				else if (REAR_CHAIN_IDS.has(id)) coreHits.rearChain = true;
+				if (FRONT_CHAIN_IDS.has(id)) {
+					coreHits.frontChain = true;
+					if (strong) coreHits.frontStrong = true;
+				} else if (REAR_CHAIN_IDS.has(id)) {
+					coreHits.rearChain = true;
+					if (strong) coreHits.rearStrong = true;
+				}
 			}
 		}
 		// CRUSH M3 MEASURED CORRECTION: box3d reports the manifold normal shape-A -> shape-B. The
@@ -463,6 +473,16 @@ export function stepDamageSystem(system: DamageSystem, world: World, dt: number)
 	// confirmed 40/64/80/120 -> 0.236/0.442/0.535/0.580m, and the full sim suite (65 files) stays green.
 	for (const hit of hits) {
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
+		// P013(b): exclude UPWARD-pushing near-vertical ground contacts from the cosmetic crumple. A
+		// nose-dive/tail-drag scraping flat ground, an undercarriage/curb scrape, or the car settling
+		// pushes UP INTO the car -- system.ts orients the drained normal car-INWARD, so these read a
+		// large POSITIVE normal.y -- and must not permanently dent the shell (the P013 "car dents during
+		// ordinary driving" report). A DIRECTIONAL filter (positive-y only), NOT the stress model's
+		// |normal.y| absolute form: a body pressing DOWN onto the car from above (a box dropped on the
+		// hood) is a legitimate top-impact dent whose car-inward normal points DOWN (negative y), and must
+		// still crumple (panel-hull-refresh.test.mjs). A real barrier/pole/side crash's normal is
+		// horizontal (small |y|), so every calibrated crash crumples exactly as before.
+		if (hit.normal.y > STRESS_MAX_NORMAL_UP_COMPONENT) continue;
 		if (!hitTouchesCar(hit, system.panels)) continue;
 		system.emitter.emit({ type: 'impact', severity: hit.approachSpeed, point: hit.point });
 		// Mass-aware crush depth: a light other body (registered dynamic mass) deposits only e =

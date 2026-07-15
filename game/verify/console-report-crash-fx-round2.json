@@ -1,0 +1,115 @@
+{
+  "assertions": [
+    {
+      "label": "window.__FX__ (with puddleInfo) present on crash-lab",
+      "pass": true
+    },
+    {
+      "label": "P1 mid-crash: barrier contact reached (step 36)",
+      "pass": true,
+      "detail": 42997
+    },
+    {
+      "label": "P1 mid-crash: particles active",
+      "pass": true,
+      "detail": {
+        "activeParticles": 346,
+        "decals": 6,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "P1 mid-crash: glass shards present",
+      "pass": true,
+      "detail": {
+        "smoke": 124,
+        "dust": 84,
+        "debris": 42,
+        "shard": 96
+      }
+    },
+    {
+      "label": "P1 mid-crash: dust plume present",
+      "pass": true,
+      "detail": {
+        "smoke": 124,
+        "dust": 84,
+        "debris": 42,
+        "shard": 96
+      }
+    },
+    {
+      "label": "P1 mid-crash: tire smoke present (wheel skid)",
+      "pass": true,
+      "detail": {
+        "smoke": 124,
+        "dust": 84,
+        "debris": 42,
+        "shard": 96
+      }
+    },
+    {
+      "label": "P1 post-crash: puddle present",
+      "pass": true,
+      "detail": {
+        "activeParticles": 374,
+        "decals": 6,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "P1 post-crash: puddle radius grown (>0.6m)",
+      "pass": true,
+      "detail": {
+        "active": true,
+        "x": -0.00035250647651170904,
+        "y": -0.05516584583124823,
+        "z": 9.698986647540341,
+        "radius": 1.7
+      }
+    },
+    {
+      "label": "P1 post-crash: scuff/chip decals present",
+      "pass": true,
+      "detail": {
+        "activeParticles": 374,
+        "decals": 6,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "P1 post-crash: decals within cap",
+      "pass": true,
+      "detail": {
+        "activeParticles": 374,
+        "decals": 6,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "P1 post-crash: particles within cap",
+      "pass": true,
+      "detail": {
+        "activeParticles": 374,
+        "decals": 6,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "sprung-door: at least one door sprung/loosened/broken",
+      "pass": true,
+      "detail": {
+        "hood": "broken",
+        "doorL": "sprung",
+        "doorR": "sprung",
+        "doorRL": "sprung",
+        "doorRR": "sprung",
+        "trunk": "attached"
+      }
+    }
+  ],
+  "failed": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-15T16:24:53.338Z"
+}

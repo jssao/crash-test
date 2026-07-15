@@ -52,9 +52,16 @@ export interface FractureThreshold {
 
 /** Fence rail (single-end weld cantilever) -- fractures well before its own 700N/350N·m weld-pop. */
 export const FENCE_RAIL_FRACTURE: FractureThreshold = { forceN: 571, torqueNm: 145 };
-/** Fence post (footing cantilever) -- its 700N/350N·m weld-pop wins in practice; kept for completeness
- * (a car pinning a post hard enough could still reach this before the weld gives). */
-export const FENCE_POST_FRACTURE: FractureThreshold = { forceN: 1981, torqueNm: 504 };
+/** Fence post (footing cantilever) -- LOWERED below the 700N/350N·m footing weld-pop (was 1981/504,
+ * comfortably ABOVE weld-pop, so the weld always won and the whole post popped out of the ground
+ * clean instead of snapping like embedded lumber -- P003 bug fix). Real fence posts are brittle in
+ * bending at the groundline; a car hit hard enough to move the post at all should SNAP it near the
+ * base (fracturePiece()'s base-third split for post/stud kinds) rather than yank it whole out of its
+ * footing. Kept a notch above FENCE_RAIL_FRACTURE (571/145) so the ascending-threshold candidate sort
+ * in pollStructureBreaks() still tries the (thinner, weaker) rails first on a shared-step tie, matching
+ * real chain-failure intuition, while sitting far enough below the 700N/350N·m weld-pop that ordinary
+ * numerical noise can't flip the race back to a clean pop. */
+export const FENCE_POST_FRACTURE: FractureThreshold = { forceN: 620, torqueNm: 305 };
 /** Shed/corner stud (footing cantilever, shared 58mm-square cross-section) -- fractures LONG before its
  * 3500N/1800N·m*2.4 ductile weld-break; this is the PRIMARY new stud behavior (spec §B). */
 export const STUD_FRACTURE: FractureThreshold = { forceN: 386, torqueNm: 98 };

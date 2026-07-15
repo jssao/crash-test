@@ -50,15 +50,20 @@ import { registerCarDeformables, syncCarDeformablesToThree, type CarDeformableBi
 import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, lateralInputsFromRegistry, type StructuralCrushState } from './scene/structuralCrush';
 import { getSegmentTelemetry, seedSegmentVelocities } from './vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from './scene/panelVisuals';
+import { createCrashFx, buildShatteredGlassMaterial, type CrashFx } from './scene/crashFx';
 import { resetCrumpleRegistry } from './damage/crumple';
 import { PANEL_KEYS, type PanelKey } from './damage/panels';
 import { spawnTestWall as spawnTestWallBody, destroyTestWall, crashSetup } from './damage/scenario';
-import { createDestructibleWorld, resetDestructibleWorld, type DestructibleWorld } from './world/bodies';
+import { createDestructibleWorld, resetDestructibleWorld, stepDestructiblePoles, stepDestructibleCrates, type DestructibleWorld } from './world/bodies';
 import {
   buildDestructibleVisuals,
   sampleDestructibleVisuals,
   applyDestructibleVisuals,
   resnapDestructibleVisuals,
+  createBarrelDentEntries,
+  stepBarrelDents,
+  resetBarrelDents,
+  type BarrelDentEntry,
   type DestructibleVisualBundle,
 } from './world/visuals';
 import { createHud, type HudController } from './hud/hud';
@@ -189,6 +194,19 @@ declare global {
   }
 }
 
+// BUGS R003/R004 (crash VFX): separate global, additive to __GAME__ -- see scene/crashFx.ts's
+// CrashFxCounters doc comment. A headless verify probe reads this to confirm particles/decals/
+// puddles actually spawned (and stayed within their caps) without any pixel inspection.
+declare global {
+  interface Window {
+    __FX__?: {
+      counters: () => { activeParticles: number; decals: number; puddles: number };
+      debugParticles: () => { kind: string; pos: [number, number, number]; opacity: number; scale: number }[];
+      puddleInfo: () => { active: boolean; x: number; y: number; z: number; radius: number };
+    };
+  }
+}
+
 async function main() {
   const appEl = document.getElementById('app')!;
   const hudEl = document.getElementById('hud')!;
@@ -246,16 +264,18 @@ async function main() {
   // ---- Destructible world (G4): renderer-free physics assembly (world/bodies.ts) + procedural PBR
   // visuals (world/visuals.ts) -- 3 stacked-block walls, a crate tower, a barrel bowling triangle, 5
   // tippable poles (all dynamic, spawned asleep), and 2 static ramps. ----
-  const destructibleWorld: DestructibleWorld = createDestructibleWorld(world);
-  const destructibleVisuals: DestructibleVisualBundle = buildDestructibleVisuals(destructibleWorld);
-  scene.add(destructibleVisuals.group);
-
   // ---- Shared foreign-body mass registry (fracture spec §E): ONE Map instance created before both
   // consumers -- world features register obstacle/fragment masses into it (FeatureContext.foreignMasses)
   // and the damage system reads it for mass-aware damage attenuation (createDamageSystem below receives
   // this same instance; doCarRepair() re-threads it so registrations survive car rebuilds -- exactly
-  // what createDamageSystem()'s foreignMasses doc comment prescribes). ----
+  // what createDamageSystem()'s foreignMasses doc comment prescribes). Declared before
+  // createDestructibleWorld so pole/crate fracture fragments register their masses too (P009/P011). ----
   const foreignMasses = new Map<number, number>();
+
+  const destructibleWorld: DestructibleWorld = createDestructibleWorld(world, foreignMasses);
+  const destructibleVisuals: DestructibleVisualBundle = buildDestructibleVisuals(destructibleWorld);
+  scene.add(destructibleVisuals.group);
+  const barrelDents: BarrelDentEntry[] = createBarrelDentEntries(destructibleWorld, destructibleVisuals);
 
   // Legacy destructibles (§E item 3): wall blocks / crates / poles / barrels are tagged with entity ids
   // at spawn now (world/bodies.ts) -- register each one's real mass so a 15kg crate no longer hits the
@@ -297,6 +317,9 @@ async function main() {
   // vehicle/damageSystem recreation and breakPanelWeld()'s shape recreation with zero extra wiring. ----
   const audioSystem: AudioSystem = createAudioSystem();
   const panelVisuals: Record<PanelKey, PanelVisual> = createPanelVisuals(car.root);
+  // BUGS R003/R004 (crash VFX): glass shards, impact dust/debris, tire smoke, engine-bay fluid
+  // leak, scuff/chip decals -- see scene/crashFx.ts's module doc for the full design.
+  const crashFx: CrashFx = createCrashFx(scene, car.root, panelVisuals);
 
   // Original (pristine) glass materials, captured once before any shatter swap -- restored by a full
   // car repair (repairCarFully() below).
@@ -324,13 +347,10 @@ async function main() {
     if (!mesh) return;
     const src = mesh.material as THREE.MeshPhysicalMaterial;
     if (!src || Array.isArray(mesh.material)) return;
-    const shattered = src.clone();
-    shattered.roughness = 0.9;
-    if ('transmission' in shattered) (shattered as unknown as { transmission: number }).transmission = 0;
-    shattered.transparent = true;
-    shattered.opacity = 0.85;
-    shattered.needsUpdate = true;
-    mesh.material = shattered;
+    // ROUND-2 (R004): was an in-line swap that killed transmission on a white-based glass material and
+    // produced a glowing WHITE panel at the A-pillar. Delegated to crashFx's crazed-glass builder,
+    // which reads as spider-cracked safety glass instead. See buildShatteredGlassMaterial()'s doc.
+    mesh.material = buildShatteredGlassMaterial(src);
   }
 
   function handleDamageEvent(event: DamageEvent): void {
@@ -355,6 +375,9 @@ async function main() {
       // car-vs-wall/crate/barrel/pole collision satisfies -- see damage/welds.ts's hitTouchesCar()).
       chaseCamera.triggerImpact(event.severity);
     }
+    // BUGS R003/R004: additive-only, self-contained switch inside crashFx -- never touches any of
+    // the branches above.
+    crashFx.handleDamageEvent(event, findDeformableMesh);
   }
   damageSystem.emitter.on(handleDamageEvent);
 
@@ -517,6 +540,8 @@ async function main() {
     }
     chaseCamera.reset();
     features.reset('car');
+    // BUG R003/R004: a freshly repaired car shouldn't still show the old wreck's decals/puddle.
+    crashFx.reset();
   }
 
   function doWorldRepair(): void {
@@ -530,6 +555,7 @@ async function main() {
     }
     resetDestructibleWorld(destructibleWorld);
     resnapDestructibleVisuals(destructibleWorld, destructibleVisuals);
+    resetBarrelDents(barrelDents);
     features.reset('world');
   }
 
@@ -564,6 +590,23 @@ async function main() {
       ...lateralInputsFromRegistry(damageSystem.registry.meshes),
     });
     syncCarDeformablesToThree(carDeformables, vehicle.panels, structuralCrush);
+    // BUG R003 (fluid leak): re-reads segment telemetry (read-only getter, additive call) to drive
+    // the engine-bay leak/puddle independently of the structural-crush visual pass above.
+    {
+      const chassisT = vehicle.chassis.getTransform();
+      crashFx.updateFluidLeak(getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushPlasticM, chassisT.position, chassisT.rotation, FIXED_DT);
+    }
+    // BUG R003 (tire smoke): per-wheel slip/ground-contact check, driven by the existing public
+    // getTelemetry()/wheelGrounded getters -- no vehicle/** files edited.
+    {
+      const fxTelemetry = getTelemetry(vehicle);
+      for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
+        crashFx.updateWheel(key, vehicle.wheels[key].body.getPosition(), vehicle.wheelGrounded[key], Math.abs(fxTelemetry.slipHints[key]), FIXED_DT);
+      }
+    }
+    stepDestructiblePoles(destructibleWorld);
+    stepDestructibleCrates(destructibleWorld);
+    stepBarrelDents(destructibleWorld, barrelDents);
     sampleDestructibleVisuals(destructibleWorld, destructibleVisuals);
     features.afterFixedStep(FIXED_DT);
     const t = vehicle.chassis.getTransform();
@@ -767,6 +810,9 @@ async function main() {
     },
   };
 
+  // BUGS R003/R004 verify hook -- see the `declare global` doc comment above.
+  window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo() };
+
   resize();
 
   // ---- Quality: default chosen once at boot from devicePixelRatio + a quick render benchmark (only
@@ -890,6 +936,9 @@ async function main() {
       const cp = vehicle.chassis.getPosition();
       updateSunFollow(cp.x, cp.z);
     }
+
+    // BUGS R003/R004: per-frame particle aging/fade (decals/puddle are step-driven above, not here).
+    crashFx.update(dt);
 
     renderer.render(scene, camera);
 

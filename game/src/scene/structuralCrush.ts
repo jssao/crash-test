@@ -202,9 +202,23 @@ const LATERAL_FALLOFF_SPAN_MULT = 1.6;
 // STRUCT_MIN_CRUSH_M's role for the front/rear field (parking taps / sub-structural nudges shouldn't
 // warp the shell) -- reuses STRUCT_MIN_CRUSH_M itself directly, no separate constant needed.
 
+/**
+ * P004 (side crashes produce not nearly enough damage): the lateral field's visible cave is driven by
+ * the CRUMPLE REGISTRY's raw per-vertex offsets, which for a real side-MDB run are ALSO attenuated by
+ * the mass-aware damage factor (system.ts) -- an MDB trolley (~half the car's mass) deposits only ~e of
+ * a rigid wall's dent, so the raw registry depth reads roughly HALF what a same-speed rigid strike
+ * would, and the rendered flank barely changed vs the reference's deep door/B-pillar intrusion
+ * (screenshots/P004_side-impact-damage/). This amplifies the raw registry depth into the VISUAL field
+ * only (never the mechanics or the registry itself), restoring a plausible intrusion depth. Applied to
+ * both the chassis flank cave (lateralFlankXY) and the door-skin cave (buildDoorCaveField). The
+ * fold-through / underside-coherence clamp (LATERAL_MAX_X_FRACTION_OF_BASE) and DOOR_CAVE_MAX_M still
+ * bound the result, so this cannot push the cave across the centerline no matter how large it scales. */
+const LATERAL_DEPTH_AMPLIFY = 1.8;
+
 /** Fraction of a flank's cave depth applied as roof-EDGE droop directly above the strike (reference:
- * NHTSA side-MDB top view shows "the roof edge buckles slightly over the strike"). */
-const LATERAL_ROOF_DROP_RATIO = 0.22;
+ * NHTSA side-MDB top view shows "the roof edge buckles slightly over the strike"). P004: raised
+ * 0.22 -> 0.3 so the roofline buckle over the strike reads clearly from the top view. */
+const LATERAL_ROOF_DROP_RATIO = 0.3;
 
 /** Body-local height fraction (of HULL_TOP_Y_M) above which a vertex counts as "roofline" for the
  * lateral roof-edge droop -- higher than CABIN_ROOF_Y_FRAC since this is deliberately just the roof
@@ -228,8 +242,10 @@ const LATERAL_MAX_X_FRACTION_OF_BASE = 0.85;
  * the harder-to-move structural members). */
 const DOOR_CAVE_DEPTH_RATIO = 0.85;
 /** Absolute safety cap (m) on door cave depth -- door travel/thickness is small; keeps the panel's
- * collision hull (damage-tuning.ts's PANEL_HULL_* rebuild) sane even for a saturated flank reading. */
-const DOOR_CAVE_MAX_M = 0.3;
+ * collision hull (damage-tuning.ts's PANEL_HULL_* rebuild) sane even for a saturated flank reading.
+ * P004: raised 0.3 -> 0.42 so an amplified side-MDB reading can reach the reference's deep door
+ * intrusion (~0.3-0.4m) before this cap clips it. */
+const DOOR_CAVE_MAX_M = 0.42;
 
 /** Which flank (+x / -x) each door panel key sits on -- panels.ts's PANEL_WORLD_QUAT is identity for
  * every panel on this car (see carDeformables.ts's module doc), so a door panel mesh's own local frame
@@ -399,9 +415,19 @@ export function createStructuralCrushState(handles: readonly DeformableMeshHandl
 }
 
 /** Derives the field's driving inputs from segment telemetry: mechanical crush sets the DEPTH, the
- * per-side core retreat sets the left/right RATIO (offset-crash asymmetry). */
+ * per-side core retreat sets the left/right RATIO (offset-crash asymmetry).
+ *
+ * P013 (car dents + bounces back during regular driving): the DEPTH is taken from the PLASTIC-only
+ * crush (seg.frontCrushPlasticM / rearCrushPlasticM -- the ratcheted permanent set + core-retreat
+ * floor), NOT the raw frontCrushM/rearCrushM (which also include the segments' transient ELASTIC
+ * deflection under hard braking / cornering / suspension / curb loads -- that elastic term is what made
+ * the rendered shell visibly dent and then relax during ordinary driving). The visual shell therefore
+ * only ever shows genuinely permanent crush. The `?? seg.frontCrushM` fallback keeps a hand-built
+ * telemetry object (unit tests that predate the plastic field) resolving to the same value it always
+ * did. The per-side ratio still reads coreRetreatFrontM.pos/neg, which are already plastic (monotonic
+ * core retreat), so offset asymmetry is unchanged. */
 export function structuralInputsFromTelemetry(seg: SegmentTelemetry): StructuralCrushInputs {
-	const front = Math.max(0, seg.frontCrushM);
+	const front = Math.max(0, seg.frontCrushPlasticM ?? seg.frontCrushM);
 	let pos = Math.max(0, seg.coreRetreatFrontM.pos);
 	let neg = Math.max(0, seg.coreRetreatFrontM.neg);
 	const deeper = Math.max(pos, neg);
@@ -415,7 +441,7 @@ export function structuralInputsFromTelemetry(seg: SegmentTelemetry): Structural
 		pos = front;
 		neg = front;
 	}
-	return { frontCrushM: front, rearCrushM: Math.max(0, seg.rearCrushM), frontPosM: pos, frontNegM: neg };
+	return { frontCrushM: front, rearCrushM: Math.max(0, seg.rearCrushPlasticM ?? seg.rearCrushM), frontPosM: pos, frontNegM: neg };
 }
 
 function inputsMoved(a: StructuralCrushInputs, b: StructuralCrushInputs): boolean {
@@ -452,7 +478,7 @@ function clamp01(v: number): number {
 function lateralFlankXY(by: number, bz: number, stats: LateralSideStats, sideSign: 1 | -1): { dx: number; dy: number } {
 	const t = Math.abs(bz - stats.centerZ) / (stats.spanM * LATERAL_FALLOFF_SPAN_MULT);
 	const falloff = smoothFalloff(t);
-	const mag = stats.depthM * falloff;
+	const mag = stats.depthM * LATERAL_DEPTH_AMPLIFY * falloff; // P004: amplify the visual cave depth
 	const roofFrac = clamp01((by / HULL_TOP_Y_M - LATERAL_ROOF_Y_FRAC) / (1 - LATERAL_ROOF_Y_FRAC));
 	return { dx: -sideSign * mag, dy: -LATERAL_ROOF_DROP_RATIO * mag * roofFrac };
 }
@@ -604,7 +630,7 @@ function buildDoorCaveField(f: MeshField, side: LateralSideStats, sideSign: 1 | 
 	const seed = stringSeed(handle.id) ^ 0x3fa9;
 	const span = Math.max(0.2, f.zMax - f.zMin);
 	const zCenter = (f.zMax + f.zMin) / 2;
-	const depth = Math.min(DOOR_CAVE_MAX_M, DOOR_CAVE_DEPTH_RATIO * side.depthM);
+	const depth = Math.min(DOOR_CAVE_MAX_M, DOOR_CAVE_DEPTH_RATIO * side.depthM * LATERAL_DEPTH_AMPLIFY); // P004: amplify
 	let wroteAny = false;
 	for (let i = 0; i < handle.vertexCount; i++) {
 		const bx = handle.basePositions[i * 3];

@@ -252,10 +252,37 @@ export function buildBarrelMaterial(variant: 'blue' | 'rust', size = 512): Proce
 	return { map, roughnessMap, material };
 }
 
+/** P009 fix: a dark creosote/CCA-treated utility-pole shaft -- near-black tarry brown, much darker and
+ * flatter (higher roughness, no visible grain streaks) than buildWoodMaterial()'s tan crate-plank
+ * look, so a pole reads as a distinct, purpose-built object rather than "another wood box". */
+export function buildPoleMaterial(size = 512): ProceduralMaterialSet {
+	const { map, roughnessMap } = buildFromNoise(size, 613, { r: 46, g: 34, b: 26 }, 14, 225, 20, 3, (albedo, rough) => {
+		// Faint vertical weathering streaks (creosote runs/cracking), sparser and darker than the crate
+		// wood's grain -- reads as "treated timber left outdoors", not "furniture".
+		const rand = mulberry32(6131);
+		for (let i = 0; i < 260; i++) {
+			const y = Math.floor(rand() * size);
+			const xStart = Math.floor(rand() * size);
+			const len = 30 + Math.floor(rand() * 140);
+			for (let dx = 0; dx < len; dx++) {
+				const x = (xStart + dx) % size;
+				const p = (y * size + x) * 4;
+				albedo.data[p] = clamp8(albedo.data[p] - 10);
+				albedo.data[p + 1] = clamp8(albedo.data[p + 1] - 9);
+				albedo.data[p + 2] = clamp8(albedo.data[p + 2] - 7);
+				rough.data[p] = rough.data[p + 1] = rough.data[p + 2] = clamp8(rough.data[p] + 10);
+			}
+		}
+	});
+	const material = new THREE.MeshStandardMaterial({ map, roughnessMap, metalness: 0.0 });
+	return { map, roughnessMap, material };
+}
+
 export interface DestructibleMaterialSets {
 	concrete: ProceduralMaterialSet;
 	brick: ProceduralMaterialSet;
 	wood: ProceduralMaterialSet;
+	poleWood: ProceduralMaterialSet;
 	barrelBlue: ProceduralMaterialSet;
 	barrelRust: ProceduralMaterialSet;
 }
@@ -265,6 +292,7 @@ export function buildDestructibleMaterials(): DestructibleMaterialSets {
 		concrete: buildConcreteMaterial(),
 		brick: buildBrickMaterial(),
 		wood: buildWoodMaterial(),
+		poleWood: buildPoleMaterial(),
 		barrelBlue: buildBarrelMaterial('blue'),
 		barrelRust: buildBarrelMaterial('rust'),
 	};

@@ -316,6 +316,12 @@ export interface SegmentAssembly {
 		prevLostE: number;
 		engageSteps: { pos: number; neg: number; rear: number; frontChain: number; rearChain: number };
 		ownRatchetStreak: { front: number; rear: number };
+		/** P013(c): steps remaining on each end's "a STRONG chain impact touched me recently" latch
+		 * (armed by CoreHitFlags.frontStrong/rearStrong, decays by 1/step). The OWN-displacement ratchet
+		 * requires this latch live -- so an ordinary low-speed heightfield/curb graze (which never clears
+		 * the strong-approach floor) can never bake a permanent plastic set no matter how the transient
+		 * crash gate + touch happen to line up. See OWN_RATCHET_DEBOUNCE_STEPS's doc comment. */
+		ownStrongLatch: { front: number; rear: number };
 		/** EXTREME TIER (Stream C C2): the fastest |forward speed| (m/s) this chassis has reached since
 		 * spawn/reset -- see EXTREME_GATE_SPEED_MS's doc comment below for why PEAK (not current,
 		 * decaying-through-the-crash) speed is the right gate signal. */
@@ -458,6 +464,7 @@ export function createSegments(world: World, chassis: Body, spawnPosition: V3, s
 			prevLostE: 0,
 			engageSteps: { pos: 0, neg: 0, rear: 0, frontChain: 0, rearChain: 0 },
 			ownRatchetStreak: { front: 0, rear: 0 },
+			ownStrongLatch: { front: 0, rear: 0 },
 			peakForwardSpeedMs: 0,
 		},
 	};
@@ -498,6 +505,7 @@ export function resetSegments(assembly: SegmentAssembly, world: World, spawnPosi
 	assembly.yieldState.prevLostE = 0;
 	assembly.yieldState.engageSteps = { pos: 0, neg: 0, rear: 0, frontChain: 0, rearChain: 0 };
 	assembly.yieldState.ownRatchetStreak = { front: 0, rear: 0 };
+	assembly.yieldState.ownStrongLatch = { front: 0, rear: 0 };
 	assembly.yieldState.peakForwardSpeedMs = 0;
 }
 
@@ -566,6 +574,22 @@ export interface SegmentTelemetry {
 	frontCrushM: number;
 	/** Mechanical rear crush (m): the rear-chain mirror of frontCrushM. */
 	rearCrushM: number;
+	/**
+	 * PLASTIC-ONLY front crush (m) -- the same "deeper of segment vs core" metric as frontCrushM, but the
+	 * segment term is the RATCHETED plastic weld shift (w.crushM), NOT the segment's current (elastic +
+	 * plastic) displacement. This is the crush that PERSISTS after the wreck settles; it never reads the
+	 * transient elastic deflection of the compliant segment welds under ordinary driving loads (hard
+	 * braking / cornering / suspension / curb taps momentarily deflect the 8Hz segment welds several cm,
+	 * which frontCrushM's live-displacement term picks up and then relaxes -- the "car dents then bounces
+	 * back during regular driving" bug, P013). The COSMETIC structural-crush shell field
+	 * (scene/structuralCrush.ts) is driven by THIS value (via structuralInputsFromTelemetry) so the
+	 * rendered shell only ever shows genuinely permanent crush; the mechanical gates (hood-break /
+	 * windshield-shatter / the calibrated segment-yield bands) keep reading frontCrushM unchanged. Equal
+	 * to frontCrushM once a crash has fully settled (the elastic term relaxes to ~0 and the rest frame is
+	 * ratcheted to the plastic pose), so the post-settle extreme-tier visual calibration is preserved. */
+	frontCrushPlasticM: number;
+	/** PLASTIC-ONLY rear crush (m) -- the rear-chain mirror of frontCrushPlasticM. */
+	rearCrushPlasticM: number;
 	/** NHTSA-style intrusion (m): the engineCradle's PERMANENT rest-pose shift toward the firewall
 	 * (crush-architecture.md §A "INTRUSION METRIC": firewall-face displacement toward the seats --
 	 * the cradle abuts the firewall plane, so its plastic rearward shift IS the hard structure
@@ -589,12 +613,18 @@ export function getSegmentTelemetry(chassis: Body, assembly: SegmentAssembly): S
 	// free-flying debris, its displacement means nothing).
 	let frontSeg = 0;
 	let rearSeg = 0;
+	// PLASTIC-only (ratcheted) per-end max weld crush -- see SegmentTelemetry.frontCrushPlasticM's doc:
+	// the permanent rest-frame shift, never the transient elastic deflection of the compliant welds.
+	let frontWeldPlastic = 0;
+	let rearWeldPlastic = 0;
 	for (const w of assembly.welds) {
 		weldCrushM[w.key] = w.crushM;
 		if (!w.joint) {
 			tornWelds.push(w.key);
 			continue;
 		}
+		if (w.crushZSign < 0) frontWeldPlastic = Math.max(frontWeldPlastic, w.crushM);
+		else rearWeldPlastic = Math.max(rearWeldPlastic, w.crushM);
 		const d = segmentLocalDisplacement(chassis, assembly.bodies[WELD_CHILD[w.key]]);
 		const c = Math.max(0, w.crushZSign * d.z);
 		if (w.crushZSign < 0) frontSeg = Math.max(frontSeg, c);
@@ -607,9 +637,15 @@ export function getSegmentTelemetry(chassis: Body, assembly: SegmentAssembly): S
 	const coreFloor = (retreatM: number): number =>
 		retreatM > 1e-3 ? CRUSH_CORE_INITIAL_RECESS_M * Math.min(1, retreatM / 0.05) + retreatM : 0;
 	const frontRetreat = Math.max(assembly.cores.frontPos.retreatM, assembly.cores.frontNeg.retreatM);
+	const frontCoreFloor = coreFloor(frontRetreat);
+	const rearCoreFloor = coreFloor(assembly.cores.rear.retreatM);
 	return {
-		frontCrushM: Math.max(frontSeg, coreFloor(frontRetreat)),
-		rearCrushM: Math.max(rearSeg, coreFloor(assembly.cores.rear.retreatM)),
+		frontCrushM: Math.max(frontSeg, frontCoreFloor),
+		rearCrushM: Math.max(rearSeg, rearCoreFloor),
+		// Plastic-only: the ratcheted weld shift (permanent) OR the core's plastic retreat floor
+		// (permanent) -- never the segments' transient elastic displacement (the driving-load "bounce").
+		frontCrushPlasticM: Math.max(frontWeldPlastic, frontCoreFloor),
+		rearCrushPlasticM: Math.max(rearWeldPlastic, rearCoreFloor),
 		intrusionM: weldCrushM.cradle,
 		coreRetreatM: { front: frontRetreat, rear: assembly.cores.rear.retreatM },
 		coreRetreatFrontM: { pos: assembly.cores.frontPos.retreatM, neg: assembly.cores.frontNeg.retreatM },
@@ -693,7 +729,17 @@ const RATCHET_ELASTIC_ALLOWANCE_M = 0.03;
  * any chain segment), which a shallow bump practically never reaches (the core sits CRUSH_CORE_INITIAL_
  * RECESS_M behind the exposed segments).
  */
-const OWN_RATCHET_DEBOUNCE_STEPS = 2;
+// P013(c) STRENGTHENED (2026-07-15): raised 2 -> 6 and paired with a STRONG-impact corroboration latch
+// (ownStrongLatch, armed only by a chain contact above OWN_RATCHET_STRONG_APPROACH_MS -- see the streak
+// logic in stepSegmentYield). The prior 2-step debounce still let a rough MULTI-frame terrain ledge (a
+// bump that stays in gate-open + touched for 2+ consecutive steps) bake a permanent front-segment set
+// during ordinary driving -- the P013 "car deforms during regular driving" report. Six consecutive
+// steps of a genuine crash gate + a recent strong-approach chain contact is a bar an ordinary drive
+// bump cannot clear (its crash-gate spike is transient and its closing speed is low), while a real wall
+// crash sustains both for dozens of steps -- re-verified inert on segment-yield.test.mjs's crush-vs-speed
+// bands (the CORE energy retreat, not this displacement ratchet, drives the bulk of frontCrushM, and a
+// real crash re-crosses this longer streak with steps to spare).
+const OWN_RATCHET_DEBOUNCE_STEPS = 6;
 /** Per-weld, per-step plastic growth cap (rate limit; keeps depenetration pops impossible). */
 const MAX_RATCHET_STEP_M = 0.08;
 /** Don't destroy+recreate a weld for a sub-2mm rest shift (recreate-churn guard). */
@@ -779,10 +825,61 @@ function extremeT(peakSpeedMs: number): number {
 	return Math.min(1, (peakSpeedMs - EXTREME_GATE_SPEED_MS) / (EXTREME_FULL_SPEED_MS - EXTREME_GATE_SPEED_MS));
 }
 
-/** Speed-gated front-core retreat ceiling: CRUSH_CORE_MAX_RETREAT_FRONT_M at/under the gate,
- * ramping toward +CORE_MAX_RETREAT_FRONT_EXTREME_M above it. */
+// ---------------------------------------------------------------------------------------------
+// CATASTROPHIC TIER (P014, 2026-07-15): the extreme tier above SATURATES by EXTREME_FULL_SPEED_MS
+// (55 m/s / ~198 km/h), so a 200mph (89 m/s) and a ~340 km/h (94 m/s) crash read the SAME depth --
+// the "everything saturates at ~200 km/h" report. The reference footage (a 100mph Dodge Charger and
+// a ~200mph barrier hit -- screenshots/P014_340kmh-crash-deform/reference/) shows the entire front
+// half accordioned to/past the A-pillar with the wheels shoved back: front crush should read as a
+// MAJORITY of the front half of the car (~2m of a ~2.5m front half). This adds a SECOND ramp, from
+// EXTREME_FULL_SPEED_MS up to CATASTROPHIC_FULL_SPEED_MS, that keeps front crush growing past the
+// extreme-tier plateau. It engages ONLY above 55 m/s -- catastrophicT()==0 at/under it, an IEEE-754
+// exact identity -- so 161/193 km/h (44.7/53.6 m/s) and every calibrated <=120 km/h crash are
+// completely untouched, and the extreme-tier 161>=1.0m / strict-monotonic pins still hold (322 km/h
+// only ever grows). Bounded to avoid wall tunneling (the core-retreat bonus, which pulls the chassis
+// collision face rearward, is kept small; most of the growth rides the front SEGMENT weld caps, which
+// shift the segment bodies rearward AWAY from the barrier).
+// ---------------------------------------------------------------------------------------------
+/** Peak forward speed (m/s) at which the catastrophic tier reaches full scale -- ~340 km/h, the P014
+ * target closing speed. 322 km/h (89.4 m/s) sits at catastrophicT~=0.88 (deeper than 193 km/h, keeping
+ * the extreme-tier monotonic pin) and 340 km/h saturates it. */
+const CATASTROPHIC_FULL_SPEED_MS = 94;
+/** Extra front-core plastic-retreat headroom (m) at full catastrophic scale, ON TOP of the extreme
+ * tier's CORE_MAX_RETREAT_FRONT_EXTREME_M -- kept SMALL: core retreat pulls the chassis' front collision
+ * face rearward, so over-retreating risks the barrier tunneling. Front core ceiling at 94 m/s:
+ * 0.48 + 1.0 + 0.4 = 1.88m (verified: the chassis origin still stops >3m short of the wall centre at
+ * 340 km/h, no tunneling). */
+const CORE_MAX_RETREAT_FRONT_CATASTROPHIC_M = 0.4;
+/** Extra per-weld plastic-crush headroom (m) at full catastrophic scale, ON TOP of the extreme tier's
+ * SEGMENT_EXTREME_CRUSH_CAP_M -- front-chain welds only. Beam 1.4 -> 2.0m total (the deepest segment
+ * carries the bulk of frontCrushM's catastrophic growth, shifting rearward away from the barrier rather
+ * than pulling the collision face in). */
+const SEGMENT_CATASTROPHIC_CRUSH_CAP_M: Partial<Record<SegmentWeldKey, number>> = {
+	beam: 0.6, // 1.4 (extreme) -> 2.0m total
+	cellFL: 0.35, // 0.69 -> 1.04m
+	cellFR: 0.35,
+	cradle: 0.2, // 0.37 -> 0.57m
+};
+/** Extra per-step front-core retreat rate (m) at full catastrophic scale, ON TOP of the extreme tier's
+ * CORE_MAX_RETREAT_STEP_EXTREME_M -- lets the single bullet-CCD mega-kill step spend the (now larger)
+ * catastrophic energy debt in one shot (same rationale as CORE_MAX_RETREAT_STEP_EXTREME_M). */
+const CORE_MAX_RETREAT_STEP_CATASTROPHIC_M = 0.5;
+
+/** 0 at/under EXTREME_FULL_SPEED_MS, ramps linearly to 1 by CATASTROPHIC_FULL_SPEED_MS. */
+function catastrophicT(peakSpeedMs: number): number {
+	if (peakSpeedMs <= EXTREME_FULL_SPEED_MS) return 0;
+	return Math.min(1, (peakSpeedMs - EXTREME_FULL_SPEED_MS) / (CATASTROPHIC_FULL_SPEED_MS - EXTREME_FULL_SPEED_MS));
+}
+
+/** Speed-gated front-core retreat ceiling: CRUSH_CORE_MAX_RETREAT_FRONT_M at/under the extreme gate,
+ * ramping toward +CORE_MAX_RETREAT_FRONT_EXTREME_M by 55 m/s, then +CORE_MAX_RETREAT_FRONT_CATASTROPHIC_M
+ * by 94 m/s (P014 catastrophic tier). */
 function coreMaxRetreatFrontM(peakSpeedMs: number): number {
-	return CRUSH_CORE_MAX_RETREAT_FRONT_M + extremeT(peakSpeedMs) * CORE_MAX_RETREAT_FRONT_EXTREME_M;
+	return (
+		CRUSH_CORE_MAX_RETREAT_FRONT_M +
+		extremeT(peakSpeedMs) * CORE_MAX_RETREAT_FRONT_EXTREME_M +
+		catastrophicT(peakSpeedMs) * CORE_MAX_RETREAT_FRONT_CATASTROPHIC_M
+	);
 }
 
 /** Speed-gated per-weld crush cap: SEGMENT_TOTAL_CRUSH_CAP_M[key] at/under the gate (byte-identical
@@ -791,7 +888,9 @@ function coreMaxRetreatFrontM(peakSpeedMs: number): number {
 function segmentCrushCapM(key: SegmentWeldKey, peakSpeedMs: number): number {
 	const extra = SEGMENT_EXTREME_CRUSH_CAP_M[key];
 	if (extra === undefined) return SEGMENT_TOTAL_CRUSH_CAP_M[key];
-	return SEGMENT_TOTAL_CRUSH_CAP_M[key] + extremeT(peakSpeedMs) * extra;
+	// P014 catastrophic tier: front-chain welds get a further headroom ramp above 55 m/s.
+	const catExtra = SEGMENT_CATASTROPHIC_CRUSH_CAP_M[key] ?? 0;
+	return SEGMENT_TOTAL_CRUSH_CAP_M[key] + extremeT(peakSpeedMs) * extra + catastrophicT(peakSpeedMs) * catExtra;
 }
 
 /** FACE depth (m: initial recess + plastic retreat of the segment's side's core) at which each
@@ -893,7 +992,7 @@ const CORE_MAX_RETREAT_STEP_M = 0.5;
 const CORE_MAX_RETREAT_STEP_EXTREME_M = 1.0;
 
 function coreMaxRetreatStepM(peakSpeedMs: number): number {
-	return CORE_MAX_RETREAT_STEP_M + extremeT(peakSpeedMs) * CORE_MAX_RETREAT_STEP_EXTREME_M;
+	return CORE_MAX_RETREAT_STEP_M + extremeT(peakSpeedMs) * CORE_MAX_RETREAT_STEP_EXTREME_M + catastrophicT(peakSpeedMs) * CORE_MAX_RETREAT_STEP_CATASTROPHIC_M;
 }
 
 export interface SegmentYieldEvent {
@@ -920,6 +1019,13 @@ export interface CoreHitFlags {
 	rear: boolean;
 	frontChain: boolean;
 	rearChain: boolean;
+	/** P013(c): a front/rear-chain contact this step whose approach speed cleared the strong-impact floor
+	 * (damage-tuning.ts's OWN_RATCHET_STRONG_APPROACH_MS, evaluated in system.ts) -- the corroborating
+	 * "this is a genuine crash, not a low-speed graze" evidence the OWN-displacement ratchet now requires
+	 * (latched + debounced in stepSegmentYield). Optional so any pre-existing caller/test that builds a
+	 * bare CoreHitFlags without these keeps compiling; undefined reads as false. */
+	frontStrong?: boolean;
+	rearStrong?: boolean;
 }
 
 /**
@@ -1000,13 +1106,19 @@ export function stepSegmentYield(world: World, chassis: Body, assembly: SegmentA
 	eng.frontChain = coreHits.frontChain ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.frontChain - 1);
 	eng.rearChain = coreHits.rearChain ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, eng.rearChain - 1);
 
+	// P013(c) STRONG-impact corroboration latch: armed by a strong-approach chain contact (system.ts),
+	// bridges the same impulsive gaps CORE_ENGAGE_LATCH_STEPS bridges for the plain touch latch.
+	const strongLatch = assembly.yieldState.ownStrongLatch;
+	strongLatch.front = coreHits.frontStrong ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, strongLatch.front - 1);
+	strongLatch.rear = coreHits.rearStrong ? CORE_ENGAGE_LATCH_STEPS : Math.max(0, strongLatch.rear - 1);
+
 	// OWN-displacement ratchet debounce (see OWN_RATCHET_DEBOUNCE_STEPS's doc comment): count
-	// CONSECUTIVE gate-open+touched steps per end, reset the instant either condition drops.
+	// CONSECUTIVE gate-open + touched + STRONG-corroborated steps per end, reset the instant any drops.
 	const streak = assembly.yieldState.ownRatchetStreak;
 	const frontTouchedNow = coreHits.frontChain || eng.frontChain > 0;
 	const rearTouchedNow = coreHits.rearChain || eng.rearChain > 0;
-	streak.front = frontGate && frontTouchedNow ? streak.front + 1 : 0;
-	streak.rear = rearGate && rearTouchedNow ? streak.rear + 1 : 0;
+	streak.front = frontGate && frontTouchedNow && strongLatch.front > 0 ? streak.front + 1 : 0;
+	streak.rear = rearGate && rearTouchedNow && strongLatch.rear > 0 ? streak.rear + 1 : 0;
 
 	// ---- 2 + 3. Segment ratchet + tear-off, per weld. ----
 	const faceDepth = (core: CrushCoreHandle): number => CRUSH_CORE_INITIAL_RECESS_M + core.retreatM;

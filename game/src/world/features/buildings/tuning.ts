@@ -87,16 +87,29 @@ export const BRICK_RESTITUTION = 0.0; // masonry does not bounce
 /** Per-mortar-joint threshold between adjacent bricks. A real car impact exceeds it along a wide front
  * so many joints crack and bricks cascade free; away from the impact zone joints survive and 2-4
  * welded bricks tumble as a CLUMP (playtest issue #3: mortar cracks crisply in clumps, no global jelly
- * wobble). */
-export const BRICK_BREAK_FORCE_N = 3200;
-export const BRICK_BREAK_TORQUE_NM = 650;
+ * wobble). P005 bug fix (re-tuned for the taller BRICK_WALL_ROWS wall, game/sim/features-buildings.test.mjs
+ * calibration): LOWERED from 3200/650. Counter-intuitive but empirically verified -- the taller wall's
+ * upper courses are only tied together by the SAME-ROW horizontal mortar chain, which (given box3d's
+ * weld joints solve the "rigid" case via a finite ~60Hz/dampingRatio-2 default constraint stiffness --
+ * see vendor/box3d/src/joint.c's b3PrepareJoint()/constraintHertz, NOT exposed for override by this
+ * repo's src/ts binding -- confirmed insensitive to raising these same thresholds 100x, so it is NOT a
+ * break-threshold problem) behaves as one loosely-compliant continuous "cap" under a hard hit: without
+ * a LOWER mortar threshold letting a crack open a few bricks out from the impact, that cap's sway drags
+ * even far-away columns down with it. A lower threshold lets a local crack form sooner, isolating the
+ * disturbed cap section mechanically -- verified (probe sweep) to raise the >=2m-lateral "still
+ * standing" count from ~4/90 to ~12-15/90 bricks at 40-50km/h. Full containment is NOT achievable via
+ * this feature's constants alone -- see this task's report for the root-cause writeup. */
+export const BRICK_BREAK_FORCE_N = 1500;
+export const BRICK_BREAK_TORQUE_NM = 300;
 /** Bottom-course brick-to-FOOTING welds are much stronger than brick-to-brick mortar. A thin
  * single-wythe wall would otherwise just tip over as one rigid slab at any speed (the base is its only
  * anchor); a strong base means a low-speed hit instead cracks the inter-brick joints LOCALLY near the
  * impact (a chunk sheds, the rest stands), and only a hard hit overwhelms the base and takes the whole
- * wall. This is what restores the low/mid/high staging with real (small, light) bricks. */
-export const BRICK_FOOTING_BREAK_FORCE_N = 11000;
-export const BRICK_FOOTING_BREAK_TORQUE_NM = 2600;
+ * wall. This is what restores the low/mid/high staging with real (small, light) bricks. RAISED from
+ * 11000/2600 (P005) to keep the taller wall's base anchor comfortably strong relative to its greater
+ * dead-weight/leverage. */
+export const BRICK_FOOTING_BREAK_FORCE_N = 30000;
+export const BRICK_FOOTING_BREAK_TORQUE_NM = 7000;
 
 export const PIPE_MASS_KG = 4;
 export const PIPE_FRICTION = 0.3;
@@ -249,14 +262,49 @@ export const CORNER_PIPE_COUNT = 3;
 export const BRICK_WALL_CENTER: V3 = { x: 16, y: 0, z: 24 };
 // Real brick 194 x 92 x 57 mm (laid flat: 194 length along the wall X, 57 course height Y, 92 depth
 // through the wall Z -- single-wythe). A full 6m x 1.6m masonry wall of these is ~850 bricks (past the
-// physics/perf budget), so this is a compact garden wall: 10 cols x 16 courses = 160 bricks,
-// ~1.94m long x 0.91m tall -- tall enough that a low-speed hit reaches only the lower courses (real
-// staging: a nudge sheds a chunk, a fast car plows through). See
+// physics/perf budget). P005 bug fix: the previous 10 cols x 16 courses (160 bricks, ~1.94m long x
+// 0.91m tall) read as a trivial garden divider in the crash-lab/gameplay target -- the reference photos
+// (a car punching a car-shaped hole through a real chest/head-height property wall, with far sections
+// still standing) need real wall proportions. Bumped to 16 cols x 30 courses = 480 bricks, ~3.10m long
+// x 1.71m tall -- 3x the previous piece/joint count (well under the documented 850-brick "past budget"
+// case for a full 6m wall) and long enough that an off-center impact still leaves a far corner
+// >=2m from the impact point (game/sim/features-buildings.test.mjs's dedicated P005 assertion). See
 // docs/build-log/specs/materials-truth.md for the size trade-off rationale.
 export const BRICK_HALF_EXTENTS: V3 = { x: 0.097, y: 0.0285, z: 0.046 };
-export const BRICK_WALL_COLUMNS = 10; // 10 * 0.194m = 1.94m long
-export const BRICK_WALL_ROWS = 16; // 16 * 0.057m = 0.912m tall
-export const BRICK_WALL_LENGTH_M = BRICK_WALL_COLUMNS * BRICK_HALF_EXTENTS.x * 2; // 1.94m, keeps footing/columns consistent
+export const BRICK_WALL_COLUMNS = 16; // 16 * 0.194m = 3.104m long (was 10 / 1.94m)
+export const BRICK_WALL_ROWS = 30; // 30 * 0.057m = 1.71m tall (was 16 / 0.912m)
+export const BRICK_WALL_LENGTH_M = BRICK_WALL_COLUMNS * BRICK_HALF_EXTENTS.x * 2; // 3.104m, keeps footing/columns consistent
+
+// ---------------------------------------------------------------------------------------------
+// CRASH-LAB WIDE brick wall (P005 gate fix). The BRICK_WALL above is a narrow ~3.1m garden divider
+// — barely wider than the car, so a localized hole is structurally impossible and a hit takes the
+// WHOLE panel (the gate's core finding: "~0% remains upright"). The crash-lab "brick wall" target is
+// instead a REAL ~8.2m x 1.71m property wall so a centre hit leaves large flanking sections standing,
+// exactly like the reference photos (car buried in a car-shaped breach, wall standing on both sides).
+//
+// It is built as N SEGMENTS: each is an INDEPENDENTLY-FOOTED brick panel separated from its neighbours
+// by a ~4cm expansion joint that NO weld crosses. This is STRUCTURAL isolation, not mortar re-tuning —
+// and that is deliberate: box3d's weld joints solve the rigid case at a finite ~60Hz constraint
+// stiffness this repo's binding can't override (see BRICK_BREAK_FORCE_N's doc), so a single tall
+// continuous lattice sways as one loosely-compliant cap and drags far columns down under a hard hit no
+// matter how the break thresholds are set (verified insensitive to raising them 100x). Separate footed
+// panels simply cannot transmit the struck panel's collapse across the gap, so the flanking panels STAY
+// UP — the support-graph union-find (support.ts) sees them as distinct anchored components and never
+// wakes them. Panels keep the gameplay BRICK_BREAK mortar strength (isolation is geometric, not a
+// weakening); an early probe sweep confirmed that WEAKENING inter-brick welds actually HURT here (a
+// disturbed flanking panel then crumbles instead of shrugging off the struck panel's debris) — the
+// opposite of the continuous-wall finding, because segmentation already supplies the crack isolation.
+// The ~4cm joint (vs a hairline 2cm) is what keeps the struck panel's debris from jamming the flanking
+// panel's inner edge and cascading it: probe-measured centre-hit flanking far-standing was 0.55 at a
+// 2cm joint but 1.00 at 4cm. Panels use BOUNDED running bond (odd rows inset half a brick on each end,
+// no overhang) so the thin joint stays collision-free — unlike BRICK_WALL's half-brick overhang
+// simplification, whose 0.097m odd-row overhang would jam into the neighbouring panel.
+export const BRICK_WALL_LAB_SEGMENTS = 3;
+export const BRICK_WALL_LAB_COLUMNS_PER_SEGMENT = 14; // 14 * 0.194m = 2.716m per panel
+export const BRICK_WALL_LAB_ROWS = 30; // 30 * 0.057m = 1.71m tall (matches BRICK_WALL_ROWS)
+export const BRICK_WALL_SEGMENT_GAP_M = 0.04; // expansion joint between panels (no weld crosses it)
+// Total span = 3 * 2.716 + 2 * 0.04 = 8.23m — well over the car's ~1.85m width and the >=8m target.
+export const BRICK_WALL_LAB_SPAN_M = BRICK_WALL_LAB_SEGMENTS * BRICK_WALL_LAB_COLUMNS_PER_SEGMENT * BRICK_HALF_EXTENTS.x * 2 + (BRICK_WALL_LAB_SEGMENTS - 1) * BRICK_WALL_SEGMENT_GAP_M;
 
 // ---------------------------------------------------------------------------------------------
 // 4) Perimeter fence -- posts + 2 rails per span, low thresholds. The compound's NORTH frontage: six

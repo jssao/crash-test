@@ -55,6 +55,12 @@ const CAR_CONFIGS = {
     chassis: ['BodyShell', 'EngineBlock', 'Drivetrain', 'Engine'],
     // Glass detected by MATERIAL NAME (this asset carries no KHR_materials_transmission extension).
     glassMaterialNames: new Set(['TransparentGlass', 'refract glass']),
+    // Body-paint materials, matched by exact name (verified against this GLB's actual materials list —
+    // see scene/carMaterials.ts's module doc comment for why this must be data-driven, not a hand-
+    // maintained regex baked into the game bundle).
+    paintMaterialMatch: (name) => name === 'CarPrimaryColor' || name === 'Car Secondary',
+    // No dedicated headlight-lens-glass material needing the R002-style lit-lens treatment on this asset.
+    headlightLensMaterialNames: new Set(),
     // No KHR_materials_variants and no trademarked-logo textures in this asset (all flat color factors).
     logoMaterialsToSanitize: [],
   },
@@ -94,6 +100,25 @@ const CAR_CONFIGS = {
     // 'heaxagon glass') but those are lighting-lens/interior-trim glass, not structural panes, and are
     // deliberately excluded so they don't register as shatterable windshield/window glass.
     glassMaterialNames: new Set(['Glass']),
+    // Body-paint material: exactly one, "Car Paint" (material index 10 in the shipped GLB) — baseColor
+    // authored pure black [0,0,0,1] with KHR_materials_clearcoat (0.5) + KHR_materials_anisotropy
+    // (0.136), no metallicFactor (glTF default 1.0). Confirmed via direct GLB material dump (R005/R001
+    // fix, 2026-07-15): this exact-black + full-metallic combination is what rendered the car as a
+    // void-black silhouette before carMaterials.ts's PAINT_NAME_RE regex was widened to a data-driven
+    // lookup keyed off this field.
+    paintMaterialMatch: (name) => name === 'Car Paint',
+    // Headlight-lens glass (R002 fix, 2026-07-15): "Glass headlights" (material index 39) authors NO
+    // pbrMetallicRoughness block at all -- every factor falls to the glTF default (baseColor white,
+    // metallicFactor 1.0, roughnessFactor 1.0), which is a fully-metallic, fully-rough, colorless
+    // surface -- reads as a flat plain-white cap over the headlight cluster, hiding the reflector/
+    // emitter detail behind it. Used by 3 lens nodes (verified via mesh->material dump): the main
+    // headlight lens ("Glass Headlight"), the running-light lens ("Glass Runninglight" node -- despite
+    // the name collision with the UNRELATED "GlassRunninglight" material further down the materials
+    // list), and the foglight lens ("Foglight Glass"). Deliberately its OWN survey (not folded into
+    // glassMaterialNames above): this needs a "lit lens" treatment (glossy + warm emissive so it reads
+    // as a light), not the windshield's dark cool-tinted alpha-blend -- tuning both the same way would
+    // make the headlight cluster look like a tinted window.
+    headlightLensMaterialNames: new Set(['Glass headlights']),
     // No trademarked-logo textures found needing sanitization for this asset.
     logoMaterialsToSanitize: [],
   },
@@ -110,6 +135,11 @@ const CAR_CONFIGS = {
     panels: ['BodyHood', 'BodyDoorLColor1', 'BodyDoorRColor1', 'InteriorRearHatch', 'BodyRoofPanel', 'BodyRearPanelsColor1', 'BodyPanelsColor2', 'BodyPillars'],
     chassis: ['BodyUnderside', 'Engine', 'Axles', 'InteriorCage'],
     glassMaterialNames: new Set(),
+    // Paint materials are per-variant, always named "Paint 1 <ColorName>"/"Paint 2 <ColorName>"
+    // (verified: Carmine/Pearl/Graphite variants all present in this GLB) -- a prefix match, since the
+    // exact set of color-name suffixes isn't fully enumerable without checking every variant.
+    paintMaterialMatch: (name) => /^Paint [12]\b/.test(name),
+    headlightLensMaterialNames: new Set(),
     chosenVariantIndex: 2, // "Torched Graphite"
     logoMaterialsToSanitize: [
       { name: 'License', slot: 'map', reason: 'baseColorTexture is the Khronos Group wordmark PNG (license-plate decal)' },
@@ -347,6 +377,22 @@ json.nodes.forEach((n) => {
   if (usesGlass) glassMeshNodes.push(n.name);
 });
 
+// ---- 7b. Paint material survey (config-provided matcher predicate) — data-driven so
+// scene/carMaterials.ts never has to guess names for a swapped asset (see that file's module doc
+// comment: this replaced a hand-maintained regex that silently stopped matching when the S90 swap
+// landed a differently-named "Car Paint" material). ----
+const paintMaterialNames = [];
+json.materials.forEach((m) => {
+  if (CONFIG.paintMaterialMatch && CONFIG.paintMaterialMatch(m.name)) paintMaterialNames.push(m.name);
+});
+
+// ---- 7c. Headlight-lens glass survey (config-provided exact-name allowlist). Deliberately SEPARATE
+// from the structural glassMaterials/glassMeshNodes survey above: these are small lighting-lens panes
+// over reflectors/emitters that car.ts's polishCarMaterials tunes toward "lit lens" (glossy + warm
+// emissive), never registered as shatterable window glass. ----
+const headlightLensAllowlist = CONFIG.headlightLensMaterialNames || new Set();
+const headlightLensMaterialNames = json.materials.filter((m) => headlightLensAllowlist.has(m.name)).map((m) => m.name);
+
 // ---- 8. Trademarked-logo textures to neutralize at load (config-provided; empty for the Mustang) ----
 const logoMaterialsToSanitize = CONFIG.logoMaterialsToSanitize || [];
 
@@ -438,6 +484,19 @@ export interface CarMap {
   glassMaterials: GlassMaterial[];
   glassMeshNodes: string[];
   /**
+   * Body-paint material names found in this GLB (scene/carMaterials.ts's tunePaint() targets these —
+   * data-driven so a car swap that renames the paint material can't silently stop matching, the way a
+   * hand-maintained regex did for the S90's "Car Paint" material).
+   */
+  paintMaterialNames: string[];
+  /**
+   * Headlight-lens glass material names (scene/carMaterials.ts's tuneHeadlightLens() targets these).
+   * Separate from glassMaterials/glassMeshNodes above — these are small lighting-lens panes tuned
+   * toward "lit lens" (glossy + warm emissive), never registered as shatterable window glass. Empty
+   * for assets with no such dedicated lens material.
+   */
+  headlightLensMaterialNames: string[];
+  /**
    * Materials carrying a trademarked logo texture to neutralize at load (scene/car.ts clears these
    * texture slots). Empty for the Mustang asset (no logo textures — all flat color factors).
    */
@@ -461,6 +520,8 @@ export const CAR_MAP: CarMap = ${JSON.stringify(
     chosenVariantIndex: CHOSEN_VARIANT_INDEX,
     glassMaterials,
     glassMeshNodes,
+    paintMaterialNames,
+    headlightLensMaterialNames,
     logoMaterialsToSanitize,
   },
   null,
@@ -476,4 +537,5 @@ console.log('wheel radius mm (FL):', wheelData.frontLeft.radiusMm, 'width mm:', 
 console.log('panels:', Object.keys(panelData).join(', '));
 console.log('chassis:', Object.keys(chassisData).join(', '));
 console.log('glass materials:', glassMaterials.map((g) => g.name).join(', ') || '(none)', '| glass nodes:', glassMeshNodes.join(', ') || '(none)');
+console.log('paint materials:', paintMaterialNames.join(', ') || '(none)', '| headlight lens materials:', headlightLensMaterialNames.join(', ') || '(none)');
 console.log('variants:', variants.join(', ') || '(none)', '| logo-sanitize:', logoMaterialsToSanitize.length);

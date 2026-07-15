@@ -21,14 +21,14 @@
     {
       "label": "chassis peak decel in NHTSA-56 target band [35,55]g",
       "pass": true,
-      "detail": 47.470338145393185
+      "detail": 47.22673183231279
     },
     {
       "label": "front crush within reference band [0.18, 0.50]",
       "pass": true,
       "detail": {
-        "depthM": 0.40470340847969055,
-        "dentedCount": 38476
+        "depthM": 0.4057067334651947,
+        "dentedCount": 38164
       }
     },
     {
@@ -39,7 +39,7 @@
     {
       "label": "structural crush visual applied to the shell (>0.25m at 56)",
       "pass": true,
-      "detail": 0.506656021725665
+      "detail": 0.507670951344228
     },
     {
       "label": "rendered geometry matches registry+structural field (<1mm)",
@@ -66,7 +66,7 @@
     {
       "label": "dented vertex count > 0",
       "pass": true,
-      "detail": 43248
+      "detail": 42997
     },
     {
       "label": "4 occupant seats reported",
@@ -82,44 +82,44 @@
           "alive": true,
           "ejected": false,
           "state": "seated",
-          "peakAccelG": 49.21939526390706,
-          "peakAccelG1Step": 67.3366965842812
+          "peakAccelG": 48.936476434175184,
+          "peakAccelG1Step": 77.02174967667241
         },
         {
           "seatKey": "frontRight",
           "alive": true,
           "ejected": false,
           "state": "seated",
-          "peakAccelG": 53.585493961705154,
-          "peakAccelG1Step": 70.23508991093173
+          "peakAccelG": 53.716353344742714,
+          "peakAccelG1Step": 80.37318068084565
         },
         {
           "seatKey": "rearLeft",
           "alive": true,
-          "ejected": true,
-          "state": "settled",
-          "peakAccelG": 49.29029345914374,
-          "peakAccelG1Step": 69.00389352575876
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 53.3549910874402,
+          "peakAccelG1Step": 79.95419807104356
         },
         {
           "seatKey": "rearRight",
           "alive": true,
-          "ejected": true,
-          "state": "flee",
-          "peakAccelG": 54.60486763535492,
-          "peakAccelG1Step": 71.03233123419443
+          "ejected": false,
+          "state": "seated",
+          "peakAccelG": 54.20057446838643,
+          "peakAccelG1Step": 81.14770780221136
         }
       ]
     },
     {
       "label": "mechanical front crush within [0.25, 0.52]",
       "pass": true,
-      "detail": 0.4632996689307237
+      "detail": 0.464227759036835
     },
     {
       "label": "mechanical rear crush ~0 in a frontal",
       "pass": true,
-      "detail": 6.765128868213566e-7
+      "detail": 0.0000010034844091233452
     },
     {
       "label": "intrusion readout present and under the 0.15m leg-injury line at 56",
@@ -137,6 +137,8 @@
       "detail": [
         "frontCrushM",
         "rearCrushM",
+        "frontCrushPlasticM",
+        "rearCrushPlasticM",
         "intrusionM",
         "coreRetreatM",
         "coreRetreatFrontM",
@@ -148,7 +150,7 @@
       "label": "offset64: struck-side core collapses (>0.15m)",
       "pass": true,
       "detail": {
-        "pos": 0.37437754114905886,
+        "pos": 0.3746729636960245,
         "neg": 0
       }
     },
@@ -156,7 +158,7 @@
       "label": "offset64: intact-side core stays (<0.05m)",
       "pass": true,
       "detail": {
-        "pos": 0.37437754114905886,
+        "pos": 0.3746729636960245,
         "neg": 0
       }
     },
@@ -164,8 +166,8 @@
       "label": "offset64: struck-side rail mechanically shortened (front cell >0.08m)",
       "pass": true,
       "detail": [
-        0.2343775411490589,
-        0.1143775411490589
+        0.23467296369602447,
+        0.11467296369602448
       ]
     },
     {
@@ -180,5 +182,5 @@
   "failed": [],
   "consoleErrors": [],
   "pageErrors": [],
-  "timestamp": "2026-07-12T18:07:37.084Z"
+  "timestamp": "2026-07-15T17:18:58.118Z"
 }

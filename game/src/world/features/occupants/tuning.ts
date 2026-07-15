@@ -82,6 +82,19 @@ export function sideOf(part: PartKey): Side | null {
  * improvement over the original several-cm overshoot) rather than pushed further trying to force a
  * visible poke that this glass material won't reveal either way.
  */
+/**
+ * P001 FLOOR-CLIPPING PARTIAL MITIGATION (2026-07-15): shin.halfLen shortened 0.18 -> 0.14 (matched by
+ * ATTACH.shinKnee below) as ONE of two levers (the other is SEAT_LOCAL's y raise) that together raise
+ * the resting ankle/foot position -- see SEAT_LOCAL's doc comment for the full measured before/after
+ * and the honest disclosure that this does NOT eliminate the pre-existing "feet stand on the world
+ * ground plane through the occupant-transparent floorpan" behavior (vehicle/geometry.ts's FOOTWELL-
+ * SHELF NEGATIVE RESULT doc comment -- a real fix needs a terrain heightfield category-bit change
+ * outside this feature's ownership), only reduces how far below the floor line the foot capsule sits.
+ * A shorter calf is a real, visible proportion change (this ragdoll was never anthropometrically exact
+ * to begin with -- see this table's own original doc comment above) but was preferred over a much
+ * larger seat-height raise, which would eat further into the roof-clearance margin the torso/head
+ * TUNING NOTE (above) already fought hard to win back.
+ */
 export const PART_DIMS: Record<PartBase, { radius: number; halfLen: number }> = {
 	pelvis: { radius: 0.11, halfLen: 0.05 },
 	torso: { radius: 0.14, halfLen: 0.16 },
@@ -89,7 +102,7 @@ export const PART_DIMS: Record<PartBase, { radius: number; halfLen: number }> = 
 	upperArm: { radius: 0.05, halfLen: 0.13 },
 	forearm: { radius: 0.045, halfLen: 0.12 },
 	thigh: { radius: 0.08, halfLen: 0.18 },
-	shin: { radius: 0.06, halfLen: 0.18 },
+	shin: { radius: 0.06, halfLen: 0.14 },
 };
 
 /** Fraction of OCCUPANT_MASS_KG carried by each part -- sums to 1 (verified in features-occupants.
@@ -108,8 +121,19 @@ export const MASS_FRACTION: Record<PartKey, number> = {
 	shinR: 0.08,
 };
 
-/** Total occupant mass, kg -- within the spec's 40-60kg band. */
-export const OCCUPANT_MASS_KG = 55;
+/**
+ * Total occupant mass, kg. P001 RE-CALIBRATION (2026-07-15): raised 55 -> 77 toward a real Hybrid-III
+ * 50th-percentile male (~77kg) -- the "human-like weight" half of the dummies-limp bug (a too-light
+ * ragdoll under-loads gravity's own torque on every joint, compounding the spring-softness half of the
+ * same bug, see BALL_SPRING_HERTZ/HINGE_SPRING_HERTZ's doc comments). MASS_FRACTION (below) is
+ * unchanged -- this only rescales every part's absolute mass, preserving the same relative
+ * body-segment proportions. RESTRAINT_FORCE_THRESHOLD_N and DEATH_PEAK_ACCEL_G were re-verified against
+ * this value (see this feature's sim tests) rather than re-derived from scratch: a heavier body loads
+ * the belt/impacts proportionally harder for the same deceleration, so those thresholds' MEASURED bands
+ * (tuning doc comments above/in active.ts) may need a future re-calibration pass if a later change
+ * shifts the crash-speed tiers -- flagged, not silently left inconsistent.
+ */
+export const OCCUPANT_MASS_KG = 77;
 
 /** Rest-pose rotation OFFSET of each part's body, relative to the chassis's own rotation (i.e.
  * bodyWorldRot = chassisWorldRot * REST_OFFSET[part]) -- every part's capsule is authored along its
@@ -147,7 +171,7 @@ export const ATTACH = {
 	forearmTop: { x: 0, y: 0.12, z: 0 } as V3, // elbow attach, on forearm
 	thighHip: { x: 0, y: -0.18, z: 0 } as V3, // hip attach, on thigh (its own local frame, pre-REST_OFFSET)
 	thighKnee: { x: 0, y: 0.18, z: 0 } as V3, // knee attach, on thigh
-	shinKnee: { x: 0, y: 0.18, z: 0 } as V3, // knee attach, on shin
+	shinKnee: { x: 0, y: 0.14, z: 0 } as V3, // knee attach, on shin (matches PART_DIMS.shin.halfLen)
 };
 
 /**
@@ -207,35 +231,65 @@ export const ATTACH = {
 // the Mustang's 2-door fastback, whose rear bench sat in the occupant-transparent TAIL crush volume
 // (z=-1.05 < BULKHEAD_Z_M=-0.64) for lack of a real 4-door cabin to seat them in. This completes the
 // "dummies actually in the seats" ask for a genuine sedan layout.
+//
+// P001 FLOOR-CLIPPING PARTIAL MITIGATION (2026-07-15): y raised +0.08 on all 4 seats (front 0.22->0.30,
+// rear 0.20->0.28, front/rear gap preserved) -- the other of the two lightweight levers used alongside
+// PART_DIMS.shin's halfLen shortening (see that constant's doc comment) to reduce (not eliminate) how
+// far the resting foot capsule sits below the floorpan's top face (FLOORPAN_TOP_Y_M=0.03,
+// vehicle/geometry.ts) without touching vehicle/* geometry or re-attempting the reverted footwell shelf
+// (vehicle/geometry.ts's FOOTWELL-SHELF NEGATIVE RESULT doc comment -- blocked on a terrain
+// heightfield category-bit change outside this feature's ownership).
+// MEASURED (300-step settle, full 4-occupant rig, both levers combined): ankle-capsule-bottom Y rose
+// from -0.265 to -0.138 (front) / -0.159 (rear) (chassis-local) -- still below the floor line and the
+// hull bottom (-0.119), i.e. feet still visually dip through the floor and still ultimately rest on the
+// world ground plane through it (the documented pre-existing tradeoff), but the shin CAPSULE'S OWN
+// CENTER (not just its ankle tip) rose from -0.03 to +0.057 (front) / +0.036 (rear), both above the
+// floor line (0.03) -- see this feature's occupants-load-pose.test.mjs sim test for the current numbers.
+// HEADROOM CHECK: this raise was verified against the torso/head TUNING NOTE's roofline constraint
+// (PART_DIMS's own doc comment above) -- measured head-top Y after this raise is 0.82 (front) / 0.80
+// (rear), still below CANTRAIL_Y_M=0.91 with a real (~0.09-0.11m) margin, though visibly tighter than
+// before this raise -- a future change that further raises SEAT_LOCAL.y or grows the head/torso
+// capsules should re-check this margin.
 export const SEAT_LOCAL: Record<SeatKey, V3> = {
-	frontLeft: { x: 0.4, y: 0.22, z: 0.35 },
-	frontRight: { x: -0.4, y: 0.22, z: 0.35 },
-	rearLeft: { x: 0.4, y: 0.2, z: -0.75 },
-	rearRight: { x: -0.4, y: 0.2, z: -0.75 },
+	frontLeft: { x: 0.4, y: 0.3, z: 0.35 },
+	frontRight: { x: -0.4, y: 0.3, z: 0.35 },
+	rearLeft: { x: 0.4, y: 0.28, z: -0.75 },
+	rearRight: { x: -0.4, y: 0.28, z: -0.75 },
 };
 
 /** Front 2 seats are belted (higher restraint force threshold, N); rear 2 are unbelted (lower) -- the
  * spec's "graded drama": a hard frontal ejects at least the unbelted ones, mild driving never breaks
  * either. Tuned against features-occupants.test.mjs (seated-stability / jostle / ejection). */
+// P001 RE-CALIBRATION (2026-07-15): re-measured directly (sim probes, same shape as this file's other
+// diag/*-trace scripts) rather than just rescaling by OCCUPANT_MASS_KG's 77/55=1.4x ratio -- a naive
+// 1.4x mass-only rescale (tried first) was NOT enough: the strengthened joint springs (BALL_SPRING_HERTZ/
+// HINGE_SPRING_HERTZ, see those constants' doc comments -- also part of this same P001 fix) hold the
+// ragdoll's core noticeably more rigidly at rest, which transmits MORE of a bump/crash's impulse straight
+// through the lap-restraint rather than letting it bleed off into joint sag -- MEASURED, a 30km/h mild
+// bump's rear-belt peak grew from the historical 1.39kN to 5.25-5.32kN (3.8x, not the 1.4x mass alone
+// would predict), and the 70km/h crash-band peaks grew similarly (front 15.7-16.6kN -> 22.8-28.7kN, rear
+// 3.95-4.48kN -> 22.8-22.9kN). Thresholds below are re-derived from these fresh measurements, keeping the
+// same STRUCTURE as before (front comfortably survives the 70km/h band; rear sits between the mild-bump
+// peak and the 70km/h band with real margin both ways; 140km/h+ still overwhelms both by force alone --
+// re-verified, sim/occupants-active.test.mjs's overwhelm test and occupants-escalation's dead-stay-limp
+// test both still see 130-150g peaks and full kills at that speed).
 export const RESTRAINT_FORCE_THRESHOLD_N: Record<SeatKey, number> = {
-	// TIER-3 STAGE-2 RE-CALIBRATION (16000 -> 20000, measured sim/diag/stage2-inj70-trace with the
-	// full browser-faithful loop): in the contact era a 70km/h wall loads the front belts to
-	// 15.7-16.6kN while the crash-gate is open -- 16000 sat exactly ON that band and one belted
-	// front ejected. The fronts' story is "belted: they stay in at 70" (only the unbelted rears
-	// fly); 20000 gives ~20% margin. A 140km/h+ crash still overwhelms this by force alone.
-	frontLeft: 20000,
-	frontRight: 20000,
-	// TIER-3 STAGE-2 RE-CALIBRATION (measured, sim/diag/stage2-inj30/70-trace probes with the full
-	// browser-faithful loop INCLUDING the damage system -- its panel-weld breaks and crumple-first
-	// ordering soften the deceleration the rear anchors see): at a 70km/h wall the rear belt loads
-	// only 3.95-4.48kN while the crash-gate is open (the old 4000, calibrated pre-Stage-2 at 5.4kN,
-	// sat exactly ON that band -- one rear ejected, the other read 0.99x and stayed). At a 30km/h
-	// bump the rear peak is 1.39kN with the gate shut anyway (chassis window-mean 1.19g < 2.5g).
-	// 3000 gives >=30% margin under the 70km/h band and >=2.1x margin over the 30km/h one. Ordinary
-	// hard-driving contact spikes DO exceed it (13.8kN single-step limb arrests, measured) but ride
-	// under an ordinary-driving chassis: the crash-gate blocks them and they never sustain 6 polls.
-	rearLeft: 3000,
-	rearRight: 3000,
+	// MEASURED 70km/h front-belt peak is now 22.8-28.7kN (frontLeft highest) -- 35000 gives >=22% margin
+	// above the highest measured peak, restoring the "belted fronts stay in at 70" intent (frontLeft's
+	// old 28000 sat right on top of its own 28.7kN peak and ejected, a regression this re-derivation
+	// fixes -- confirmed, sim/features-occupants.test.mjs's ejection test).
+	frontLeft: 35000,
+	frontRight: 35000,
+	// MEASURED 30km/h mild-bump rear-belt peak is now 5.25-5.32kN (was 1.39kN pre-P001); MEASURED 45km/h
+	// wall-crash rear-belt peak (occupants-escalation.test.mjs's mid-FLEE/SAFE scenarios specifically
+	// need this speed to reliably eject) is 11.0-12.5kN; MEASURED 70km/h rear-belt peak is 22.8-22.9kN
+	// (was 3.95-4.48kN). An initial 12000 (picked from the 30/70km/h bracket alone) sat right ON TOP of
+	// the 45km/h band and only unreliably ejected one of the two rear seats there -- FAILED
+	// escalation-4's mid-FLEE coverage. Lowered to 8000: >=1.5x margin over the 30km/h mild-bump peak
+	// (no ejection there, re-verified), and the 45km/h band clears it with >=1.37x margin (reliably
+	// ejects both rears, restoring escalation-4's flee/safe coverage), well under the 70km/h band too.
+	rearLeft: 8000,
+	rearRight: 8000,
 };
 
 /**
@@ -352,19 +406,91 @@ export const HIP_TWIST_RAD = 0.4;
 export const RESTRAINT_CONE_RAD = 0.5;
 export const RESTRAINT_TWIST_RAD = 0.35;
 
-/** Modest critically-damped-ish spring on every ball joint, pulling it back toward the seated rest
- * pose -- spec: "add modest spring damping so they don't flop like noodles". */
-export const BALL_SPRING_HERTZ = 3;
+/**
+ * P001 RE-CALIBRATION (2026-07-15, "dummies limp/unposed at load" bugfix): 3Hz was measured (sim/diag/
+ * knee-hinge-sign-probe.mjs + ad-hoc settle traces) to be far too soft to hold ANY seated pose against
+ * gravity alone -- with the FULL active-layer brace scheduler running, gLoadSmoothed stays at 0 the
+ * entire time the car is idle/at rest (braceLevel only ramps up past BRACE_G_LO=0.25g), so at
+ * crash-lab load every ball joint (spine/neck/shoulders/hips/lap-belt) sits at this PASSIVE value
+ * FOREVER, not just momentarily -- this is not a transient, it is the steady state at rest. MEASURED
+ * (raw physics.ts, no active layer, pure gravity + this spring): the hip ball joint's cone angle drifts
+ * from 0 to 0.35-0.46rad (20-26 degrees) of sag within ~1s and stays there -- a visibly slumped,
+ * not-seated thigh; the SHOULDER sags even worse at this value (0.48-0.62rad, 28-35 degrees). Raised
+ * 3 -> 6 first (hip sag dropped to a few degrees) but the SHOULDER was still sagging 0.48-0.62rad even
+ * at 6Hz -- raised again to 9 (damping stays 1, already critical), which is what finally brought every
+ * ball joint's settle-sag under ~0.1rad (spine/hip) or ~0.15-0.19rad (shoulder -- the single heaviest
+ * gravity-torque case, arms hanging fully extended from the shoulder) -- see this feature's sim test
+ * occupants-load-pose.test.mjs for the full measured settle. SEATED_BRACE_HERTZ (below) was raised in
+ * step so a meaningful passive->braced escalation still exists (a spring that's already AT its braced
+ * value at rest would make the "brace stiffens under real g" behavior invisible). Still soft enough
+ * that a genuine crash's angular impulse visibly overwhelms it -- the drama gradient this joint's
+ * spring was always meant to preserve is unchanged, just the FLOOR under it is no longer below the
+ * dummy's own resting weight. */
+export const BALL_SPRING_HERTZ = 9;
 export const BALL_SPRING_DAMPING = 1;
 
-/** Elbow/knee (revolute) limits -- deliberately generous/symmetric (rather than a biomechanically
- * one-sided hinge range) because the joint's own zero-angle reference depends on a sign convention this
- * feature doesn't independently verify against upstream (see physics.ts's HINGE_AXIS_ROTATION doc
- * comment) -- a symmetric range avoids the joint ending up almost-fully-limited on the wrong side. */
+/**
+ * Elbow/knee (revolute) limits.
+ *
+ * SIGN CONVENTION (RE-DERIVED 2026-07-15, was previously UNVERIFIED -- see sim/diag/
+ * knee-hinge-sign-probe.mjs, kept in the repo as the empirical proof): the API exposes no way to
+ * introspect a RevoluteJoint's angle-sign convention analytically (no doc, and this feature doesn't
+ * control the native binding), so it was determined empirically by directly spinning each child body
+ * (shinL / forearmL) about the joint's own hinge axis (chassis lateral, world +X at rest -- confirmed
+ * by construction, see physics.ts's HINGE_AXIS_ROTATION doc) and watching both getAngle() and the
+ * actual world geometry react:
+ *   - KNEE (thigh->shin): the joint's zero already encodes the seated ~90-degree bend (thigh horizontal,
+ *     shin vertical -- see REST_OFFSET's doc). +X world spin of the shin INCREASES getAngle() AND swings
+ *     the ankle TOWARD the thigh's hip end (measured: ankle-to-hip distance shrinks) -- POSITIVE angle
+ *     is FURTHER FLEXION, the fold-the-calf-into-the-thigh bug direction. -X spin DECREASES getAngle()
+ *     and swings the ankle AWAY from the thigh (extension, toward a straight standing leg, needed by
+ *     the get-up/flee FSM's knee-straightening pose) -- NEGATIVE angle is EXTENSION.
+ *   - ELBOW (upperArm->forearm): the joint's zero is a fully STRAIGHT hanging arm (both REST_OFFSETs are
+ *     identity, unlike the knee). The SAME +X-spin-increases-getAngle() relationship holds (built via
+ *     the identical buildHingeFrames() recipe), and +X swings the wrist BACKWARD (away from the body,
+ *     an anatomically near-impossible elbow hyperextension) while -X swings it FORWARD (a natural curl,
+ *     e.g. resting a forearm on a lap/wheel) -- so POSITIVE angle is again the anatomically-wrong/
+ *     ROM-violating direction, NEGATIVE is the natural one.
+ * Both hinges therefore want the SAME asymmetric shape: a TIGHT positive (upper) limit and a GENEROUS
+ * negative (lower) one. HINGE_UPPER_RAD tightened 2.2 -> 0.3 (17 degrees past each joint's own zero --
+ * measured (sim/diag/knee-hinge-sign-probe.mjs-style settle trace) to comfortably clear the knee's own
+ * natural jostle, which peaks under 0.11rad even completely unclamped with the strengthened spring
+ * below). HINGE_LOWER_RAD kept at -2.2 (unchanged): the knee's get-up/flee pose needs to reach roughly
+ * -1.57rad (fully straight leg) with margin for the muscle PD's overshoot + the walking gait's
+ * hip-driven sway, and the elbow's natural forward flex range benefits from staying generous too (real
+ * elbow ROM is ~145 degrees of flexion).
+ *
+ * ELBOW HONEST DISCLOSURE: unlike the knee (which naturally settles within a few degrees of its seated
+ * zero once the spring below is strengthened), the elbow does NOT naturally rest near zero even with a
+ * strong spring -- MEASURED (natural-gravity settle, no forced input): with HINGE_UPPER_RAD raised high
+ * enough to observe the true unclamped equilibrium, the elbow still settles to ~0.8rad in the
+ * hyperextension direction (a real dynamic effect of this ragdoll's seated mass distribution, not a
+ * transient or a spring-tuning artifact) and PINS against whatever upper limit is actually set (0.4rad
+ * measured pinned at exactly 0.4, 0.6 pinned at exactly 0.6). 0.3 was chosen as a hard backstop that
+ * caps this at a small, non-alarming amount (this dummy is not an anatomically-exact model; a real
+ * elbow doesn't hyperextend like this at all) rather than a value the spring naturally holds without
+ * touching the limit. Flagged as a residual imperfection: the elbow visibly rests against its limit
+ * rather than floating freely inside it, unlike every other joint in this ragdoll.
+ */
 export const HINGE_LOWER_RAD = -2.2;
-export const HINGE_UPPER_RAD = 2.2;
-export const HINGE_SPRING_HERTZ = 1.5;
-export const HINGE_SPRING_DAMPING = 0.6;
+export const HINGE_UPPER_RAD = 0.3;
+/**
+ * P001 RE-CALIBRATION: 1.5Hz/0.6 damping (underdamped) was measured to let a hanging forearm/shin swing
+ * and RING for a while before settling into a new, visibly-wrong equilibrium far from the assembled
+ * rest pose (measured: an isolated elbow -- pure gravity, no active layer -- swings from 0 to ~1.55rad
+ * with the OLD 1.5Hz spring, a dead-straight arm sagging to a near-right-angle bend, and STAYS there --
+ * a real physical steady state of the old spring, not a transient). Since this joint type exposes no
+ * runtime hertz/damping setter (checked: RevoluteJoint's only post-creation controls are
+ * enableMotor/setMotorSpeed/setMaxMotorTorque/enableLimit/setLimits -- see src/ts/joint.ts), this value
+ * has to be strong enough to hold the seated/hanging pose UNSCHEDULED, permanently, unlike the ball
+ * joints' gain-scheduled brace. Raised to 10Hz/critically-overdamped 1.1: re-measured, the KNEE now
+ * stays within ~0.1rad of zero (fixed -- see this feature's sim test), but the ELBOW still settles to a
+ * genuine ~0.8rad equilibrium even at this much higher stiffness (see HINGE_UPPER_RAD's doc comment
+ * immediately above for the honest disclosure on why the limit, not the spring, is doing the real work
+ * there). Still a soft solver spring, not a rigid constraint -- a genuine crash's angular impulse still
+ * overwhelms it, same drama-gradient argument as every other spring in this file. */
+export const HINGE_SPRING_HERTZ = 10;
+export const HINGE_SPRING_DAMPING = 1.1;
 
 export const OCCUPANT_FRICTION = 0.5;
 export const OCCUPANT_RESTITUTION = 0.1;
@@ -480,8 +606,14 @@ export function partTransverseInertia(part: PartKey): number {
  * The crash drama gradient is preserved: solver springs are SOFT constraints a violent angular
  * impulse still overwhelms (measured: 140km/h braced-vs-limp deviation ratio stays within the
  * overwhelm test's band), and a real crash still snaps the belt through RESTRAINT_FORCE_THRESHOLD_N
- * -> ejection -> limp. */
-export const SEATED_BRACE_HERTZ = 9;
+ * -> ejection -> limp.
+ *
+ * P001 RE-CALIBRATION (2026-07-15): BALL_SPRING_HERTZ (the passive floor) was raised 3 -> 9 to stop
+ * gravity alone from sagging the seated pose (see that constant's doc comment) -- which would have left
+ * this braced value EQUAL to the passive one (both were 9), erasing the whole passive->braced
+ * escalation the brace schedule exists to produce. Raised in step, 9 -> 20, preserving a real (~2.2x)
+ * stiffening step under measured hard g so the "brace up" is still visibly distinct from resting. */
+export const SEATED_BRACE_HERTZ = 20;
 export const BRACE_G_LO = 0.25; // below this chassis g-load: fully relaxed
 export const BRACE_G_HI = 0.6; // above this: fully braced
 export const BRACE_ATTACK_TAU_S = 0.06;

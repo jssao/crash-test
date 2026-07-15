@@ -184,8 +184,19 @@ export const MID_FRICTION = 0.7;
 // the trunk never sinks into the ground; only the tip-over axis gives. A car contact is a one-step
 // force spike (no ramp), so pure in-place softening never engaged here -- baseline compliance is what
 // makes the lean real (measured: game/sim/destruction-feel.test.mjs).
+//
+// P002 OFF-AXIS RETUNE (game/sim/features-trees-offaxis.test.mjs): 4Hz was calibrated ONLY against a
+// dead-center head-on hit. A 30-65deg off-axis/glancing hit delivers materially LESS torque about the
+// vertical joint for the SAME speed (measured: a 40km/h head-on hit delivers ~111kNm, a 65deg-off-axis
+// 40km/h hit only ~23-29kNm) -- with the old 4Hz stiffness that off-axis case leaned under 2deg,
+// reading as "the tree didn't react" even though a real, solid hit landed (the P002/P015 "rigid tree"
+// complaint). LOWERED 4 -> 2Hz (softer torsion spring, same torque now buys visibly more lean) so an
+// off-axis 40km/h hit clears ~3-5deg and a 55-70km/h off-axis hit clears ~4-9deg, while the existing
+// head-on invariants (destruction-feel.test.mjs: 40km/h leans >2deg and does NOT fell; 80km/h fells)
+// still hold -- head-on lean at 40km/h actually improved (5.4 -> ~6.9deg) since the same softer spring
+// answers the SAME delivered torque with more angle.
 export const MID_WELD_LINEAR_HERTZ = 0;
-export const MID_WELD_ANGULAR_HERTZ = 4;
+export const MID_WELD_ANGULAR_HERTZ = 2;
 export const MID_WELD_DAMPING_RATIO = 0.7;
 
 /** Fell (weld-break) threshold. RAISED from 260kN so the mid trunk actually lives up to its own design
@@ -199,15 +210,37 @@ export const MID_TORQUE_THRESHOLD_NM = 140_000;
 export const MID_SITES: readonly TreeSiteXZ[] = [MID_HERO, ...RING_FILL.slice(LARGE_FILL, LARGE_FILL + MID_FILL)];
 
 // ---------------------------------------------------------------------------------------------
-// Large tree: STATIC trunk (the deliberately-immovable anchor -- stops the car dead) + 2-3 welded
-// DYNAMIC branches that break off on impact for drama. One branch always points toward -z (the
-// direction a car driving +z through this zone approaches from), at bumper height, so a head-on
-// hit into the trunk also directly strikes that branch.
+// Large tree: the trunk is a DYNAMIC capsule pinned to a static ground anchor by a very-stiff WELD
+// joint (2-3 welded DYNAMIC branches still break off on impact for drama). One branch always points
+// toward -z (the direction a car driving +z through this zone approaches from), at bumper height, so
+// a head-on hit into the trunk also directly strikes that branch.
+//
+// P002 FIX (was BodyType.Static -- literally immovable, and never registered a foreign mass, so
+// damage/welds.ts's massAwareDamageFactor read it as infinite-mass and dealt full WALL-strength car
+// damage off a "tree", exactly backwards for the biggest, most-likely-to-be-hit class): the trunk is
+// now dynamic + mass-registered (LARGE_TRUNK_MASS_KG below) like every other tree member, so a car hit
+// is attenuated the same mass-aware way. The root weld's angular stiffness is deliberately EXTREME
+// (LARGE_TRUNK_WELD_ANGULAR_HERTZ) -- high enough that this still reads and drives (bodyCount, forest
+// perf, existing 80km/h "trunk unmoved" test) just like the old immovable anchor, but with a hairline
+// of give under a genuinely severe hit (a couple degrees at ~100km/h+, see LARGE_TRUNK_WELD_* docs) --
+// no break threshold at all (this class never snaps by design; only its welded branches do).
 // ---------------------------------------------------------------------------------------------
 
 export const LARGE_TRUNK_RADIUS_M = 0.6;
 export const LARGE_TRUNK_HEIGHT_M = 10;
 export const LARGE_TRUNK_FRICTION = 0.8;
+/** Believable mature-trunk mass for a ~0.6m-radius/10m trunk (a real tree this size is several tonnes,
+ * but the gameplay-facing number only needs to read as "heavy, not infinite" for
+ * massAwareDamageFactor's e = m/(m+m_car) attenuation -- 1800kg against a ~1750kg car already reads as
+ * "close to a wall" (e~=0.51) while no longer being LITERALLY infinite-mass). */
+export const LARGE_TRUNK_MASS_KG = 1800;
+/** Root weld stiffness: rigid linearly (never sinks/slides -- same convention as the mid tree's own
+ * weld), and EXTREMELY stiff angularly (an order of magnitude past the mid tree's already-stiffened
+ * 2Hz) -- a barely-perceptible lean (1-2deg) only under a severe (~100km/h+) hit, never a floppy tree.
+ * Critically damped (ratio 1) so it settles without any wobble/oscillation reading as "loose". */
+export const LARGE_TRUNK_WELD_LINEAR_HERTZ = 0;
+export const LARGE_TRUNK_WELD_ANGULAR_HERTZ = 55;
+export const LARGE_TRUNK_WELD_DAMPING_RATIO = 1;
 
 export const LARGE_BRANCH_RADIUS_M = 0.12;
 export const LARGE_BRANCH_LENGTH_M = 1.6;

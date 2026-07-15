@@ -179,6 +179,15 @@ export interface PanelHandle {
 	 * direction-aware sprung/jam split -- see damage-tuning.ts's DOOR_SPRUNG_LATERAL_FRACTION_MAX.
 	 */
 	lateralStressWeighted: number;
+	/**
+	 * P013(d) ZONE PROPAGATION: accumulated adjacency-bleed stress this panel has received from its
+	 * physical neighbours (welds.ts), tracked separately from `stress` ONLY so the bleed can be hard-
+	 * capped (PANEL_ADJACENCY_BLEED_CAP) -- the bled amount is also added into `stress` (so it counts
+	 * toward escalation) but capped here so a neighbour's cross-zone bleed can NEVER by itself carry a
+	 * panel across its loosen threshold, however large the source panel's own accumulated stress grows.
+	 * Deliberately NOT part of lateralStressWeighted (a bleed carries no lateral direction of its own).
+	 */
+	bleedStress: number;
 	/** Sim-time (seconds) this panel broke, or null if still attached/loosened. */
 	breakTimeSec: number | null;
 	hitEventsDisabled: boolean;
@@ -261,6 +270,7 @@ export function createPanels(world: World, chassis: Body, spawnPosition: V3, spa
 			state: 'attached',
 			stress: 0,
 			lateralStressWeighted: 0,
+			bleedStress: 0,
 			breakTimeSec: null,
 			hitEventsDisabled: false,
 			despawned: false,

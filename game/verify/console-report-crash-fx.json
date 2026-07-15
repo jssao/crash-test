@@ -1,0 +1,80 @@
+{
+  "assertions": [
+    {
+      "label": "window.__FX__ present on crash-lab page",
+      "pass": true
+    },
+    {
+      "label": "mid-crash: real barrier contact reached within 150 steps (step 30)",
+      "pass": true,
+      "detail": 42997
+    },
+    {
+      "label": "mid-crash (step 30) particles active (glass shards / impact dust+debris)",
+      "pass": true,
+      "detail": {
+        "activeParticles": 147,
+        "decals": 1,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "run settled after 600 more fixed steps",
+      "pass": true,
+      "detail": "settled"
+    },
+    {
+      "label": "post-crash: puddle present (engine-bay fluid leak)",
+      "pass": true,
+      "detail": {
+        "activeParticles": 171,
+        "decals": 1,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "post-crash: at least one scuff/chip decal present",
+      "pass": true,
+      "detail": {
+        "activeParticles": 171,
+        "decals": 1,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "post-crash: decal count within its 60-slot cap",
+      "pass": true,
+      "detail": {
+        "activeParticles": 171,
+        "decals": 1,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "post-crash: particle count within its 400-slot cap",
+      "pass": true,
+      "detail": {
+        "activeParticles": 171,
+        "decals": 1,
+        "puddles": 1
+      }
+    },
+    {
+      "label": "window.__FX__ present on main driving page",
+      "pass": true
+    },
+    {
+      "label": "burnout: tire-smoke particles active",
+      "pass": true,
+      "detail": {
+        "activeParticles": 57,
+        "decals": 0,
+        "puddles": 0
+      }
+    }
+  ],
+  "failed": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-15T14:13:43.775Z"
+}

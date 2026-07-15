@@ -1,0 +1,62 @@
+{
+  "shots": [
+    {
+      "name": "index-overall-3q",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/index-overall-3q.png",
+      "bugs": [
+        "r005",
+        "r001"
+      ]
+    },
+    {
+      "name": "index-front-paint-headlight-closeup",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/index-front-paint-headlight-closeup.png",
+      "bugs": [
+        "r001",
+        "r002"
+      ]
+    },
+    {
+      "name": "crash-lab-3q-paint-headlights",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/crash-lab-3q-paint-headlights.png",
+      "bugs": [
+        "r001",
+        "r002"
+      ]
+    },
+    {
+      "name": "crash-lab-top-hood-roof-trunk",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/crash-lab-top-hood-roof-trunk.png",
+      "bugs": [
+        "r001"
+      ]
+    },
+    {
+      "name": "crash-lab-headlight-closeup",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/crash-lab-headlight-closeup.png",
+      "bugs": [
+        "r002",
+        "r001"
+      ]
+    },
+    {
+      "name": "model-viewer-iso",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/model-viewer-iso.png",
+      "bugs": [
+        "r005",
+        "r001",
+        "r002"
+      ]
+    },
+    {
+      "name": "model-viewer-front",
+      "path": "/Users/jesuscalderon/Documents/crash test/game/verify/paint-fix/model-viewer-front.png",
+      "bugs": [
+        "r002"
+      ]
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-15T15:38:37.382Z"
+}

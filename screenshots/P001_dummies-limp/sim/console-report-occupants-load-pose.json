@@ -1,0 +1,40 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "readoutOccupants": [
+    {
+      "seatKey": "frontLeft",
+      "alive": true,
+      "ejected": false,
+      "state": "seated",
+      "peakAccelG": 1.5365364001443385,
+      "peakAccelG1Step": 1.679736546924721
+    },
+    {
+      "seatKey": "frontRight",
+      "alive": true,
+      "ejected": false,
+      "state": "seated",
+      "peakAccelG": 1.5384242176331684,
+      "peakAccelG1Step": 1.67045037607762
+    },
+    {
+      "seatKey": "rearLeft",
+      "alive": true,
+      "ejected": false,
+      "state": "seated",
+      "peakAccelG": 1.4604076050079913,
+      "peakAccelG1Step": 2.155554110527407
+    },
+    {
+      "seatKey": "rearRight",
+      "alive": true,
+      "ejected": false,
+      "state": "seated",
+      "peakAccelG": 1.4543625167779364,
+      "peakAccelG1Step": 2.1382443387240655
+    }
+  ],
+  "allSeatedAliveNotEjected": true,
+  "timestamp": "2026-07-15T12:57:43.047Z"
+}

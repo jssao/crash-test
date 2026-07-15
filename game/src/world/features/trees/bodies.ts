@@ -43,7 +43,11 @@ import {
 	LARGE_SITES,
 	LARGE_TRUNK_FRICTION,
 	LARGE_TRUNK_HEIGHT_M,
+	LARGE_TRUNK_MASS_KG,
 	LARGE_TRUNK_RADIUS_M,
+	LARGE_TRUNK_WELD_ANGULAR_HERTZ,
+	LARGE_TRUNK_WELD_DAMPING_RATIO,
+	LARGE_TRUNK_WELD_LINEAR_HERTZ,
 	LARGE_WELD_ANGULAR_HERTZ,
 	LARGE_WELD_DAMPING_RATIO,
 	LARGE_WELD_LINEAR_HERTZ,
@@ -107,6 +111,11 @@ const SAPLING_ID_OFFSET = 0;
 const MID_ID_OFFSET = 1000;
 const BRANCH_ID_OFFSET = 2000;
 
+/** Large-tree trunk id, offset from that tree's `entityIdBase` -- createTreesWorld() spaces each
+ * large tree's branch ids `entityIdBase + i*10` apart (branches occupy +0..+2, see LARGE_BRANCH_LAYOUT),
+ * so +9 sits inside that same per-tree decade, clear of every branch AND the next large tree's base. */
+const LARGE_TRUNK_ID_SUBOFFSET = 9;
+
 /** Fracture wiring for stepTreesWorld() -- opt-in (the browser feature passes one; legacy sim tests
  * that call stepTreesWorld(trees) bare keep the old whole-trunk fell behavior byte-identical). */
 export interface TreesFractureContext {
@@ -124,6 +133,22 @@ const MID_STUMP_FRACTION = 0.3;
 const MID_FRAGMENT_SPEED_CAP_MS = 12;
 const MID_FRAGMENT_SPIN_CAP_RAD = 8;
 
+// P015 fix: a sapling that breaks well past its own threshold SNAPS in half (stump + flyer, same
+// fractureCapsuleTrunk() used by the mid tree) instead of the whole trunk popping free at the root --
+// a soft/marginal break (barely over threshold) still topples whole, unchanged, since a light shove
+// realistically pulls a sapling's shallow root out rather than snapping green wood.
+/** How far OVER the break threshold (force or torque, whichever tripped it) counts as a "hard" break
+ * that snaps the trunk in half -- 1.4 = 40% over threshold, per this task's brief. */
+const SAPLING_FRACTURE_OVER_RATIO = 1.4;
+/** Snap point: a thin sapling reads more convincingly snapping roughly a THIRD of the way up (close to
+ * where a real green sapling actually splinters under a car hit) than at the mid tree's own base-third
+ * convention -- same nominal-fraction-plus-jitter mechanism (fractureCapsuleTrunk jitters +/-10%). */
+const SAPLING_STUMP_FRACTION = 0.35;
+/** Release caps for the flying half -- a 9kg sapling section is light; let it tumble a bit livelier
+ * than the much heavier mid-tree log, still bounded (impulse-proportional-release philosophy). */
+const SAPLING_FRAGMENT_SPEED_CAP_MS = 9;
+const SAPLING_FRAGMENT_SPIN_CAP_RAD = 10;
+
 // =================================================================================================
 // Sapling
 // =================================================================================================
@@ -134,10 +159,17 @@ export interface SaplingTree {
 	readonly entityId: number;
 	readonly spawnPos: V3;
 	readonly anchor: Body;
+	/** The standing trunk until a break; after a FRACTURE (P015) this is re-pointed at the flying top
+	 * piece -- same convention as MidTree.trunk (see that field's doc comment). */
 	trunk: Body;
 	joint: SphericalJoint | null;
 	/** True once the joint has snapped (trunk is a free falling/toppled body thereafter). */
 	broken: boolean;
+	/** True once the trunk SNAPPED into stump + flyer (P015 -- "over ~40% break energy") rather than
+	 * toppling whole. */
+	fractured: boolean;
+	stump: { frag: FractureFragment; joint: WeldJoint } | null;
+	flyerFrag: FractureFragment | null;
 }
 
 function buildSaplingTrunk(world: World, pos: V3): { trunk: Body; shape: Shape } {
@@ -176,14 +208,32 @@ function buildSapling(world: World, id: string, entityId: number, site: TreeSite
 	trunk.setUserData(entityId);
 	const joint = attachSaplingJoint(world, anchor, trunk);
 	trunk.setAwake(false);
-	return { kind: 'sapling', id, entityId, spawnPos: pos, anchor, trunk, joint, broken: false };
+	return { kind: 'sapling', id, entityId, spawnPos: pos, anchor, trunk, joint, broken: false, fractured: false, stump: null, flyerFrag: null };
 }
 
 /** Idempotent: if the joint already snapped, destroys the (now free-flying/settled) old trunk and
  * rebuilds a fresh one + joint; otherwise just teleports the intact trunk back (cheaper, matches
- * world/bodies.ts's resetDestructibleWorld() teleport-and-sleep approach). */
-function resetSapling(world: World, s: SaplingTree): void {
-	if (s.broken || !s.joint) {
+ * world/bodies.ts's resetDestructibleWorld() teleport-and-sleep approach). Mirrors resetMid()'s 3-way
+ * shape (fractured / broken-whole / intact) for the P015 sapling-snap case. */
+function resetSapling(world: World, s: SaplingTree, massRegistry: Map<number, number> | null): void {
+	if (s.fractured && s.stump && s.flyerFrag) {
+		s.stump.joint.destroy();
+		s.stump.frag.shape.destroy(false);
+		s.stump.frag.body.destroy();
+		s.flyerFrag.shape.destroy(false);
+		s.flyerFrag.body.destroy(); // this IS s.trunk (re-pointed at fracture time)
+		massRegistry?.delete(s.stump.frag.entityId);
+		massRegistry?.delete(s.flyerFrag.entityId);
+		massRegistry?.set(s.entityId, SAPLING_MASS_KG);
+		s.stump = null;
+		s.flyerFrag = null;
+		s.fractured = false;
+		const { trunk } = buildSaplingTrunk(world, s.spawnPos);
+		trunk.setUserData(s.entityId);
+		s.trunk = trunk;
+		s.joint = attachSaplingJoint(world, s.anchor, trunk);
+		s.broken = false;
+	} else if (s.broken || !s.joint) {
 		s.trunk.destroy();
 		const { trunk } = buildSaplingTrunk(world, s.spawnPos);
 		trunk.setUserData(s.entityId); // re-tag: fresh body, same deterministic member id (spec §E)
@@ -198,20 +248,77 @@ function resetSapling(world: World, s: SaplingTree): void {
 	s.trunk.setAwake(false);
 }
 
+/** SNAPS a sapling trunk (P015) at its (jittered) roughly-a-third point -- same fractureCapsuleTrunk()
+ * machinery as fractureMid() (this file), just with the sapling's own dimensions/mass/thresholds. Only
+ * called for a "hard" break (SAPLING_FRACTURE_OVER_RATIO over threshold, see pollSaplingBreaks) --
+ * anything short of that still fells the whole trunk, unchanged. */
+function fractureSapling(s: SaplingTree, forceMag: number, ctx: TreesFractureContext, massRegistry: Map<number, number> | null): void {
+	s.joint!.destroy();
+	s.joint = null;
+	s.broken = true;
+
+	const t = s.trunk.getTransform();
+	const lv = s.trunk.getLinearVelocity();
+	const av = s.trunk.getAngularVelocity();
+	s.trunk.destroy();
+	massRegistry?.delete(s.entityId);
+
+	const { stump, flyer } = fractureCapsuleTrunk({
+		world: ctx.world,
+		position: t.position,
+		rotation: t.rotation,
+		linearVelocity: lv,
+		angularVelocity: av,
+		radius: SAPLING_TRUNK_RADIUS_M,
+		fullHeight: SAPLING_TRUNK_HEIGHT_M,
+		massKg: SAPLING_MASS_KG,
+		friction: SAPLING_FRICTION,
+		stumpFraction: SAPLING_STUMP_FRACTION,
+		forceMag,
+		threshold: { forceN: SAPLING_FORCE_THRESHOLD_N, torqueNm: SAPLING_TORQUE_THRESHOLD_NM },
+		seed: fractureSeed(s.entityId),
+		timeSec: 0, // tree debris never despawns (existing "stays a live hazard" convention)
+		idAllocator: ctx.idAllocator,
+		breakSpeedCapMs: SAPLING_FRAGMENT_SPEED_CAP_MS,
+		breakSpinCapRad: SAPLING_FRAGMENT_SPIN_CAP_RAD,
+	});
+	// Rigid stump weld (same "snapped off at the base" convention as fractureMid()).
+	const stumpJoint = ctx.world.createWeldJoint(s.anchor, stump.body, {
+		linearHertz: 0,
+		angularHertz: 0,
+		linearDampingRatio: 1,
+		angularDampingRatio: 1,
+	});
+	s.stump = { frag: stump, joint: stumpJoint };
+	s.flyerFrag = flyer;
+	s.trunk = flyer.body;
+	s.fractured = true;
+	massRegistry?.set(stump.entityId, stump.massKg);
+	massRegistry?.set(flyer.entityId, flyer.massKg);
+}
+
 /** Polls each intact sapling joint's constraint force/torque and snaps it past threshold -- direct
  * per-step polling (not world.jointEvents(), which only reports for awake joints and would otherwise
- * need extra userData plumbing) -- same technique as game/src/damage/welds.ts. */
-function pollSaplingBreaks(saplings: readonly SaplingTree[]): void {
+ * need extra userData plumbing) -- same technique as game/src/damage/welds.ts. P015: a "hard" break
+ * (SAPLING_FRACTURE_OVER_RATIO over threshold) SNAPS the trunk in half when a fracture context is
+ * provided; a marginal break, or no fracture context (legacy sim tests), fells the whole trunk exactly
+ * as before. */
+function pollSaplingBreaks(saplings: readonly SaplingTree[], fracture: TreesFractureContext | undefined, massRegistry: Map<number, number> | null): void {
 	for (const s of saplings) {
 		if (s.broken || !s.joint) continue;
 		const f = s.joint.getConstraintForce();
 		const forceMag = Math.hypot(f.x, f.y, f.z);
 		const t = s.joint.getConstraintTorque();
 		const torqueMag = Math.hypot(t.x, t.y, t.z);
-		if (forceMag > SAPLING_FORCE_THRESHOLD_N || torqueMag > SAPLING_TORQUE_THRESHOLD_NM) {
-			s.joint.destroy();
-			s.joint = null;
-			s.broken = true;
+		const overRatio = Math.max(forceMag / SAPLING_FORCE_THRESHOLD_N, torqueMag / SAPLING_TORQUE_THRESHOLD_NM);
+		if (overRatio > 1) {
+			if (overRatio > SAPLING_FRACTURE_OVER_RATIO && fracture && tryConsumeFractureBudget(fracture.budget)) {
+				fractureSapling(s, forceMag, fracture, massRegistry);
+			} else {
+				s.joint.destroy();
+				s.joint = null;
+				s.broken = true;
+			}
 		}
 	}
 }
@@ -401,7 +508,20 @@ export interface LargeTree {
 	readonly kind: 'large';
 	readonly id: string;
 	readonly spawnPos: V3;
-	readonly trunk: Body; // static, never destroyed/moved
+	/** Static ground anchor the (now dynamic) trunk is welded to -- same anchor/trunk split as
+	 * sapling/mid, added by the P002 fix (see tuning.ts's LARGE_TRUNK_WELD_* doc comment). */
+	readonly anchor: Body;
+	/** DYNAMIC (P002 fix -- was BodyType.Static): a very-stiff root weld to `anchor` gives it real,
+	 * registered mass (massAwareDamageFactor) and a hairline of lean under a severe hit, while reading
+	 * and driving exactly like the old immovable trunk for every existing consumer (visuals, tilt,
+	 * tests) -- see tuning.ts's doc comment. Never destroyed/rebuilt (no break threshold at all: this
+	 * class only ever loses branches, never the trunk itself). */
+	readonly trunk: Body;
+	readonly trunkEntityId: number;
+	/** Never polled for a break -- see tuning.ts's LARGE_TRUNK_WELD_* doc comment ("no break threshold
+	 * at all"). Kept on the record purely so destroySingleTree/teardown paths have a handle if ever
+	 * needed; box3d frees it automatically when `trunk` (or `anchor`) is destroyed. */
+	readonly trunkJoint: WeldJoint;
 	readonly branches: LargeBranch[];
 }
 
@@ -431,16 +551,44 @@ function attachBranchJoint(world: World, trunk: Body, branch: Body, trunkLocalAt
 	});
 }
 
-function buildLarge(world: World, id: string, entityIdBase: number, site: TreeSiteXZ): LargeTree {
-	const pos: V3 = { x: site.x, y: 0, z: site.z };
-	const trunk = world.createBody({ type: BodyType.Static, position: pos, rotation: IDENTITY_Q });
+/** P002 fix: the trunk capsule is now DYNAMIC (was created directly as the static body) -- built the
+ * same way every other tree class's trunk is (capsule sized from a target mass), then welded to a
+ * separate static anchor below. */
+function buildLargeTrunk(world: World, pos: V3): Body {
+	const r = LARGE_TRUNK_RADIUS_M;
+	const capLen = LARGE_TRUNK_HEIGHT_M - 2 * r;
+	const density = LARGE_TRUNK_MASS_KG / capsuleVolume(r, capLen);
+	const trunk = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: IDENTITY_Q });
 	trunk.createCapsuleShape({
-		center1: { x: 0, y: LARGE_TRUNK_RADIUS_M, z: 0 },
-		center2: { x: 0, y: LARGE_TRUNK_HEIGHT_M - LARGE_TRUNK_RADIUS_M, z: 0 },
-		radius: LARGE_TRUNK_RADIUS_M,
-		density: 1,
+		center1: { x: 0, y: r, z: 0 },
+		center2: { x: 0, y: LARGE_TRUNK_HEIGHT_M - r, z: 0 },
+		radius: r,
+		density,
 		friction: LARGE_TRUNK_FRICTION,
 	});
+	trunk.applyMassFromShapes();
+	return trunk;
+}
+
+/** Very-stiff root weld (tuning.ts's LARGE_TRUNK_WELD_* doc comment) -- default identity frames (anchor
+ * and trunk share the spawn origin, exactly like the mid tree's own root weld). */
+function attachLargeTrunkJoint(world: World, anchor: Body, trunk: Body): WeldJoint {
+	return world.createWeldJoint(anchor, trunk, {
+		linearHertz: LARGE_TRUNK_WELD_LINEAR_HERTZ,
+		angularHertz: LARGE_TRUNK_WELD_ANGULAR_HERTZ,
+		linearDampingRatio: LARGE_TRUNK_WELD_DAMPING_RATIO,
+		angularDampingRatio: LARGE_TRUNK_WELD_DAMPING_RATIO,
+	});
+}
+
+function buildLarge(world: World, id: string, entityIdBase: number, site: TreeSiteXZ): LargeTree {
+	const pos: V3 = { x: site.x, y: 0, z: site.z };
+	const anchor = world.createBody({ type: BodyType.Static, position: pos, rotation: IDENTITY_Q });
+	const trunk = buildLargeTrunk(world, pos);
+	const trunkEntityId = entityIdBase + LARGE_TRUNK_ID_SUBOFFSET;
+	trunk.setUserData(trunkEntityId);
+	const trunkJoint = attachLargeTrunkJoint(world, anchor, trunk);
+	trunk.setAwake(false);
 
 	const branches: LargeBranch[] = [];
 	for (let i = 0; i < LARGE_BRANCH_LAYOUT.length; i++) {
@@ -457,12 +605,16 @@ function buildLarge(world: World, id: string, entityIdBase: number, site: TreeSi
 		branches.push({ index: i, entityId, spawnPos, spawnRot, body, joint, broken: false });
 	}
 
-	return { kind: 'large', id, spawnPos: pos, trunk, branches };
+	return { kind: 'large', id, spawnPos: pos, anchor, trunk, trunkEntityId, trunkJoint, branches };
 }
 
 function resetLarge(world: World, l: LargeTree): void {
-	// Trunk is static and never touched by anything (no joint references it that could break) --
-	// nothing to reset there.
+	// Trunk never breaks (no break threshold at all -- tuning.ts's LARGE_TRUNK_WELD_* doc comment), so
+	// -- like an intact sapling/mid trunk -- a reset is just a teleport+resleep, never a rebuild.
+	l.trunk.setTransform(l.spawnPos, IDENTITY_Q);
+	l.trunk.setLinearVelocity({ x: 0, y: 0, z: 0 });
+	l.trunk.setAngularVelocity({ x: 0, y: 0, z: 0 });
+	l.trunk.setAwake(false);
 	for (const b of l.branches) {
 		if (b.broken || !b.joint) {
 			b.body.destroy();
@@ -578,7 +730,10 @@ export function createTreesWorld(world: World, massRegistry: Map<number, number>
 	if (massRegistry) {
 		for (const s of saplings) massRegistry.set(s.entityId, SAPLING_MASS_KG);
 		for (const m of mids) massRegistry.set(m.entityId, MID_MASS_KG);
-		for (const l of larges) for (const b of l.branches) massRegistry.set(b.entityId, LARGE_BRANCH_MASS_KG);
+		for (const l of larges) {
+			massRegistry.set(l.trunkEntityId, LARGE_TRUNK_MASS_KG); // P002 fix -- was unregistered (infinite-mass wall damage)
+			for (const b of l.branches) massRegistry.set(b.entityId, LARGE_BRANCH_MASS_KG);
+		}
 	}
 
 	return { saplings, mids, larges, massRegistry };
@@ -586,10 +741,11 @@ export function createTreesWorld(world: World, massRegistry: Map<number, number>
 
 /** Call once per fixed step, AFTER world.step() -- polls every intact joint's constraint force/torque
  * and snaps whichever crossed its break threshold this step. Pass a TreesFractureContext (browser
- * path + fracture tests) to make an over-threshold mid trunk SNAP into stump+flyer instead of felling
- * whole; without it (legacy sim tests) behavior is byte-identical to before the fracture feature. */
+ * path + fracture tests) to make an over-threshold mid trunk (or a HARD-broken sapling, P015) SNAP into
+ * stump+flyer instead of felling whole; without it (legacy sim tests) behavior is byte-identical to
+ * before the fracture feature. */
 export function stepTreesWorld(trees: TreesWorld, fracture?: TreesFractureContext): void {
-	pollSaplingBreaks(trees.saplings);
+	pollSaplingBreaks(trees.saplings, fracture, trees.massRegistry);
 	pollMidBreaks(trees.mids, fracture, trees.massRegistry);
 	pollLargeBreaks(trees.larges);
 }
@@ -598,18 +754,85 @@ export function stepTreesWorld(trees: TreesWorld, fracture?: TreesFractureContex
  * one back to its spawn pose -- same idempotent shape as world/bodies.ts's resetDestructibleWorld(),
  * extended to cover the "was this part destroyed by a break?" case those bodies never hit. */
 export function resetTreesWorld(world: World, trees: TreesWorld): void {
-	for (const s of trees.saplings) resetSapling(world, s);
+	for (const s of trees.saplings) resetSapling(world, s, trees.massRegistry);
 	for (const m of trees.mids) resetMid(world, m, trees.massRegistry);
 	for (const l of trees.larges) resetLarge(world, l);
 }
 
-/** Total live physics bodies owned by this feature (anchors + trunks + branches; a fractured mid
- * contributes stump + flyer = one extra body) -- feature contract's "bodyCount() honest". */
+/** Total live physics bodies owned by this feature (anchors + trunks + branches; a fractured mid or
+ * sapling contributes stump + flyer = one extra body each) -- feature contract's "bodyCount() honest". */
 export function treesBodyCount(trees: TreesWorld): number {
 	let n = 0;
-	n += trees.saplings.length * 2; // anchor + trunk
+	n += trees.saplings.length * 2; // anchor + trunk (post-fracture: anchor + flyer, stump counted below)
+	for (const s of trees.saplings) if (s.fractured) n += 1; // the stump
 	n += trees.mids.length * 2; // anchor + trunk (post-fracture: anchor + flyer, stump counted below)
 	for (const m of trees.mids) if (m.fractured) n += 1; // the stump
-	for (const l of trees.larges) n += 1 + l.branches.length; // static trunk + branches
+	for (const l of trees.larges) n += 2 + l.branches.length; // anchor + trunk (P002: now dynamic) + branches
 	return n;
+}
+
+// =================================================================================================
+// Crash Lab single-tree spawn/teardown (src/lab/crashTargets.ts's "crash into one model" tool). NOT
+// used by the forest itself -- createTreesWorld above places the whole deterministic forest. Kept
+// here, next to the tree records + builders, so it stays correct as the fracture record evolves.
+// =================================================================================================
+
+/** Builds ONE tree of the given class at an arbitrary ground site (y=0, upright) + registers its
+ * member mass, so a car hit is mass-attenuated exactly like the forest. Drive it with a one-tree
+ * TreesWorld through stepTreesWorld() and render it with trees/visuals.ts's buildTreesVisuals(). */
+export function spawnSingleTree(
+	world: World,
+	kind: 'sapling' | 'mid' | 'large',
+	site: TreeSiteXZ,
+	entityIdBase: number,
+	massRegistry: Map<number, number> | null,
+): SaplingTree | MidTree | LargeTree {
+	if (kind === 'sapling') {
+		const t = buildSapling(world, 'crash-sapling', entityIdBase, site);
+		massRegistry?.set(t.entityId, SAPLING_MASS_KG);
+		return t;
+	}
+	if (kind === 'mid') {
+		const t = buildMid(world, 'crash-mid', entityIdBase, site);
+		massRegistry?.set(t.entityId, MID_MASS_KG);
+		return t;
+	}
+	const t = buildLarge(world, 'crash-large', entityIdBase, site);
+	massRegistry?.set(t.trunkEntityId, LARGE_TRUNK_MASS_KG);
+	for (const b of t.branches) massRegistry?.set(b.entityId, LARGE_BRANCH_MASS_KG);
+	return t;
+}
+
+/** Destroys every body of a single spawned tree + clears its foreign-mass entries. box3d frees a
+ * body's joints WITH it, so we only ever destroy bodies (never a joint whose body is already gone). */
+export function destroySingleTree(tree: SaplingTree | MidTree | LargeTree, massRegistry: Map<number, number> | null): void {
+	if (tree.kind === 'sapling') {
+		massRegistry?.delete(tree.entityId);
+		if (tree.fractured && tree.stump) {
+			massRegistry?.delete(tree.stump.frag.entityId);
+			if (tree.flyerFrag) massRegistry?.delete(tree.flyerFrag.entityId);
+			tree.stump.frag.body.destroy();
+		}
+		tree.trunk.destroy(); // === flyerFrag.body once fractured
+		tree.anchor.destroy();
+		return;
+	}
+	if (tree.kind === 'mid') {
+		massRegistry?.delete(tree.entityId);
+		if (tree.fractured && tree.stump) {
+			massRegistry?.delete(tree.stump.frag.entityId);
+			if (tree.flyerFrag) massRegistry?.delete(tree.flyerFrag.entityId);
+			tree.stump.frag.body.destroy();
+		}
+		tree.trunk.destroy(); // === flyerFrag.body once fractured
+		tree.anchor.destroy();
+		return;
+	}
+	massRegistry?.delete(tree.trunkEntityId);
+	for (const b of tree.branches) {
+		massRegistry?.delete(b.entityId);
+		b.body.destroy();
+	}
+	tree.trunk.destroy(); // frees the trunk's root weld with it (box3d convention, see this fn's doc)
+	tree.anchor.destroy();
 }

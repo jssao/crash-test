@@ -1,0 +1,68 @@
+{
+  "assertions": [
+    {
+      "label": "side-mdb-50: run starts at t=0",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "side-mdb-50: rigSyncCheck() < 0.05m during approach (mesh tracks body)",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "side-mdb-50: barrier body traveled >=2m from spawn mid-approach",
+      "pass": true,
+      "detail": 2.7777786254882812
+    },
+    {
+      "label": "side-mdb-50: rigSyncCheck() < 0.05m post-impact (mesh still tracks body)",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "side-mdb-50: a real collision registered (chassis peak decel > 5g)",
+      "pass": true,
+      "detail": 24.262562191952217
+    },
+    {
+      "label": "side-mdb-50: run reaches 'settled' by step 600",
+      "pass": true,
+      "detail": "settled"
+    },
+    {
+      "label": "rear-80: run starts at t=0",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "rear-80: rigSyncCheck() < 0.05m during approach (mesh tracks body)",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "rear-80: barrier body traveled >=2m from spawn mid-approach",
+      "pass": true,
+      "detail": 3.7037038803100586
+    },
+    {
+      "label": "rear-80: rigSyncCheck() < 0.05m post-impact (mesh still tracks body)",
+      "pass": true,
+      "detail": 0
+    },
+    {
+      "label": "rear-80: a real collision registered (chassis peak decel > 5g)",
+      "pass": true,
+      "detail": 40.657225826869485
+    },
+    {
+      "label": "rear-80: run reaches 'settled' by step 600",
+      "pass": true,
+      "detail": "settled"
+    }
+  ],
+  "failed": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "timestamp": "2026-07-15T13:15:58.571Z"
+}

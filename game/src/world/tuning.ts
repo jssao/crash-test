@@ -30,6 +30,7 @@
 
 import type { Q4, V3 } from '../vehicle/mathUtil';
 import { IDENTITY_Q } from '../vehicle/mathUtil';
+import type { FractureThreshold } from './features/fracture';
 
 export { IDENTITY_Q };
 export type { Q4 };
@@ -81,6 +82,30 @@ export const CRATE_TOWER_LAYERS = 8;
 export const CRATE_TOWER_WIDE_LAYERS = 6;
 export const CRATE_TOWER_CENTER: V3 = { x: -16, y: 0, z: 34 };
 
+// P011 FIX ("wooden crates should splinter/break apart on impact; currently monolithic boxes"): a
+// crate has no joint (it's a free stacked box, unlike a welded pole/tree), so there's no constraint
+// force to poll -- the break trigger is instead a world.hitEvents() read (same "approachSpeed * this
+// body's own mass" proxy world/bodies.ts's checkHitEntityForBarrelTrigger() already uses for barrels),
+// firing fractureBoxMember() (world/features/fracture.ts, called as-is) once the hit is "hard" rather
+// than a gentle shove. 90 kg*m/s = a 15kg crate (CRATE_MASS_KG) hit at 6 m/s (~22 km/h) -- comfortably
+// above tower-settle jitter (bodies at rest / lightly nudged never reach this), comfortably below what
+// a real car-speed collision delivers, so a firm hit splinters it while a slow bump just shoves it.
+export const CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS = 90;
+/** fractureBoxMember()'s `forceMag`/`threshold` pair only ever feeds fractureKickMagnitude()'s
+ * ratio-of-two-numbers-in-the-SAME-unit computation (see that function's doc comment) -- a crate has no
+ * real Newton-scale force reading (no joint), so the hit event's own kg*m/s "impulse-like" proxy is
+ * reused directly as `forceMag` at call time, against this threshold expressed in the same unit.
+ * torqueNm is unused by fractureBoxMember (it never reads `.torqueNm`) but FractureThreshold requires
+ * it -- mirrored from forceN for a harmless, honest placeholder. */
+export const CRATE_FRACTURE_THRESHOLD: FractureThreshold = { forceN: CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS, torqueNm: CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS };
+/** Release caps for the 2 splinter fragments -- a 15kg plank should crack and tumble, not rocket. */
+export const CRATE_FRAGMENT_SPEED_CAP_MS = 8;
+export const CRATE_FRAGMENT_SPIN_CAP_RAD = 10;
+/** Which local axis fractureBoxMember() splits along -- 'y' reads as "the lid/top separates from the
+ * base", a believable crate-splinter silhouette with the simplest possible split (spec: "2-4 plank-like
+ * pieces"; 2 is the low end of that range, chosen for robustness -- see this run's dispatch notes). */
+export const CRATE_FRACTURE_AXIS: 'y' = 'y';
+
 // ---------------------------------------------------------------------------------------------
 // Barrel bowling triangle (10 barrels, 4 rows: 1+2+3+4)
 // ---------------------------------------------------------------------------------------------
@@ -88,9 +113,72 @@ export const CRATE_TOWER_CENTER: V3 = { x: -16, y: 0, z: 34 };
 export const BARREL_RADIUS_M = 0.3;
 export const BARREL_HEIGHT_M = 0.9;
 export const BARREL_SIDES = 12;
+/** No longer used to build the barrel triangle's REAL per-instance mass (see BARREL_FULL_MASS_KG/
+ * BARREL_EMPTY_MASS_KG below, P010 fix) -- kept as the exploding-barrels feature's own FIXED reference
+ * mass (world/bodies.ts's checkHitEntityForBarrelTrigger()), so that feature's pre-existing trigger/
+ * chain-reaction calibration (sim/exploding-barrels.test.mjs, tuned against a uniform 25kg) stays
+ * exactly as tested regardless of which full/empty variant a car actually hits. */
 export const BARREL_MASS_KG = 25;
 export const BARREL_FRICTION = 0.5;
 export type BarrelMaterial = 'barrelBlue' | 'barrelRust';
+
+// P010 FIX ("metal barrels don't deform when hit; want full-of-fluid vs empty variants with different
+// mass and different effect on car and barrel"): a real 55-gallon (208L) steel drum full of liquid is
+// ~208kg of fluid + ~20kg of steel shell =~ 228kg, rounded down slightly for gameplay feel; the SAME
+// empty shell alone is ~15-20kg. Both variants keep the identical 12-gon hull/dimensions (only density
+// changes), so a full barrel is a much harder, heavier obstacle (shoves the car more, barely budges
+// itself) while an empty one is a nearly-weightless bowling pin (gets flung, barely slows the car).
+export const BARREL_FULL_MASS_KG = 200;
+export const BARREL_EMPTY_MASS_KG = 20;
+/** barrelBlue = full-of-fluid (painted drums in real yards are typically the sealed/full ones), rust =
+ * weathered/empty (an empty steel drum rusts through faster with no fluid coating its inside). */
+export const BARREL_MASS_KG_BY_MATERIAL: Readonly<Record<BarrelMaterial, number>> = {
+	barrelBlue: BARREL_FULL_MASS_KG,
+	barrelRust: BARREL_EMPTY_MASS_KG,
+};
+
+/** Entity-id base for crates/poles, tagged EXPLICITLY at build time (unlike wall blocks, which still
+ * rely on createDestructibleWorld()'s post-hoc "tag whatever's still 0" sweep) -- P011/P009 fracture
+ * bookkeeping (world/bodies.ts's CrateProp/PoleProp) needs each prop's real entity id available AT
+ * BUILD TIME (for its own entityId->prop lookup map), before that post-hoc sweep ever runs. Disjoint
+ * from every other range: barrels=44,000,000-44,000,009 (BARREL_ENTITY_ID_BASE), fracture
+ * fragments=45,000,000+ (features/fracture.ts), trees=46,000,000+, buildings=47,000,000+, legacy
+ * (walls, and anything left untagged)=48,000,000+. */
+export const CRATE_ENTITY_ID_BASE = 44_100_000;
+export const POLE_ENTITY_ID_BASE = 44_200_000;
+
+// ---- Barrel DENT (visual-only, physics hull unchanged -- P010's other half) ----
+// world/visuals.ts borrows damage/crumple.ts's registerDeformable()/applyImpactToMesh()/
+// recomputeNormals() (imported only, that module is not edited) to displace the barrel MESH's own
+// vertices radially at the hit point -- same technique the car's own crumple already uses, just
+// applied to a barrel's CylinderGeometry instead of the car shell. Trigger: any world.hitEvents() hit
+// on a barrel above this closing speed (a firm knock, not a stationary-contact jitter).
+export const BARREL_DENT_TRIGGER_SPEED_MS = 2.5;
+/** applyImpactToMesh()'s `massFactor` parameter scales dent DEPTH only (not the affected radius) --
+ * an EMPTY drum is an unsupported thin steel shell (dents deeply, like a soda can); a FULL one is
+ * backed by near-incompressible fluid, which resists caving in nearly as much (spec: "empty barrels
+ * dent MORE than full ones").
+ *
+ * ROUND-2 RE-TUNE (P010 gate: "no dent discernible by eye; dent claim numeric only"). MEASURED
+ * (applyImpactToMesh()'s own math, damage/crumple.ts, not touched here): at a firm 40 km/h hit,
+ * approachSpeedMs~11.1 gives magBase = CRUMPLE_MAG_COEF_M_PER_MS * min(11.1, cap) ~= 0.333m at the
+ * impact center BEFORE massFactor/clamping -- already well past the barrel's own clamp ceiling
+ * (mesh.kind='panel' -> CRUMPLE_CLAMP_PANEL_GLASS_M = 0.12m, damage-tuning.ts). With the OLD factors
+ * (full=0.35, empty=1.0) both variants landed within ~3% of that SAME 0.12m ceiling (full: 0.333*0.35
+ * = 0.1165, clamps to ~itself; empty: 0.333*1.0 = 0.333, clamps to 0.12) -- numerically "dented" but
+ * visually near-indistinguishable, and neither reads as a deliberate crease vs. the barrel's own
+ * 12-gon facets at normal screenshot distance. Re-tuned for real contrast, still bounded by the SAME
+ * unmodified clamp (this file owns no clamp/radius/falloff constant -- those are damage/damage-
+ * tuning.ts, out of scope): EMPTY raised to 1.6 so a much WIDER share of the impact radius (not just
+ * the exact center point) saturates the 0.12m clamp -- a genuinely wide, deep, flat-bottomed crater,
+ * "crushed like a soda can" rather than a pinprick. FULL cut to 0.12 so its peak dent (0.333*0.12 =
+ * 0.04m, comfortably under the clamp, no saturation) reads as a shallow dimple -- a real, visible mark
+ * but nowhere near the empty drum's crater, matching "200kg full one dents less". Both variants still
+ * clear CRUMPLE_DENT_EPSILON_M (0.0015m) by more than an order of magnitude, so dentedVertexCount>0 is
+ * not a knife's-edge pass either way -- see sim/props-pole-barrel-crate.test.mjs's extended P010 case
+ * for the measured before/after numbers this produced. */
+export const BARREL_DENT_MASS_FACTOR_FULL = 0.12;
+export const BARREL_DENT_MASS_FACTOR_EMPTY = 1.6;
 /** Apex barrel position (row 1); rows 2-4 extend toward +Z (away from spawn), so a car approaching
  * from spawn hits the apex first, like a bowling ball. */
 export const BARREL_TRIANGLE_APEX: V3 = { x: 16, y: 0, z: 34 };
@@ -143,12 +231,21 @@ export const BARREL_EXPLOSION_IMPULSE_PER_AREA = 1400;
  * vendor/box3d/src/physics_world.c's ExplosionCallback falls back to an arbitrary +X direction for a
  * shape sitting exactly at the blast center, distance==0 -- so the "they famously rocket" effect is
  * applied directly via Body.applyLinearImpulseToCenter() instead, see bodies.ts's
- * triggerBarrelExplosion()). 450 kg*m/s straight up on a 25kg barrel = ~18 m/s launch speed (~1.7s of
- * airtime) -- a real "rocketing" barrel, not a twitch. JITTER adds a small deterministic sideways
- * component (direction from this module's seeded RNG -- see bodies.ts's nextRandom()) so the barrel
- * tumbles/arcs rather than going perfectly vertical every time. */
-export const BARREL_ROCKET_UPWARD_IMPULSE_KGMS = 450;
-export const BARREL_ROCKET_JITTER_KGMS = 120;
+ * triggerBarrelExplosion()), expressed as a TARGET LAUNCH SPEED (m/s), not a flat impulse -- the actual
+ * impulse applied is `speed * this barrel's OWN real mass` (bodies.ts), so every barrel launches at
+ * roughly the SAME ~18 m/s regardless of which P010 mass variant (full ~200kg / empty ~20kg) it is.
+ * P010 FIX HISTORY: this was originally a flat 450/120 kg*m/s impulse (byte-identical to `18/4.8 * 25`
+ * for the old uniform 25kg barrel), which worked fine when every barrel weighed the same -- but once
+ * P010 gave full/empty barrels real, very different masses, that SAME flat impulse launched an empty
+ * (20kg) barrel at ~23 m/s while barely nudging a full (200kg) one at ~2 m/s. The heavy barrels then
+ * stayed clustered near the car instead of scattering, and a chain reaction's several world.explode()
+ * blasts landing on that dense pile-up wrongly ACCELERATED the car to >200 km/h instead of slowing it
+ * (measured directly: sim/exploding-barrels.test.mjs's (b) case, speedAfter=62.5 m/s vs the
+ * expected/tested "speed drops" outcome) -- a genuine physics bug from the mass split, not a feature.
+ * Scaling the impulse by real mass restores every barrel's ~18 m/s launch (byte-identical to the old
+ * 25kg case, since 18*25=450 exactly) regardless of variant, fixing the pile-up. */
+export const BARREL_ROCKET_UPWARD_SPEED_MS = 18;
+export const BARREL_ROCKET_JITTER_SPEED_MS = 4.8;
 
 /** Chain reaction: every other not-yet-exploded, not-yet-fused barrel within this distance of a fresh
  * explosion gets a short random fuse (see bodies.ts's triggerBarrelExplosion()). Same distance as the
@@ -179,22 +276,65 @@ export const FIREBALL_SPRITES_PER_BURST = 5;
 export const SMOKE_SPRITES_PER_BURST = 3;
 
 // ---------------------------------------------------------------------------------------------
-// Tippable poles.
+// Utility poles (P009 FIX: "the pole prop does nothing to the car, doesn't look like a utility pole,
+// and should be rooted in the ground and behave like trees (lean/snap)").
 //
-// SPEC NOTE ("base slightly heavier via two-shape compound of boxes if easy, else uniform"): NOT
-// easy, so this falls back to the spec's explicit "uniform" alternative -- box3d-js's box shapes have
-// no off-origin `center` field (only sphere/capsule do -- see ../vehicle/geometry.ts's ballast doc
-// comment on vehicle/tuning.ts's COM_LOWER_OFFSET_M, which hit the exact same limitation for the
-// chassis), so a literal "shaft box + separately-positioned heavier base box" compound isn't
-// constructible in this binding (both boxes would sit at the same body-local origin). A uniform
-// single box (post) is used instead -- documented plainly as a scope cut, not silently downgraded.
+// REBUILT from a free-standing, friction-rested 40kg box (no joint/anchor -- a car could push it
+// around like an empty box) into a tall dynamic CAPSULE shaft, ROOTED to a static ground anchor by a
+// stiff WeldJoint that's angularly COMPLIANT (same "bend under load, snap past a threshold" technique
+// as world/features/trees/bodies.ts's mid-trunk weld -- reimplemented independently here per this run's
+// file ownership, NOT imported from trees/*): a light bump just shudders/leans the pole on its
+// compliant root, a real ~50km/h+ hit snaps it at the base (fractureCapsuleTrunk(), world/features/
+// fracture.ts, called as-is) into a short anchored STUMP + a flying top piece carrying the cross-arm.
+// A capsule shape DOES support an off-origin center1/center2 (unlike a box, see the now-removed
+// POLE_SHAFT_HALF_EXTENTS_M note this replaces), so the shaft itself needs no compound-shape workaround.
 // ---------------------------------------------------------------------------------------------
 
-/** Half-extents, meters (0.15 x 2.5m post). Body origin sits at half-height so the post's bottom
- * face rests on the ground (y=0) -- see bodies.ts's buildPoles(). */
-export const POLE_SHAFT_HALF_EXTENTS_M: V3 = { x: 0.075, y: 1.25, z: 0.075 };
-export const POLE_MASS_KG = 40;
+/** 8.2m dynamic shaft (a real wood utility pole's above-ground run is commonly ~8-9m of a longer pole
+ * sunk partway into the ground -- this capsule stands in for the whole visible/collidable above-ground
+ * portion), radius 0.13m (~26cm diameter, a real distribution pole's butt-class diameter). */
+export const POLE_SHAFT_RADIUS_M = 0.13;
+export const POLE_HEIGHT_M = 8.2;
+/** A real creosote/CCA-treated wood distribution pole this size runs roughly 350-500kg; 420kg sits
+ * mid-band (spec's own range). */
+export const POLE_MASS_KG = 420;
 export const POLE_FRICTION = 0.6;
+
+/** Root weld: rigid linearly (hertz 0, so the base never sinks/sways sideways at rest) but angularly
+ * COMPLIANT (a soft torsion spring) so the pole visibly leans/creaks under a sub-break-threshold hit
+ * and springs back -- same destruction-feel technique as trees/tuning.ts's MID_WELD_ANGULAR_HERTZ. */
+export const POLE_WELD_LINEAR_HERTZ = 0;
+export const POLE_WELD_ANGULAR_HERTZ = 5;
+export const POLE_WELD_DAMPING_RATIO = 0.75;
+
+/** Break (snap) thresholds -- constraint force/torque magnitude, polled per-step like the mid tree's
+ * root weld. Calibrated empirically (game/sim/props-pole-barrel-crate.test.mjs) against the game's real
+ * ~1750kg car (vehicle/tuning.ts's CHASSIS_MASS_KG+PANEL/WHEEL totals) so a gentle nudge (~10km/h) only
+ * shudders the pole, while a real ~50km/h+ hit reliably snaps it at the base -- deliberately LOWER than
+ * trees/tuning.ts's MID tree thresholds (550,000N/140,000Nm on a much thicker, 320kg trunk): a utility
+ * pole is thin and meant to snap in a vehicle collision (real breakaway-pole road-safety design), not
+ * stand like a tree. */
+export const POLE_FORCE_THRESHOLD_N = 65_000;
+export const POLE_TORQUE_THRESHOLD_NM = 40_000;
+export const POLE_FRACTURE_THRESHOLD: FractureThreshold = { forceN: POLE_FORCE_THRESHOLD_N, torqueNm: POLE_TORQUE_THRESHOLD_NM };
+
+/** Nominal stump fraction for the base-third snap (fractureCapsuleTrunk jitters it +/-15% per member,
+ * same convention as trees/tuning.ts's MID_STUMP_FRACTION doc comment). */
+export const POLE_STUMP_FRACTION = 0.28;
+/** Release caps for the flying top piece (carries the cross-arm) -- tumbles, doesn't rocket. */
+export const POLE_FRAGMENT_SPEED_CAP_MS = 10;
+export const POLE_FRAGMENT_SPIN_CAP_RAD = 7;
+
+// ---- Cross-arm + insulator-peg visual dressing (world/visuals.ts) -- purely cosmetic children of the
+// shaft mesh (no separate collision shape: see the module doc above on why a box compound isn't
+// constructible here, and a non-colliding decorative cross-arm is a harmless, documented scope cut --
+// the shaft capsule alone is what the car actually hits). Placed near the shaft's top. ----
+export const POLE_CROSSARM_HEIGHT_FRACTION = 0.9; // fraction of POLE_HEIGHT_M up the shaft
+export const POLE_CROSSARM_LENGTH_M = 1.5;
+export const POLE_CROSSARM_HALF_THICKNESS_M = 0.06;
+export const POLE_INSULATOR_COUNT: number = 3;
+export const POLE_INSULATOR_RADIUS_M = 0.045;
+export const POLE_INSULATOR_HEIGHT_M = 0.11;
 
 // COMPOUND overhaul: the poles now form a "light-row along the drive" -- two neat rows flanking the
 // north driveway line (x=0) at x=+-12, never inside the kicker lane (x=0) or the wide ramp's footprint

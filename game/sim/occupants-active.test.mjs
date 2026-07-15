@@ -118,7 +118,17 @@ describe('occupants-active: muscle bracing vs limp under hard braking', () => {
 			console.log(`[brace] devLimp=${devLimp.toFixed(4)} devBraced=${devBraced.toFixed(4)} ratio=${(devBraced / devLimp).toFixed(3)}`);
 			expect(allFinite(limp.occupant)).toBe(true);
 			expect(allFinite(braced.occupant)).toBe(true);
-			expect(devLimp).toBeGreaterThan(0.15); // the passive baseline genuinely sags/leans (non-vacuous)
+			// P001 RE-CALIBRATION (2026-07-15): the passive-baseline bar (was 0.15) is LOWERED to 0.06 --
+			// BALL_SPRING_HERTZ was deliberately raised 3 -> 9 (occupants/tuning.ts) to fix a real bug
+			// (the old 3Hz passive spring was too weak to hold a seated pose against GRAVITY ALONE, let
+			// alone braking -- see that constant's doc comment for the measured settle-sag). A stronger
+			// passive floor holding better under hard braking too is the fix working as intended, not a
+			// regression -- MEASURED devLimp is now 0.0806 (was ~0.2+ pre-fix); 0.06 keeps this a
+			// non-vacuous "genuinely still sags some" check with real margin under the new value.
+			expect(devLimp).toBeGreaterThan(0.06);
+			// The core claim (bracing meaningfully reduces deviation vs the passive baseline) is if
+			// anything MORE true now -- measured ratio 0.162 (braced deviates ~16% of limp), comfortably
+			// under the pre-existing 50% bar.
 			expect(devBraced).toBeLessThan(0.5 * devLimp);
 
 			teardownOccupant(limp.occupant);
@@ -163,15 +173,26 @@ describe('occupants-active: muscles are overwhelmed by a violent crash', () => {
 		try {
 			const limp = crashTorsoDeviation(simLimp, 'frontLeft', 140, false);
 			const braced = crashTorsoDeviation(simBraced, 'frontLeft', 140, true);
-			console.log(`[overwhelm] devLimp=${limp.deviation.toFixed(4)} devBraced=${braced.deviation.toFixed(4)} ratio=${(braced.deviation / limp.deviation).toFixed(3)} peakG(braced)=${braced.runtime.peakAccelG.toFixed(0)}`);
-			expect(limp.deviation).toBeGreaterThan(0.3); // a 140km/h hit genuinely throws the torso far
-			// Overwhelmed: the muscle can no longer meaningfully hold -- braced deviation approaches limp
-			// (contrast the braking test, where braced is ~23% of limp). CRUSH M2 RE-BASE (0.6 -> 0.5,
-			// measured): the yield mechanic stages the 140km/h stop over a real crumple stroke instead of
-			// a near-instant kill, so the braced torso retains slightly more control -- measured ratio
-			// 0.56 (was >0.6 against the solid nose) vs braking's 0.23: still overwhelmed, still >2x the
-			// braking discriminator.
-			expect(braced.deviation).toBeGreaterThan(0.5 * limp.deviation);
+			console.log(`[overwhelm] devLimp=${limp.deviation.toFixed(4)} devBraced=${braced.deviation.toFixed(4)} ratio=${(braced.deviation / limp.deviation).toFixed(3)} peakG(braced)=${braced.runtime.peakAccelG.toFixed(0)} aliveBraced=${braced.runtime.alive}`);
+			// P001 RE-CALIBRATION (2026-07-15): "limp" here (useMuscle=false) never calls
+			// updateOccupantActive at all, so it never runs updateLifeDeath either -- it is an occupant
+			// that passively holds at BALL_SPRING_HERTZ forever and never "dies", which is a genuinely
+			// different (and no longer very meaningful) baseline now that BALL_SPRING_HERTZ was raised
+			// 3 -> 9 (see that constant's doc comment): MEASURED, this "limp" baseline now deviates only
+			// 0.069 at 140km/h (below the OLD >0.3 bar) simply because a 9Hz spring recovers reasonably
+			// fast after the initial impact, diluting the 2.5s-window average -- dropped that assertion,
+			// it was testing the old, too-weak spring's behavior, not this test's actual subject (bracing
+			// vs a genuine crash).
+			// The BRACED case is the one that matters, and it demonstrates overwhelm MORE decisively than
+			// before: MEASURED, the braced occupant's peakAccelG (134g) blows past DEATH_PEAK_ACCEL_G (65,
+			// tuning.ts) partway through the impact, so setOccupantLimp() fires (springs fully disabled,
+			// not just out-braced) -- a stronger, more final form of "the hold is overwhelmed" than mere
+			// spring deviation. Assert the death (the crash-lethality tier this speed is independently
+			// calibrated to elsewhere, tuning.ts's DEATH_PEAK_ACCEL_G measured-sweep doc) and that the
+			// resulting deviation is large in absolute terms (comfortably clears the original 0.3 bar --
+			// measured 0.4085).
+			expect(braced.runtime.alive).toBe(false);
+			expect(braced.deviation).toBeGreaterThan(0.3);
 
 			teardownOccupant(limp.occupant);
 			teardownSeatPan(limp.pan);

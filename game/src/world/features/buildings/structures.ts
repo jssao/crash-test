@@ -44,8 +44,12 @@ import {
 	BRICK_RESTITUTION,
 	BRICK_WALL_CENTER,
 	BRICK_WALL_COLUMNS,
+	BRICK_WALL_LAB_COLUMNS_PER_SEGMENT,
+	BRICK_WALL_LAB_ROWS,
+	BRICK_WALL_LAB_SEGMENTS,
 	BRICK_WALL_LENGTH_M,
 	BRICK_WALL_ROWS,
+	BRICK_WALL_SEGMENT_GAP_M,
 	CORNER_DRYWALL_HALF_THICKNESS_M,
 	CORNER_DRYWALL_SHEET_WIDTH_M,
 	CORNER_PIPE_COUNT,
@@ -568,6 +572,116 @@ export function buildBrickWall(world: World): Structure {
 			}
 		}
 		rows.push(rowBricks);
+	}
+
+	for (const p of structure.pieces) if (!p.isStatic) p.body.setAwake(false);
+	return structure;
+}
+
+// =================================================================================================
+// 3b) CRASH-LAB WIDE brick wall: N independently-footed brick PANELS separated by ~2cm expansion
+// joints (no weld crosses a gap) so a centre hit is mechanically isolated to the struck panel and the
+// flanking panels stay standing (P005 gate fix -- see tuning.ts's BRICK_WALL_LAB_* doc for the
+// box3d-sway root cause this segmentation sidesteps). Panels use BOUNDED running bond (odd rows inset
+// half a brick on each end, NO overhang) so the thin joint stays collision-free.
+// =================================================================================================
+
+/** One independently-footed brick panel of BOUNDED running bond, centred on (centerX, centerZ). Even
+ * rows carry `columns` full bricks spanning exactly [-panelHalfLen, +panelHalfLen]; odd rows carry
+ * `columns-1` bricks inset one half-brick on each end (running-bond stagger with no edge overhang, so
+ * an adjacent panel across a 2cm joint never collides). Appends its footing + bricks + weld lattice
+ * (same-row horizontal + nearest-overlap vertical + brick-to-footing on row 0) to `structure`. */
+function buildBrickPanel(structure: Structure, world: World, centerX: number, centerZ: number, columns: number, rows: number, breakF: number, breakT: number): void {
+	const half = BRICK_HALF_EXTENTS;
+	const panelHalfLen = columns * half.x; // full-brick (even) rows span exactly [-panelHalfLen, +panelHalfLen]
+
+	const footingHalf: V3 = { x: panelHalfLen + 0.1, y: 0.1, z: half.z + 0.1 };
+	const footingPos: V3 = { x: centerX, y: -0.1, z: centerZ };
+	const footing = addBoxPiece(structure, world, footingPos, IDENTITY_Q, footingHalf, 0, 0.8, 'footing', 'wood', true);
+
+	const rowsBodies: { body: Body; pos: V3 }[][] = [];
+	for (let r = 0; r < rows; r++) {
+		const y = half.y + r * half.y * 2;
+		const even = r % 2 === 0;
+		const n = even ? columns : columns - 1;
+		// Even row: leftmost brick centre one half-brick in from the panel's left edge (span exactly
+		// [-panelHalfLen, +panelHalfLen]). Odd row: inset one EXTRA half-brick (centre = -panelHalfLen +
+		// 2*half.x), so its bricks sit centred over the even row's joints (running-bond stagger) and the
+		// n-1 bricks span [-panelHalfLen+half.x, +panelHalfLen-half.x] -- no brick pokes past the edges.
+		const startX = centerX - panelHalfLen + (even ? half.x : half.x * 2);
+		const rowBricks: { body: Body; pos: V3 }[] = [];
+		for (let col = 0; col < n; col++) {
+			const x = startX + col * half.x * 2;
+			const pos: V3 = { x, y, z: centerZ };
+			const body = addBoxPiece(structure, world, pos, IDENTITY_Q, half, BRICK_MASS_KG, BRICK_FRICTION, 'brick', 'brick', false);
+			rowBricks.push({ body, pos });
+		}
+		// Horizontal (same-row) welds between adjacent bricks.
+		for (let col = 0; col < rowBricks.length - 1; col++) {
+			const a = rowBricks[col];
+			const b = rowBricks[col + 1];
+			const anchor: V3 = { x: (a.pos.x + b.pos.x) / 2, y, z: centerZ };
+			addWeld(structure, world, a.body, a.pos, IDENTITY_Q, b.body, b.pos, IDENTITY_Q, anchor, breakF, breakT, BRICK_PROFILE);
+		}
+		// Vertical: each brick welds to its nearest-overlap neighbour in the row below (footing on row 0).
+		if (r === 0) {
+			for (const brick of rowBricks) {
+				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, footing, footingPos, IDENTITY_Q, { x: brick.pos.x, y: 0, z: centerZ }, BRICK_FOOTING_BREAK_FORCE_N, BRICK_FOOTING_BREAK_TORQUE_NM, BRICK_PROFILE);
+			}
+		} else {
+			const below = rowsBodies[r - 1];
+			for (const brick of rowBricks) {
+				let nearestIdx = 0;
+				let nearestDist = Infinity;
+				for (let i = 0; i < below.length; i++) {
+					const d = Math.abs(below[i].pos.x - brick.pos.x);
+					if (d < nearestDist) {
+						nearestDist = d;
+						nearestIdx = i;
+					}
+				}
+				const target = below[nearestIdx];
+				const anchor: V3 = { x: (target.pos.x + brick.pos.x) / 2, y: (target.pos.y + brick.pos.y) / 2, z: centerZ };
+				addWeld(structure, world, brick.body, brick.pos, IDENTITY_Q, target.body, target.pos, IDENTITY_Q, anchor, breakF, breakT, BRICK_PROFILE);
+			}
+		}
+		rowsBodies.push(rowBricks);
+	}
+}
+
+/** Tuning knobs for buildBrickWallLab. All optional -- production (crash-lab + the P005 sim test) calls
+ * with none, taking the tuning.ts constants; the throwaway probe sweeps them. */
+export interface BrickWallLabOptions {
+	segments?: number;
+	columnsPerSegment?: number;
+	rows?: number;
+	gapM?: number;
+	/** Inter-brick (mortar) weld thresholds. Default to the gameplay BRICK_BREAK strength -- isolation
+	 * here is geometric (segmentation + expansion joints), NOT a mortar weakening; the probe sweep showed
+	 * weakening these actively hurts flanking far-standing (tuning.ts's BRICK_WALL_LAB_* doc). Exposed
+	 * only so the throwaway probe can sweep them. */
+	interBrickForceN?: number;
+	interBrickTorqueNm?: number;
+}
+
+/** The crash-lab's WIDE segmented brick wall (P005), centred on `center` and driven straight into by
+ * the lab car. Independent per-panel footings + expansion-joint gaps mean a centre hit knocks out the
+ * struck panel while the flanking panels stay standing. Shares the 'brick-wall' entity-id salt with
+ * buildBrickWall (only one structure is ever live in the lab, so ids need only be world-unique there). */
+export function buildBrickWallLab(world: World, center: V3, opts: BrickWallLabOptions = {}): Structure {
+	const structure: Structure = { id: 'brick-wall', pieces: [], joints: [], entityIdBase: structureEntityIdBase('brick-wall') };
+	const half = BRICK_HALF_EXTENTS;
+	const segments = opts.segments ?? BRICK_WALL_LAB_SEGMENTS;
+	const columns = opts.columnsPerSegment ?? BRICK_WALL_LAB_COLUMNS_PER_SEGMENT;
+	const rows = opts.rows ?? BRICK_WALL_LAB_ROWS;
+	const gap = opts.gapM ?? BRICK_WALL_SEGMENT_GAP_M;
+	const breakF = opts.interBrickForceN ?? BRICK_BREAK_FORCE_N;
+	const breakT = opts.interBrickTorqueNm ?? BRICK_BREAK_TORQUE_NM;
+	const panelWidth = columns * half.x * 2;
+	const pitch = panelWidth + gap; // panel centre-to-centre spacing
+	const firstCenterX = center.x - ((segments - 1) / 2) * pitch;
+	for (let s = 0; s < segments; s++) {
+		buildBrickPanel(structure, world, firstCenterX + s * pitch, center.z, columns, rows, breakF, breakT);
 	}
 
 	for (const p of structure.pieces) if (!p.isStatic) p.body.setAwake(false);

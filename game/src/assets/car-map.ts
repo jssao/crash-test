@@ -7,7 +7,7 @@
 // top-level node with an IDENTITY transform (pose + game-frame reorient baked into vertices
 // at export time, same convention as the Mustang split), so every worldQuat below is identity.
 // Car root sits with wheel bottoms at world Y ~ 0.
-// Generated: 2026-07-11T23:28:10.161Z
+// Generated: 2026-07-15T12:37:41.138Z
 
 export interface Vec3Mm { readonly 0: number; readonly 1: number; readonly 2: number }
 export interface Vec4 { readonly 0: number; readonly 1: number; readonly 2: number; readonly 3: number }
@@ -89,6 +89,19 @@ export interface CarMap {
   glassMaterials: GlassMaterial[];
   glassMeshNodes: string[];
   /**
+   * Body-paint material names found in this GLB (scene/carMaterials.ts's tunePaint() targets these —
+   * data-driven so a car swap that renames the paint material can't silently stop matching, the way a
+   * hand-maintained regex did for the S90's "Car Paint" material).
+   */
+  paintMaterialNames: string[];
+  /**
+   * Headlight-lens glass material names (scene/carMaterials.ts's tuneHeadlightLens() targets these).
+   * Separate from glassMaterials/glassMeshNodes above — these are small lighting-lens panes tuned
+   * toward "lit lens" (glossy + warm emissive), never registered as shatterable window glass. Empty
+   * for assets with no such dedicated lens material.
+   */
+  headlightLensMaterialNames: string[];
+  /**
    * Materials carrying a trademarked logo texture to neutralize at load (scene/car.ts clears these
    * texture slots). Empty for the Mustang asset (no logo textures — all flat color factors).
    */
@@ -97,7 +110,7 @@ export interface CarMap {
 
 export const CAR_MAP: CarMap = {
   "sourceFile": "public/assets/car/volvo-s90.glb",
-  "generatedAt": "2026-07-11T23:28:10.161Z",
+  "generatedAt": "2026-07-15T12:37:41.138Z",
   "axisConvention": "Y-up, X-right (width), Z-forward (length); left/front-left wheel at +X/+Z; wheel-bottoms ~ Y=0; identity node transforms (baked)",
   "overallDimsMm": {
     "length": 5002,
@@ -450,6 +463,12 @@ export const CAR_MAP: CarMap = {
     "Glass Turnsignal",
     "Emblem Front",
     "FrontCamera"
+  ],
+  "paintMaterialNames": [
+    "Car Paint"
+  ],
+  "headlightLensMaterialNames": [
+    "Glass headlights"
   ],
   "logoMaterialsToSanitize": []
 };

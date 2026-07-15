@@ -21,7 +21,7 @@ import { QUALITY_PRESETS, detectDefaultQuality, loadQualityPreference, type Qual
 import { buildLabScene } from './labScene';
 import { createOrbitUpdater, createUserOrbitController, sphericalFromCylindrical, sphericalFromCameraPose } from '../scene/cameraOrbit';
 import { detachWheelVisuals, applyWheelVisual, type WheelVisual } from '../scene/wheels';
-import { createVehicle, destroyVehicle, stepVehicle, createGroundBody, NEUTRAL_INPUT, type Vehicle, type WheelKey } from '../vehicle/vehicle';
+import { createVehicle, destroyVehicle, stepVehicle, createGroundBody, NEUTRAL_INPUT, getTelemetry, type Vehicle, type WheelKey } from '../vehicle/vehicle';
 import { FIXED_DT, FIXED_SUBSTEPS, CHASSIS_ORIGIN_HEIGHT_M, VISUAL_RIDE_LIFT_M } from '../vehicle/tuning';
 import { FixedStepAccumulator, InterpolatedTransform } from '../core/loop';
 import { installPointerInput, consumeDragDelta, consumeZoomDelta } from '../input/pointer';
@@ -30,6 +30,7 @@ import { registerCarDeformables, syncCarDeformablesToThree, checkCarDeformablesS
 import { createStructuralCrushState, updateStructuralCrush, resetStructuralCrush, structuralInputsFromTelemetry, lateralInputsFromRegistry, maxStructuralOffsetM, type StructuralCrushState } from '../scene/structuralCrush';
 import { getSegmentTelemetry } from '../vehicle/segments';
 import { createPanelVisuals, reparentPanelVisual, repairPanelVisual, applyPanelVisual, type PanelVisual } from '../scene/panelVisuals';
+import { createCrashFx, buildShatteredGlassMaterial, type CrashFx } from '../scene/crashFx';
 import { resetCrumpleRegistry } from '../damage/crumple';
 import { PANEL_KEYS, type PanelKey } from '../damage/panels';
 import type { FeatureContext, WorldFeature } from '../world/features/feature';
@@ -113,6 +114,41 @@ declare global {
 			/** Diagnostic (Stream C slice C3): the lateral field's own registry-derived per-side driver
 			 * stats (scene/structuralCrush.ts's lateralInputsFromRegistry()). */
 			lateralInputs: () => { sidePos: { depthM: number; centerZ: number; spanM: number }; sideNeg: { depthM: number; centerZ: number; spanM: number } };
+			/** BUG P006/P008 verification diagnostic: |mesh position - physics body position| (m) for the
+			 * current run's barrier rig -- null if no barrier rig is active (e.g. idle, or a crash-target
+			 * run replaced the barrier), 0 for a STATIC rig kind (rigid-full/-offset/-pole, whose visual has
+			 * no `transform` to drift out of sync in the first place). A moving trolley (mdb-trolley/rear-
+			 * trolley) should read near-zero every frame once its InterpolatedTransform is wired up -- a
+			 * large/growing value would mean the mesh is NOT tracking its physics body (this bug's symptom). */
+			rigSyncCheck: () => number | null;
+			/** BUG P006/P008 verification diagnostic: how far (m) the current moving-rig BODY has actually
+			 * traveled from its own spawn position -- null with no rig, or a static rig kind (no `transform`,
+			 * see barrierSpawnPos's doc comment). Proves the guided-trolley PHYSICS side of the fix (which
+			 * already worked before this bugfix -- see this task's root-cause notes) independently of
+			 * rigSyncCheck()'s mesh-tracking check. */
+			rigDisplacementFromSpawnM: () => number | null;
+			/** Diagnostic (verify-harness only -- never called by the interactive lab UI): snaps the
+			 * barrier rig's visual to the CURRENT (fully caught-up, alpha=1) sample of its InterpolatedTransform
+			 * and renders one frame, bypassing the wall-clock-driven animation loop entirely. Exists because in
+			 * a slow/software-rendered headless environment, waiting for (or forcing, via a screenshot) the
+			 * NEXT ambient animate() tick can itself inject a large, real-time-proportional BURST of extra
+			 * physics steps before the mesh visually updates -- this lets a deterministic stepN()-driven probe
+			 * see (and screenshot) exactly where stepN() left the physics, without that extra drift. No-op if
+			 * there's no active moving-rig transform. */
+			renderNow: () => void;
+		};
+	}
+}
+
+// BUGS R003/R004 (crash VFX): separate global, additive to __LAB__ -- see scene/crashFx.ts's
+// CrashFxCounters doc comment. A headless verify probe reads this to confirm particles/decals/
+// puddles actually spawned (and stayed within their caps) without any pixel inspection.
+declare global {
+	interface Window {
+		__FX__?: {
+			counters: () => { activeParticles: number; decals: number; puddles: number };
+			debugParticles: () => { kind: string; pos: [number, number, number]; opacity: number; scale: number }[];
+			puddleInfo: () => { active: boolean; x: number; y: number; z: number; radius: number };
 		};
 	}
 }
@@ -176,6 +212,9 @@ async function main() {
 	// MECHANICAL crush (segment telemetry), on top of the contact-dent crumple.
 	const structuralCrush: StructuralCrushState = createStructuralCrushState(damageSystem.registry.meshes);
 	const panelVisuals: Record<PanelKey, PanelVisual> = createPanelVisuals(car.root);
+	// BUGS R003/R004 (crash VFX): glass shards, impact dust/debris, tire smoke, engine-bay fluid
+	// leak, scuff/chip decals -- see scene/crashFx.ts's module doc for the full design.
+	const crashFx: CrashFx = createCrashFx(scene, car.root, panelVisuals);
 
 	const originalGlassMaterials = new Map<string, THREE.Material>();
 	for (const b of carDeformables.bindings) {
@@ -189,13 +228,10 @@ async function main() {
 		if (!mesh) return;
 		const src = mesh.material as THREE.MeshPhysicalMaterial;
 		if (!src || Array.isArray(mesh.material)) return;
-		const shattered = src.clone();
-		shattered.roughness = 0.9;
-		if ('transmission' in shattered) (shattered as unknown as { transmission: number }).transmission = 0;
-		shattered.transparent = true;
-		shattered.opacity = 0.85;
-		shattered.needsUpdate = true;
-		mesh.material = shattered;
+		// ROUND-2 (R004): was an in-line swap that killed transmission on a white-based glass material and
+		// produced a glowing WHITE panel at the A-pillar. Delegated to crashFx's crazed-glass builder,
+		// which reads as spider-cracked safety glass instead. See buildShatteredGlassMaterial()'s doc.
+		mesh.material = buildShatteredGlassMaterial(src);
 	}
 	function handleDamageEvent(event: DamageEvent): void {
 		if (event.type === 'panelLoosened' || event.type === 'panelSprung' || event.type === 'panelBroken') {
@@ -208,6 +244,9 @@ async function main() {
 		} else if (event.type === 'glassShattered') {
 			applyGlassShatterMaterial(event.mesh);
 		}
+		// BUGS R003/R004: additive-only, self-contained switch inside crashFx -- never touches any of
+		// the branches above (also handles 'impact'/'panelBroken', which this function otherwise ignores).
+		crashFx.handleDamageEvent(event, findDeformableMesh);
 	}
 	damageSystem.emitter.on(handleDamageEvent);
 
@@ -280,6 +319,11 @@ async function main() {
 	let currentProtocolId: string = PROTOCOLS[0].id;
 	let freeConfig: FreeConfigState = { ...FREE_CONFIG_DEFAULT };
 	let barrierRig: BarrierRig | null = null;
+	// BUG P006/P008 verification diagnostic: the moving-rig body's position at spawn (undefined for
+	// static rig kinds/no rig) -- lets a headless probe assert the trolley actually TRAVELED (not just
+	// that its mesh tracks wherever it is -- rigSyncCheck() alone can't tell a parked trolley from a
+	// moving one glued correctly to a parked body).
+	let barrierSpawnPos: { x: number; y: number; z: number } | null = null;
 	// Crash-target extension (./crashTargets.ts): when a model target is selected it spawns AHEAD of
 	// the car IN PLACE OF the barrier wall, so you can crash into a single game model to troubleshoot
 	// its physics. `crashTargetId === null` keeps the normal barrier behaviour.
@@ -309,6 +353,7 @@ async function main() {
 		if (barrierRig) {
 			teardownBarrierRig(scene, barrierRig);
 			barrierRig = null;
+			barrierSpawnPos = null;
 		}
 		if (crashTarget) {
 			crashTarget.teardown();
@@ -359,6 +404,9 @@ async function main() {
 			visual.transform.sample(pt.position, pt.rotation);
 		}
 		occupantsFeature.reset?.('car');
+		// BUG R003/R004: a freshly rebuilt car (new run/reset) shouldn't still show the old wreck's
+		// decals/puddle.
+		crashFx.reset();
 	}
 
 	function selectProtocol(id: string): void {
@@ -404,6 +452,7 @@ async function main() {
 		} else {
 			barrierRig = spawnBarrierRig(world, scene, vehicle, protocol, freeConfig);
 			barrierRig.visual.visible = !barrierHidden;
+			barrierSpawnPos = barrierRig.transform ? { ...barrierRig.bodies[0].getTransform().position } : null;
 		}
 		const launchVel = launchVehicle(vehicle, protocol, freeConfig);
 		// Trolley protocols: the car stays PARKED (launchVehicle already gave it zero velocity) and the
@@ -472,6 +521,13 @@ async function main() {
 		stepVehicle(vehicle, NEUTRAL_INPUT, FIXED_DT);
 		world.step(FIXED_DT, FIXED_SUBSTEPS);
 		if (barrierRig) guideBarrierRig(barrierRig, runElapsedS);
+		// BUG P006/P008 FIX: sample the trolley body's transform every fixed step, exactly parallel to
+		// chassis/wheels/panels below -- static rig kinds (rigid-full/-offset/-pole) have no `transform`
+		// and are unaffected (their visual was placed once at spawn and never moves).
+		if (barrierRig?.transform) {
+			const bt = barrierRig.bodies[0].getTransform();
+			barrierRig.transform.sample(bt.position, bt.rotation);
+		}
 		if (vehicleGuideVelocity && runElapsedS < vehicleGuideEndS) applyVehicleVelocity(vehicle, vehicleGuideVelocity);
 		stepDamageSystem(damageSystem, world, FIXED_DT);
 		updateStructuralCrush(structuralCrush, {
@@ -482,6 +538,18 @@ async function main() {
 		occupantsFeature.afterFixedStep?.(FIXED_DT);
 		crashTarget?.afterFixedStep(FIXED_DT);
 		sampleChassisDecel(decelTracker, vehicle.chassis.getLinearVelocity(), FIXED_DT);
+		// BUG R003 (fluid leak): re-reads segment telemetry (read-only getter, additive call).
+		{
+			const chassisT = vehicle.chassis.getTransform();
+			crashFx.updateFluidLeak(getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushPlasticM, chassisT.position, chassisT.rotation, FIXED_DT);
+		}
+		// BUG R003 (tire smoke): per-wheel slip/ground-contact check via the existing public getters.
+		{
+			const fxTelemetry = getTelemetry(vehicle);
+			for (const key of Object.keys(vehicle.wheels) as WheelKey[]) {
+				crashFx.updateWheel(key, vehicle.wheels[key].body.getPosition(), vehicle.wheelGrounded[key], Math.abs(fxTelemetry.slipHints[key]), FIXED_DT);
+			}
+		}
 
 		const t = vehicle.chassis.getTransform();
 		chassisTransform.sample(t.position, t.rotation);
@@ -615,7 +683,62 @@ async function main() {
 		// signal the door-sprung/break speed gates read (damage-tuning.ts's DOOR_SPRUNG_GATE_MS doc
 		// comment) -- lets a headless probe confirm the gate actually saw the expected peak.
 		peakForwardSpeedMs: () => Math.abs(vehicle.segments.yieldState.peakForwardSpeedMs),
+		// BUG P006/P008 verification diagnostic: see the type declaration's doc comment above -- null with
+		// no active barrier rig, 0 for a static rig kind, else |mesh position - live body position| (m).
+		rigSyncCheck: () => {
+			if (!barrierRig) return null;
+			if (!barrierRig.transform) return 0;
+			const bp = barrierRig.bodies[0].getTransform().position;
+			const mp = barrierRig.visual.position;
+			return Math.hypot(mp.x - bp.x, mp.y - bp.y, mp.z - bp.z);
+		},
+		rigDisplacementFromSpawnM: () => {
+			if (!barrierRig || !barrierSpawnPos) return null;
+			const bp = barrierRig.bodies[0].getTransform().position;
+			return Math.hypot(bp.x - barrierSpawnPos.x, bp.y - barrierSpawnPos.y, bp.z - barrierSpawnPos.z);
+		},
+		renderNow: () => {
+			// Also permanently stops the normal wall-clock-driven animation loop (idempotent -- safe to
+			// call repeatedly): a subsequent screenshot's own (in this environment, observed multi-second)
+			// compositor settle can otherwise itself pump the still-live rAF loop through several MORE
+			// ambient physics steps before the frame is actually captured, undoing this exact staging.
+			// Verify-harness-only; the interactive lab never calls this.
+			renderer.setAnimationLoop(null);
+			// Mirrors animate()'s FULL per-frame visual-apply sequence at alpha=1 (fully caught up to the
+			// latest fixed-step sample) -- not just the barrier -- so a screenshot taken any time after
+			// this (mid-approach OR post-impact, with more stepN() calls in between) shows the REAL car/
+			// damage/occupant state, not a stale pose frozen from the last time animate() happened to run.
+			for (const key of Object.keys(wheelVisuals) as WheelKey[]) applyWheelVisual(wheelVisuals[key], IDENTITY_QUAT, 1);
+			for (const key of PANEL_KEYS) {
+				const visual = panelVisuals[key];
+				if (visual) applyPanelVisual(visual, 1);
+			}
+			occupantsFeature.applyVisuals?.(1);
+			crashTarget?.applyVisuals(1);
+			chassisTransform.applyTo(car.root, 1);
+			if (barrierRig?.transform) barrierRig.transform.applyTo(barrierRig.visual, 1);
+			car.root.translateY(-CHASSIS_ORIGIN_HEIGHT_M + VISUAL_RIDE_LIFT_M);
+			const currentPos = vehicle.chassis.getPosition();
+			carFocus.x = currentPos.x;
+			carFocus.z = currentPos.z;
+			if (userOrbit.active) {
+				userOrbit.update(camera, carFocus, orbitOpts.targetHeight, 0, world);
+			} else {
+				const elapsed = fixedAngle !== null ? fixedAngle / orbitOpts.angularSpeed : timer.getElapsed();
+				updateOrbit(elapsed, carFocus);
+			}
+			renderer.render(scene, camera);
+			// Also refresh the HUD text overlay (crush/panel/occupant readouts, run state) -- like the
+			// camera, these are otherwise only refreshed inside animate(), which this permanently stops.
+			// Without this a post-renderNow() screenshot would show a REAL, correctly-crushed/repositioned
+			// 3D scene next to a STALE HUD sidebar still reading all-zeros from before the crash.
+			hud.setRunState(runState, runElapsedS, runTotalS);
+			hud.updateReadout(buildReadoutData());
+		},
 	};
+
+	// BUGS R003/R004 verify hook -- see the `declare global` doc comment above.
+	window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo() };
 
 	// Crash-target picker (own injected DOM — leaves ./hud.ts untouched).
 	installCrashTargetPicker(document.body, {
@@ -666,6 +789,10 @@ async function main() {
 		occupantsFeature.applyVisuals?.(alpha);
 		crashTarget?.applyVisuals(alpha);
 		chassisTransform.applyTo(car.root, alpha);
+		// BUG P006/P008 FIX: keep the trolley mesh glued to its (guided, flying-toward-the-car) physics
+		// body every render frame -- before this line the mesh stayed frozen at its spawn-time position
+		// forever while the body actually moved, so the car looked like it "just magically gets hit".
+		if (barrierRig?.transform) barrierRig.transform.applyTo(barrierRig.visual, alpha);
 		car.root.translateY(-CHASSIS_ORIGIN_HEIGHT_M + VISUAL_RIDE_LIFT_M);
 
 		const currentPos = vehicle.chassis.getPosition();
@@ -677,6 +804,9 @@ async function main() {
 			const elapsed = fixedAngle !== null ? fixedAngle / orbitOpts.angularSpeed : timer.getElapsed();
 			updateOrbit(elapsed, carFocus);
 		}
+
+		// BUGS R003/R004: per-frame particle aging/fade (decals/puddle are step-driven above, not here).
+		crashFx.update(scaledDt);
 
 		renderer.render(scene, camera);
 

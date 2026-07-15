@@ -20,6 +20,9 @@ import {
 	DOOR_SPRUNG_TO_BREAK_STRESS_MULT,
 	DOOR_STRESS_TOUCH_MIN,
 	HOOD_BREAK_MIN_FRONT_CRUSH_M,
+	PANEL_ADJACENCY,
+	PANEL_ADJACENCY_BLEED_CAP,
+	PANEL_ADJACENCY_BLEED_FRACTION,
 	PANEL_BREAK_FORCE_MULT,
 	PANEL_BREAK_S2_MULT,
 	PANEL_LOOSEN_FORCE_MULT,
@@ -32,12 +35,14 @@ import {
 	STRESS_MAX_NORMAL_UP_COMPONENT,
 	STRESS_MIN_APPROACH_SPEED_MS,
 	STRESS_RADIUS_M,
+	STRESS_RADIUS_M_BY_PANEL,
 	WHEEL_DETACH_DEBOUNCE_STEPS,
 	WHEEL_DETACH_EXTREME_DEBOUNCE_STEPS,
 	WHEEL_DETACH_EXTREME_GATE_MS,
 	WHEEL_DETACH_FORCE_MULT,
 	WHEEL_DETACH_IMPACT_BYPASS_MULT,
 	WHEEL_DETACH_JAMMED_DOOR_DEBOUNCE_STEPS,
+	WHEEL_DETACH_MIN_APPROACH_MS,
 	type PanelVulnerability,
 } from './damage-tuning';
 import { breakPanelWeld, DOOR_PANEL_KEY_SET, loosenPanelWeld, PANEL_ENTITY_ID, PANEL_KEYS, sprungPanelWeld, type PanelHandle, type PanelKey } from './panels';
@@ -82,7 +87,7 @@ function rotateByConjugate(q: Q4, v: V3): V3 {
 /**
  * Directional stress multiplier in [floor, 1] for one panel given the impact's CHASSIS-LOCAL unit
  * direction (chassis origin -> impact point). Alignment = how much the impact comes from the axis the
- * panel is weak against (|component|, or the signed sense for a one-sided panel like the rear hatch),
+ * panel is weak against (|component|, or the signed sense for a one-sided panel like the trunk),
  * sharpened by the panel's exponent; `floor` guarantees a minimum (1 for the frontal-weak hood =
  * unchanged behaviour, 0 for doors so a pure frontal contributes nothing toward tearing them off).
  * See damage-tuning.ts's PANEL_VULNERABILITY + crash-deformation-reference.md.
@@ -245,6 +250,9 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 
 	// ---- 2) Accumulated event-driven stress (nearby qualifying hits), now DIRECTION-AWARE ----
 	const chassisTransform = vehicle.chassis.getTransform();
+	// P013(d): each panel's THIS-STEP accumulated-stress increment, for the adjacency-bleed pass below.
+	const incThisStep = {} as Record<PanelKey, number>;
+	for (const key of PANEL_KEYS) incThisStep[key] = 0;
 	for (const hit of hits) {
 		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
 		// Ground-plane contacts (the car settling, bouncing, or briefly scraping flat ground -- NOT a
@@ -256,15 +264,30 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 		// Which direction did this impact come from, in CHASSIS-LOCAL axes? (+Z frontal, +/-X lateral,
 		// +/-Y vertical.) This is what lets a door ignore a nose impact but tear off in a side impact --
 		// the reference-driven fix for "doors fly off in frontal impacts". See panelDirectionalFactor().
+		//
+		// P007 NOTE: this stays the impact-POINT-vs-origin vector (not the contact normal). The point
+		// vector is near-axial and low-noise for a clean frontal, which is what keeps a frontal door's
+		// accumulated stress in its calibrated sweet spot: small enough that <=100 km/h leaves doors
+		// attached (crash-realism / threshold-ordering pins) yet nonzero enough that the extreme-tier
+		// 161 km/h door SPRUNG behaviour still fires. A per-contact NORMAL was tried and rejected -- a
+		// frontal wall's manifold normals carry enough incidental lateral component to loosen the doors at
+		// 100 km/h, while a clean axial frontal reads EXACTLY zero and kills the 161 km/h sprung tier
+		// (measured both regressions). The "side impact drops the trunk" half of P007 is instead fixed by
+		// the tight per-panel TRUNK radius (STRESS_RADIUS_M_BY_PANEL) below -- a geometry guard that needs
+		// no change to this well-calibrated direction signal.
 		const relLocal = rotateByConjugate(chassisTransform.rotation, sub(hit.point, chassisTransform.position));
 		const relLen = length(relLocal);
 		const dirLocal: V3 = relLen > 1e-9 ? { x: relLocal.x / relLen, y: relLocal.y / relLen, z: relLocal.z / relLen } : { x: 0, y: 0, z: 0 };
 		for (const key of PANEL_KEYS) {
 			const panel = panels[key];
 			if (panel.state === 'broken') continue;
+			// P007: per-panel stress radius (STRESS_RADIUS_M_BY_PANEL) -- the trunk uses a tight radius so
+			// a door-region hit can't reach it on distance alone (belt-and-suspenders with the direction
+			// fix above). Every other panel keeps the global STRESS_RADIUS_M.
+			const radius = STRESS_RADIUS_M_BY_PANEL[key] ?? STRESS_RADIUS_M;
 			const centroid = panel.body.getPosition();
 			const dist = length(sub(hit.point, centroid));
-			if (dist > STRESS_RADIUS_M) continue;
+			if (dist > radius) continue;
 			const dirFactor = panelDirectionalFactor(PANEL_VULNERABILITY[key], dirLocal);
 			if (dirFactor <= 0) continue;
 			// Mass-aware weighting: a light plank/brick/sapling transmits a fraction e of the stress a
@@ -272,11 +295,36 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 			// body e is exactly 1, so `* 1` is an IEEE-754 no-op and this stress figure is bit-identical
 			// to the pre-mass-aware code -- the byte-stable-against-static-obstacles guarantee.
 			const massFactor = massAwareDamageFactor(hit.otherMassKg, carMassKg);
-			const stressIncrement = STRESS_K * hit.approachSpeed * stressFalloff(dist / STRESS_RADIUS_M) * dirFactor * massFactor;
+			const stressIncrement = STRESS_K * hit.approachSpeed * stressFalloff(dist / radius) * dirFactor * massFactor;
 			panel.stress += stressIncrement;
+			incThisStep[key] += stressIncrement;
 			// DOORS ONLY (C3b): track the stress-weighted lateral-alignment numerator alongside stress
 			// itself -- see panels.ts's lateralStressWeighted doc comment + doorLateralFraction() below.
 			if (DOOR_PANEL_KEY_SET.has(key)) panel.lateralStressWeighted += stressIncrement * Math.abs(dirLocal.x);
+		}
+	}
+	// P013(d) ZONE PROPAGATION: bleed a small fraction of each panel's this-step stress increment into
+	// its physical neighbours (PANEL_ADJACENCY) so a hard localized hit spreads a little beyond the exact
+	// zone its own radius/direction reached, instead of stopping at a razor-sharp panel boundary. Applied
+	// as a pure ADD-ON after the main accumulation (so no panel bleeds this step's OWN freshly-bled
+	// stress onward -- reads only incThisStep, the direct-hit increments). The fraction is small enough
+	// that the bleed can never by itself loosen a neighbour (see PANEL_ADJACENCY_BLEED_FRACTION's doc).
+	// Deliberately NOT fed into lateralStressWeighted -- a neighbour's bleed carries no lateral direction
+	// of its own, so it must not perturb the C3b sprung/jam split.
+	for (const key of PANEL_KEYS) {
+		const panel = panels[key];
+		if (panel.state === 'broken') continue;
+		let bleed = 0;
+		for (const neighbour of PANEL_ADJACENCY[key]) bleed += incThisStep[neighbour];
+		if (bleed <= 0) continue;
+		// Hard-cap the LIFETIME bleed this panel receives (PANEL_ADJACENCY_BLEED_CAP) so a neighbour's
+		// (unbounded) accumulated stress can never bleed a panel across its loosen threshold on its own.
+		const want = PANEL_ADJACENCY_BLEED_FRACTION * bleed;
+		const room = Math.max(0, PANEL_ADJACENCY_BLEED_CAP - panel.bleedStress);
+		const add = Math.min(want, room);
+		if (add > 0) {
+			panel.stress += add;
+			panel.bleedStress += add;
 		}
 	}
 	for (const key of PANEL_KEYS) {
@@ -327,7 +375,13 @@ export function stepWeldsAndWheels(args: WeldStepArgs): void {
 	// test, or a real gross overload) still detaches via the higher WHEEL_DETACH_IMPACT_BYPASS_MULT.
 	let impactContext = false;
 	for (const hit of hits) {
-		if (hit.approachSpeed <= STRESS_MIN_APPROACH_SPEED_MS) continue;
+		// P012: a GENUINE impact -- car-touching, mostly-horizontal normal, AND closing above the
+		// wheel-detach approach floor (WHEEL_DETACH_MIN_APPROACH_MS, well above ordinary-driving contact
+		// speeds). The old STRESS_MIN_APPROACH_SPEED_MS (3 m/s) floor let a low-speed curb/prop brush
+		// during hard driving supply impact context, so a coincident hard-driving joint-force transient
+		// (in the documented ordinary 5-23kN band) could false-detach a wheel. A solid 60 km/h wheel-region
+		// strike (16.7 m/s) clears this comfortably and still detaches.
+		if (hit.approachSpeed < WHEEL_DETACH_MIN_APPROACH_MS) continue;
 		if (Math.abs(hit.normal.y) > STRESS_MAX_NORMAL_UP_COMPONENT) continue;
 		if (!hitTouchesCar(hit, panels)) continue;
 		impactContext = true;

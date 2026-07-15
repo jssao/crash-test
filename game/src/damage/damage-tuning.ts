@@ -138,6 +138,18 @@ export const GLASS_PANE_SHATTER_MIN_APPROACH_MS = 3;
 export const STRESS_MAX_NORMAL_UP_COMPONENT = 0.6;
 
 /**
+ * P013(c) OWN-RATCHET CORROBORATION: minimum hit-event approach speed (m/s) for a car-touching,
+ * mostly-horizontal-normal contact on a crush chain to count as STRONG evidence -- the extra
+ * corroboration the segment OWN-displacement ratchet now requires (alongside the longer debounce, see
+ * segments.ts's OWN_RATCHET_DEBOUNCE_STEPS) before it may bake a segment's current displacement into a
+ * permanent plastic set. Ordinary heightfield/curb driving contacts close at low speed and never sustain
+ * this AND the crash gate AND a multi-step touch together; a genuine barrier crash (>=30 km/h = ~8.3 m/s)
+ * clears it easily. Computed in system.ts (damage side, where the drain lives) and passed to
+ * stepSegmentYield() as a boolean CoreHitFlags.frontStrong/rearStrong, so segments.ts needs no
+ * damage-tuning import. */
+export const OWN_RATCHET_STRONG_APPROACH_MS = 8;
+
+/**
  * Radius (meters) within which a hit event's impact point contributes stress to a panel's centroid --
  * NOTE: the falloff curve used against this radius is welds.ts's own `stressFalloff()` (a quadratic
  * (1-t)^2), deliberately gentler than crumple.ts's smoothFalloff() (a steeper cubic smoothstep used for
@@ -159,6 +171,71 @@ export const STRESS_MAX_NORMAL_UP_COMPONENT = 0.6;
  * console output -- which is a fair bonus outcome, not a violation of any required test.)
  */
 export const STRESS_RADIUS_M = 4.0;
+
+/**
+ * P007 PER-PANEL stress radius override (m). Panels not listed use the global STRESS_RADIUS_M above.
+ *
+ * TRUNK re-scope (playtest "side impact drops the trunk"): the 4.0m global radius reaches the trunk
+ * centroid (rear of the car) from a struck DOOR's impact point, so a squarely-lateral rear-door hit --
+ * whose direction is now correctly read as lateral, not rearward (welds.ts's normal-based
+ * panelDirectionalFactor caller) -- could STILL leak a little stress into the trunk purely on distance.
+ * A tight trunk radius makes trunk stress mostly SAME-PANEL: only a genuine REAR impact (barrier/pole at
+ * the tail, ~0.7m from the trunk centroid) reaches it, while a door-region hit (>=1.1m away) never does.
+ * This is the belt-and-suspenders half of the trunk fix (the direction fix is the primary lever); on its
+ * own the geometry guarantees "a side impact cannot drop the trunk" independent of any direction math. */
+export const STRESS_RADIUS_M_BY_PANEL: Partial<Record<PanelKey, number>> = {
+	// MEASURED (2026-07-15): trunk centroid sits at chassis-local z=-2.13; the rear DOORS sit at z=-0.62
+	// and a door-centred SIDE barrier reaches back to ~z=-1.2. At the old 4.0m (and even a 1.1m) radius
+	// those rearmost side-flank hits still reached the trunk centroid (~0.93m away) and loosened it in a
+	// side impact -- the "side impact drops the trunk" bug. 0.7m excludes every side-flank hit (>=0.93m
+	// from the trunk) while still comfortably admitting a genuine REAR impact (a tail barrier/pole at
+	// z~-2.5 is ~0.37m from the centroid). Trunk stress becomes essentially same-panel: only a real rear
+	// hit reaches it.
+	trunk: 0.7,
+};
+
+/**
+ * P013(d) ZONE PROPAGATION -- panel-to-panel adjacency. The panels are star-welded to the chassis with
+ * no direct panel-to-panel load path, so a hard localized hit used to stay strictly within the panel(s)
+ * its own impact radius + directional factor reached (deformation read as sharply "zone-confined"). This
+ * defines a simple, tunable physical-neighbour graph so a fraction of each panel's per-step accumulated
+ * stress bleeds into its neighbours (a front hit's hood load bleeds into the front doors' cowl edges; a
+ * side door's load bleeds into the panel behind it and the hood; a rear hit bleeds into the rear doors).
+ * Deliberately NOT an architecture rebuild -- it rides on top of the existing accumulated-stress model as
+ * a small secondary pass (welds.ts), gated so the bleed alone can never escalate a neighbour (see
+ * PANEL_ADJACENCY_BLEED_FRACTION). */
+export const PANEL_ADJACENCY: Record<PanelKey, readonly PanelKey[]> = {
+	hood: ['doorL', 'doorR'],
+	doorL: ['hood', 'doorRL'],
+	doorR: ['hood', 'doorRR'],
+	doorRL: ['doorL', 'trunk'],
+	doorRR: ['doorR', 'trunk'],
+	trunk: ['doorRL', 'doorRR'],
+};
+
+/**
+ * P013(d): fraction of a panel's THIS-STEP accumulated-stress increment that bleeds into each physical
+ * neighbour (PANEL_ADJACENCY). Kept deliberately small: at the highest calibrated frontal (120 km/h,
+ * measured hood stress a few hundred units accumulated over the whole crash) 0.05x the hood's per-step
+ * increments summed over the crash stays well under STRESS_LOOSEN_S1 (28), so the bleed by itself can
+ * never loosen a neighbouring door -- preserving crash-realism.test.mjs's "NO door loosens in a frontal
+ * at 40/64/80/120" and damage-threshold-ordering.test.mjs's "doors stay attached" pins. It only ever
+ * brings a neighbour that is ALREADY accumulating its own genuine directional stress a little closer to
+ * its threshold -- the pragmatic cross-zone spread the brief asks for, not a new failure mode. */
+export const PANEL_ADJACENCY_BLEED_FRACTION = 0.05;
+
+/**
+ * P013(d): absolute ceiling (same stress units as STRESS_LOOSEN_S1) on the TOTAL adjacency bleed any one
+ * panel may ever receive over its life (tracked in PanelHandle.bleedStress). MEASURED NECESSITY
+ * (2026-07-15): a hard frontal accumulates ~800 units of HOOD stress at 100 km/h (and far more at
+ * extreme speed), so an uncapped 0.05x bleed alone put ~40 units into each front door -- past
+ * STRESS_LOOSEN_S1 (28) -- wrongly loosening doors in a pure frontal and breaking damage-threshold-
+ * ordering.test.mjs / crash-realism.test.mjs / extreme-tier.test.mjs's "doors stay attached" pins. The
+ * bleed source (a neighbour's own stress) is unbounded, so a fixed fraction cannot be safe on its own;
+ * this hard cap (well under STRESS_LOOSEN_S1) guarantees the bleed can only ever nudge a panel that is
+ * ALREADY carrying its own genuine directional stress a little closer to escalation, never manufacture a
+ * loosen from a neighbour's damage alone. */
+export const PANEL_ADJACENCY_BLEED_CAP = 12;
 
 /**
  * Stress-per-event coefficient: stress += STRESS_K * approachSpeed * stressFalloff(dist/radius).
@@ -423,6 +500,27 @@ export const LOOSEN_DAMPING_RATIO = 0.15;
 export const WHEEL_DETACH_FORCE_MULT = 4;
 
 /**
+ * P012 (wheels fly off too easily): minimum hit-event approach speed (m/s) for a car-touching,
+ * mostly-horizontal-normal contact to count as the IMPACT CONTEXT that gates the base (4x) wheel-detach
+ * breach. Raised from the base STRESS_MIN_APPROACH_SPEED_MS (3) floor the impact-context loop used to
+ * share: a 3 m/s bar let ordinary low-speed obstacle brushes during hard driving (a curb kiss, clipping
+ * a light prop) supply "impact context", so a coincident hard-cornering/braking joint-force transient
+ * in the documented 5-23kN ordinary-driving band (WHEEL_DETACH_FORCE_MULT's doc) could tip a wheel off
+ * with no genuine crash. The base force multiplier sits INSIDE that ordinary band, so force alone cannot
+ * discriminate -- the corroborating signal must be a real IMPACT. 12 m/s (~43 km/h closing) is well
+ * above ordinary-driving contact speeds yet comfortably below a solid 60 km/h (16.7 m/s) wheel-region
+ * pole/barrier strike, which still detaches. The CONTACTLESS gross-overload bypass
+ * (WHEEL_DETACH_IMPACT_BYPASS_MULT, e.g. the direct-impulse mechanism test) is unaffected -- it never
+ * used impact context -- and any genuinely extreme crash (>=WHEEL_DETACH_EXTREME_GATE_MS) reaches the
+ * bypass on force alone, so the extreme-tier wheel loss is unchanged.
+ *
+ * 8 m/s (~29 km/h), NOT higher: reverse.test.mjs pins that a genuine coincident car impact of
+ * approachSpeed 10 m/s (a real 36 km/h collision) DOES arm the base detach path -- an ordinary-driving
+ * low-speed brush (a curb kiss / clipping a light prop) closes well under this, while any real collision
+ * from ~30 km/h up clears it. */
+export const WHEEL_DETACH_MIN_APPROACH_MS = 8;
+
+/**
  * CONTACTLESS gross-overload bypass multiplier: a wheel-joint force this many times the per-wheel
  * weight share detaches the wheel WITHOUT requiring impact context (still debounced). This preserves
  * the direct-impulse mechanism test (game/sim/damage-wheel-detach.test.mjs applies a huge impulse
@@ -591,6 +689,19 @@ export const CRUMPLE_EXTREME_SPEED_CAP_MS = 45;
  * (what actually reads as "at the A-pillar" from every angle) this is what the eyes-on gate judges. */
 export const CRUMPLE_CLAMP_EXTREME_CHASSIS_M = 1.4;
 
+/** P014 CATASTROPHIC TIER: closing speed (m/s) at which the cosmetic chassis crumple reaches its
+ * catastrophic full scale -- ~340 km/h, matching segments.ts's CATASTROPHIC_FULL_SPEED_MS. Above the
+ * extreme cap (45 m/s) the per-vertex nose crush keeps deepening toward CRUMPLE_CLAMP_CATASTROPHIC_
+ * CHASSIS_M so a 340 km/h nose caves visibly deeper than a 200 km/h one (the reference's near-total
+ * front destruction), instead of both saturating to 1.4m. */
+export const CRUMPLE_CATASTROPHIC_SPEED_CAP_MS = 94;
+
+/** P014: absolute chassis crumple clamp (m) once the catastrophic tier is fully engaged (~340 km/h) --
+ * the cosmetic per-vertex ceiling that lets the nose mesh cave in far enough to read as "crushed well
+ * past the A-pillar" at the top end. Paired with segments.ts's mechanical catastrophic tier (which
+ * drives the STRUCTURAL shell field to a similar depth). */
+export const CRUMPLE_CLAMP_CATASTROPHIC_CHASSIS_M = 2.0;
+
 /** Tiered replacement for the flat "min(CRUMPLE_CLAMP_CHASSIS_M, floor+coef*min(speed,cap))"
  * expression used for chassis-kind deformables (crumple.ts's applyImpactToMesh). Identical to that
  * flat expression for approachSpeedMs <= CRUMPLE_EXTREME_GATE_MS (same sub-expression, byte-for-byte
@@ -599,8 +710,15 @@ export const CRUMPLE_CLAMP_EXTREME_CHASSIS_M = 1.4;
 export function chassisSpeedCrushCapM(approachSpeedMs: number): number {
 	const flat = Math.min(CRUMPLE_CLAMP_CHASSIS_M, CRUMPLE_CRUSH_FLOOR_M + CRUMPLE_CRUSH_SPEED_COEF_M * Math.min(approachSpeedMs, CRUMPLE_CRUSH_SPEED_CAP_MS));
 	if (approachSpeedMs <= CRUMPLE_EXTREME_GATE_MS) return flat;
-	const t = Math.min(1, (approachSpeedMs - CRUMPLE_EXTREME_GATE_MS) / (CRUMPLE_EXTREME_SPEED_CAP_MS - CRUMPLE_EXTREME_GATE_MS));
-	return CRUMPLE_CLAMP_CHASSIS_M + t * (CRUMPLE_CLAMP_EXTREME_CHASSIS_M - CRUMPLE_CLAMP_CHASSIS_M);
+	if (approachSpeedMs <= CRUMPLE_EXTREME_SPEED_CAP_MS) {
+		const t = (approachSpeedMs - CRUMPLE_EXTREME_GATE_MS) / (CRUMPLE_EXTREME_SPEED_CAP_MS - CRUMPLE_EXTREME_GATE_MS);
+		return CRUMPLE_CLAMP_CHASSIS_M + t * (CRUMPLE_CLAMP_EXTREME_CHASSIS_M - CRUMPLE_CLAMP_CHASSIS_M);
+	}
+	// P014 catastrophic tier: above the extreme cap, ramp from the extreme clamp toward the catastrophic
+	// clamp by CRUMPLE_CATASTROPHIC_SPEED_CAP_MS. Byte-identical for approachSpeedMs <= 45 (the extreme
+	// cap): the first branch returns the exact same float, so every <=200 km/h crash is untouched.
+	const t2 = Math.min(1, (approachSpeedMs - CRUMPLE_EXTREME_SPEED_CAP_MS) / (CRUMPLE_CATASTROPHIC_SPEED_CAP_MS - CRUMPLE_EXTREME_SPEED_CAP_MS));
+	return CRUMPLE_CLAMP_EXTREME_CHASSIS_M + t2 * (CRUMPLE_CLAMP_CATASTROPHIC_CHASSIS_M - CRUMPLE_CLAMP_EXTREME_CHASSIS_M);
 }
 
 /** A vertex counts as "dented" (telemetry.dentedVertexCount) once its accumulated displacement

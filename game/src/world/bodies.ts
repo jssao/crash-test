@@ -11,8 +11,21 @@
 // observably identical (isAwake() reads false, contributes zero solver work) before the first
 // world.step() call ever runs. Verified directly: see the doc comment on createDestructibleWorld().
 
-import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
+import { Body, BodyType, Shape, WeldJoint, World } from '../../../src/ts/index.js';
 import { IDENTITY_Q, type Q4, type V3 } from '../vehicle/mathUtil';
+import {
+	createFractureBudget,
+	createFractureIdAllocator,
+	fractureBoxMember,
+	fractureCapsuleTrunk,
+	fractureSeed,
+	FRACTURE_FRAGMENT_ENTITY_ID_BASE,
+	resetFractureBudget,
+	tryConsumeFractureBudget,
+	type FractureBudget,
+	type FractureFragment,
+	type FractureIdAllocator,
+} from './features/fracture';
 import {
 	BARREL_CHAIN_FUSE_MAX_S,
 	BARREL_CHAIN_FUSE_MIN_S,
@@ -27,13 +40,20 @@ import {
 	BARREL_HEIGHT_M,
 	BARREL_LATERAL_SPACING_M,
 	BARREL_MASS_KG,
+	BARREL_MASS_KG_BY_MATERIAL,
 	BARREL_RADIUS_M,
-	BARREL_ROCKET_JITTER_KGMS,
-	BARREL_ROCKET_UPWARD_IMPULSE_KGMS,
+	BARREL_ROCKET_JITTER_SPEED_MS,
+	BARREL_ROCKET_UPWARD_SPEED_MS,
 	BARREL_ROW_SPACING_M,
 	BARREL_SIDES,
 	BARREL_TRIANGLE_APEX,
 	type BarrelMaterial,
+	CRATE_ENTITY_ID_BASE,
+	CRATE_FRACTURE_AXIS,
+	CRATE_FRACTURE_THRESHOLD,
+	CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS,
+	CRATE_FRAGMENT_SPEED_CAP_MS,
+	CRATE_FRAGMENT_SPIN_CAP_RAD,
 	CRATE_FRICTION,
 	CRATE_GAP_M,
 	CRATE_HALF_EXTENT_M,
@@ -42,10 +62,21 @@ import {
 	CRATE_TOWER_LAYERS,
 	CRATE_TOWER_WIDE_LAYERS,
 	LEGACY_DESTRUCTIBLE_ENTITY_ID_BASE,
+	POLE_ENTITY_ID_BASE,
+	POLE_FORCE_THRESHOLD_N,
+	POLE_FRACTURE_THRESHOLD,
+	POLE_FRAGMENT_SPEED_CAP_MS,
+	POLE_FRAGMENT_SPIN_CAP_RAD,
 	POLE_FRICTION,
+	POLE_HEIGHT_M,
 	POLE_MASS_KG,
 	POLE_POSITIONS,
-	POLE_SHAFT_HALF_EXTENTS_M,
+	POLE_SHAFT_RADIUS_M,
+	POLE_STUMP_FRACTION,
+	POLE_TORQUE_THRESHOLD_NM,
+	POLE_WELD_ANGULAR_HERTZ,
+	POLE_WELD_DAMPING_RATIO,
+	POLE_WELD_LINEAR_HERTZ,
 	RAMP_CONFIGS,
 	RAMP_FRICTION,
 	WALL_BLOCK_FRICTION,
@@ -60,23 +91,27 @@ import {
 } from './tuning';
 
 export type DestructibleKind = 'wallBlock' | 'crate' | 'barrel' | 'pole';
-export type DestructibleMaterial = WallMaterial | 'wood' | BarrelMaterial;
+export type DestructibleMaterial = WallMaterial | 'wood' | 'poleWood' | BarrelMaterial;
 
 /** One dynamic destructible body + everything the visuals layer (game/src/world/visuals.ts) needs to
- * build a matching THREE mesh, without either module depending on the other's internals. */
+ * build a matching THREE mesh, without either module depending on the other's internals. `body` is
+ * mutable (NOT readonly, unlike the other fields): a crate/pole's mirrored entry here gets its `.body`
+ * re-pointed at whichever piece is currently "the live thing to render/sample" once it fractures (a
+ * flying pole-top piece, or the first of a crate's splinter fragments) -- same "destroy + alias to the
+ * replacement" convention as world/features/trees/bodies.ts's MidTree.trunk. */
 export interface DestructibleBody {
 	readonly kind: DestructibleKind;
-	readonly body: Body;
+	body: Body;
 	readonly shapes: readonly Shape[];
 	readonly spawnPos: V3;
 	readonly spawnRot: Q4;
 	readonly material: DestructibleMaterial;
-	/** Box half-extents (wallBlock/crate/pole -- see tuning.ts's POLE_SHAFT_HALF_EXTENTS_M note on why
-	 * poles are a single uniform box rather than a compound). */
+	/** Box half-extents (wallBlock/crate). */
 	readonly halfExtents?: V3;
-	/** Barrel only. */
+	/** Barrel (prism) / pole (capsule shaft) only. */
 	readonly radius?: number;
 	readonly height?: number;
+	/** Barrel only. */
 	readonly sides?: number;
 }
 
@@ -103,6 +138,37 @@ export interface DestructibleWorld {
 	 * resetDestructibleWorld(destructibleWorld) call the Shift+R world-reset path already makes also
 	 * resets this feature's exploded/fuse/RNG state, with no extra call site needed. */
 	readonly explodingBarrels: ExplodingBarrelsState;
+	/** P009 fix -- one PoleProp per POLE_POSITIONS entry (anchor + welded capsule shaft + fracture
+	 * state), each mirrored 1:1 into `bodies` (see PoleProp.mirror doc comment). */
+	readonly poles: PoleProp[];
+	/** P011 fix -- one CrateProp per crate-tower box, mirrored 1:1 into `bodies` (see CrateProp.mirror
+	 * doc comment), plus an entityId lookup for the per-step hitEvents drain. */
+	readonly crates: CrateProp[];
+	readonly crateByEntityId: ReadonlyMap<number, CrateProp>;
+	readonly poleFracture: PropFractureContext;
+	readonly crateFracture: PropFractureContext;
+	/** The box3d World this destructible world was built in, and the caller's foreign-mass registry
+	 * (null if built headless without one) -- stored so resetDestructibleWorld()/
+	 * destroyDestructibleWorld() (which only ever received a DestructibleWorld, never a separate World
+	 * param, and main.ts/every sim test already calls them that way) can rebuild a fractured pole/crate
+	 * in place without needing either signature to change. */
+	readonly world: World;
+	readonly massRegistry: Map<number, number> | null;
+}
+
+// =================================================================================================
+// Shared fracture-context plumbing for the pole (P009) and crate (P011) fixes below -- same shape as
+// world/features/trees/bodies.ts's TreesFractureContext, reimplemented independently in this file (per
+// this run's file ownership: trees/* is not touched) since both fixes reuse the SAME shared primitives
+// (world/features/fracture.ts's fractureCapsuleTrunk/fractureBoxMember, imported only).
+// =================================================================================================
+export interface PropFractureContext {
+	world: World;
+	/** Per-step fracture budget (<=1 event/step) -- reset once per fixed step by stepDestructiblePoles()/
+	 * stepDestructibleCrates() below (each fix owns its OWN budget instance, so a pole snap and a crate
+	 * splinter can both happen in the same step). */
+	budget: FractureBudget;
+	idAllocator: FractureIdAllocator;
 }
 
 /** Regular n-gon prism point cloud, centered on its own local origin (y in [-h/2, h/2]) -- box3d
@@ -207,12 +273,191 @@ function buildWall(world: World, config: (typeof WALL_CONFIGS)[number]): Destruc
 	return out;
 }
 
-function buildCrateTower(world: World): DestructibleBody[] {
-	const out: DestructibleBody[] = [];
+/** Volume of a capsule (cylinder + 2 hemispherical caps), given the two end-cap centers' separation
+ * (NOT the overall length -- the hemispheres add `radius` beyond each center). Same formula as world/
+ * features/trees/bodies.ts's own private capsuleVolume() -- small-helper duplication, not a shared
+ * import, matching this codebase's established convention (see this file's own header doc comment on
+ * why it shares no code with visuals.ts). */
+function capsuleVolume(radius: number, capToCapLength: number): number {
+	return Math.PI * radius * radius * capToCapLength + (4 / 3) * Math.PI * radius ** 3;
+}
+
+// =================================================================================================
+// P011 FIX -- wooden crate tower: was a stack of monolithic 15kg boxes with no break/fracture path at
+// all (bug: "wooden crates should splinter/break apart on impact; currently monolithic boxes"). Each
+// crate is now a CrateProp (a plain free box, same as before, PLUS fracture bookkeeping): a world.
+// hitEvents() read (checkCrateHitTrigger()/stepCrateFractures() below -- same "approachSpeed * this
+// body's own mass" trigger technique as this file's existing checkHitEntityForBarrelTrigger()) fires
+// fractureBoxMember() (world/features/fracture.ts, called as-is) once a hit is hard enough, splitting
+// the crate into 2 plank-like fragments that scatter under the impact's own kick velocity. A gentle
+// bump (or the tower's own inter-crate settle contacts) stays well under CRATE_FRACTURE_TRIGGER_IMPULSE_
+// KGMS, so the tower still shoves/topples as a whole at low speed, exactly like before this fix.
+// =================================================================================================
+
+export interface CrateProp {
+	readonly entityId: number;
+	readonly spawnPos: V3;
+	/** The intact crate box, OR (post-fracture) an alias to fragments[0]'s body -- kept always-live so
+	 * any generic reader (this file's own resetDestructibleWorld()/destroyDestructibleWorld(), or a
+	 * future main.ts diagnostic) never dereferences a destroyed handle. */
+	body: Body;
+	shape: Shape;
+	fractured: boolean;
+	/** The 2 splinter fragments, populated once fractured (spec: "2-4 plank-like pieces" -- 2 chosen
+	 * for robustness, a single fractureBoxMember() split; see tuning.ts's CRATE_FRACTURE_AXIS doc). */
+	fragments: FractureFragment[];
+	/** Mirrored createDestructibleWorld() bodies[] entry this crate keeps `.body` aliased to -- null for
+	 * standalone callers (crash lab / sim tests) that read this record directly. */
+	mirror: DestructibleBody | null;
+}
+
+function buildCrateBox(world: World, pos: V3): { body: Body; shape: Shape } {
+	const half: V3 = { x: CRATE_HALF_EXTENT_M, y: CRATE_HALF_EXTENT_M, z: CRATE_HALF_EXTENT_M };
+	const density = CRATE_MASS_KG / boxVolume(half);
+	const body = spawnAsleepBody(world, pos, IDENTITY_Q, CRATE_ANGULAR_DAMPING, CRATE_LINEAR_DAMPING);
+	const shape = body.createBoxShape({ halfExtents: half, density, friction: CRATE_FRICTION });
+	body.applyMassFromShapes();
+	return { body, shape };
+}
+
+/** Builds ONE crate for standalone callers (crash lab / sim tests) -- no mirrored bodies[] entry. See
+ * buildCrateTower() for the multi-instance variant createDestructibleWorld() uses. */
+export function buildCrateProp(world: World, pos: V3, entityId: number): CrateProp {
+	const { body, shape } = buildCrateBox(world, pos);
+	body.setUserData(entityId);
+	body.setAwake(false);
+	return { entityId, spawnPos: pos, body, shape, fractured: false, fragments: [], mirror: null };
+}
+
+function fractureCrate(c: CrateProp, forceMag: number, ctx: PropFractureContext, massRegistry: Map<number, number> | null): void {
+	if (c.fractured) return;
+	const t = c.body.getTransform();
+	const lv = c.body.getLinearVelocity();
+	const av = c.body.getAngularVelocity();
+	const half: V3 = { x: CRATE_HALF_EXTENT_M, y: CRATE_HALF_EXTENT_M, z: CRATE_HALF_EXTENT_M };
+	c.shape.destroy(false);
+	c.body.destroy();
+	massRegistry?.delete(c.entityId);
+
+	const { neg, pos } = fractureBoxMember({
+		world: ctx.world,
+		position: t.position,
+		rotation: t.rotation,
+		linearVelocity: lv,
+		angularVelocity: av,
+		half,
+		axis: CRATE_FRACTURE_AXIS,
+		splitLocalCoord: 0,
+		massKg: CRATE_MASS_KG,
+		friction: CRATE_FRICTION,
+		restitution: 0,
+		angularDamping: CRATE_ANGULAR_DAMPING,
+		linearDamping: CRATE_LINEAR_DAMPING,
+		forceMag,
+		threshold: CRATE_FRACTURE_THRESHOLD,
+		seed: fractureSeed(c.entityId),
+		timeSec: 0,
+		idAllocator: ctx.idAllocator,
+		breakSpeedCapMs: CRATE_FRAGMENT_SPEED_CAP_MS,
+		breakSpinCapRad: CRATE_FRAGMENT_SPIN_CAP_RAD,
+	});
+
+	c.fragments = [neg, pos];
+	c.fractured = true;
+	c.body = neg.body;
+	c.shape = neg.shape;
+	if (c.mirror) c.mirror.body = neg.body;
+	massRegistry?.set(neg.entityId, neg.massKg);
+	massRegistry?.set(pos.entityId, pos.massKg);
+}
+
+function checkCrateHitTrigger(crate: CrateProp, ctx: PropFractureContext, approachSpeed: number, massRegistry: Map<number, number> | null): void {
+	if (crate.fractured) return;
+	const massKg = crate.body.getMass();
+	const impulseLike = approachSpeed * massKg;
+	if (impulseLike >= CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS && tryConsumeFractureBudget(ctx.budget)) {
+		fractureCrate(crate, impulseLike, ctx, massRegistry);
+	}
+}
+
+/** Drains world.hitEvents() for crate impacts hard enough to splinter (tuning.ts's
+ * CRATE_FRACTURE_TRIGGER_IMPULSE_KGMS) -- call once per fixed step, AFTER world.step(). Exported for
+ * standalone callers (crash lab / sim tests); createDestructibleWorld() users should prefer
+ * stepDestructibleCrates() below (handles the budget reset too). */
+export function stepCrateFractures(world: World, crateByEntityId: ReadonlyMap<number, CrateProp>, ctx: PropFractureContext, massRegistry: Map<number, number> | null): void {
+	const hits = world.hitEvents();
+	for (let i = 0; i < hits.count; i++) {
+		const ev = hits.at(i);
+		const a = crateByEntityId.get(ev.userDataA);
+		if (a) checkCrateHitTrigger(a, ctx, ev.approachSpeed, massRegistry);
+		const b = crateByEntityId.get(ev.userDataB);
+		if (b) checkCrateHitTrigger(b, ctx, ev.approachSpeed, massRegistry);
+	}
+}
+
+/** Idempotent single-crate reset (Shift+R): rebuilds a fresh intact box if fractured, else just
+ * teleports+resleeps -- same shape as trees/bodies.ts's resetMid(). */
+export function resetCrateProp(world: World, c: CrateProp, massRegistry: Map<number, number> | null): void {
+	if (c.fractured) {
+		for (const f of c.fragments) {
+			f.shape.destroy(false);
+			f.body.destroy();
+			massRegistry?.delete(f.entityId);
+		}
+		c.fragments = [];
+		c.fractured = false;
+		massRegistry?.set(c.entityId, CRATE_MASS_KG);
+		const { body, shape } = buildCrateBox(world, c.spawnPos);
+		body.setUserData(c.entityId);
+		c.body = body;
+		c.shape = shape;
+		if (c.mirror) c.mirror.body = body;
+	} else {
+		c.body.setTransform(c.spawnPos, IDENTITY_Q);
+		c.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
+		c.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
+	}
+	c.body.setAwake(false);
+}
+
+/** Full teardown of one crate (its shape+body, or its live fragments if fractured). */
+export function destroyCrateProp(c: CrateProp, massRegistry: Map<number, number> | null): void {
+	massRegistry?.delete(c.entityId);
+	if (c.fractured) {
+		for (const f of c.fragments) {
+			massRegistry?.delete(f.entityId);
+			try {
+				f.shape.destroy(false);
+			} catch {
+				/* already freed */
+			}
+			try {
+				f.body.destroy();
+			} catch {
+				/* already freed */
+			}
+		}
+	} else {
+		try {
+			c.shape.destroy(false);
+		} catch {
+			/* already freed */
+		}
+		try {
+			c.body.destroy();
+		} catch {
+			/* already freed */
+		}
+	}
+}
+
+function buildCrateTower(world: World): { bodies: DestructibleBody[]; crates: CrateProp[] } {
+	const bodiesOut: DestructibleBody[] = [];
+	const crates: CrateProp[] = [];
 	const half = CRATE_HALF_EXTENT_M;
 	const step = half * 2 + CRATE_GAP_M;
-	const density = CRATE_MASS_KG / boxVolume({ x: half, y: half, z: half });
 	const halfExtents: V3 = { x: half, y: half, z: half };
+	let index = 0;
 	for (let layer = 0; layer < CRATE_TOWER_LAYERS; layer++) {
 		const gridSize = layer < CRATE_TOWER_WIDE_LAYERS ? 3 : 2;
 		const y = half + layer * step;
@@ -221,21 +466,37 @@ function buildCrateTower(world: World): DestructibleBody[] {
 				const x = CRATE_TOWER_CENTER.x + (gx - (gridSize - 1) / 2) * step;
 				const z = CRATE_TOWER_CENTER.z + (gz - (gridSize - 1) / 2) * step;
 				const pos: V3 = { x, y, z };
-				const body = spawnAsleepBody(world, pos, IDENTITY_Q, CRATE_ANGULAR_DAMPING, CRATE_LINEAR_DAMPING);
-				const shape = body.createBoxShape({ halfExtents, density, friction: CRATE_FRICTION });
-				body.applyMassFromShapes();
-				out.push({ kind: 'crate', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'wood', halfExtents });
+				const entityId = CRATE_ENTITY_ID_BASE + index;
+				const { body, shape } = buildCrateBox(world, pos);
+				body.setUserData(entityId);
+				const mirror: DestructibleBody = { kind: 'crate', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'wood', halfExtents };
+				bodiesOut.push(mirror);
+				crates.push({ entityId, spawnPos: pos, body, shape, fractured: false, fragments: [], mirror });
+				index++;
 			}
 		}
 	}
-	return out;
+	return { bodies: bodiesOut, crates };
+}
+
+/** Builds ONE free barrel (no triangle) for standalone callers (sim tests exercising a single variant
+ * in isolation, or a future single-barrel lab target) -- P010's full/empty mass variant, the SAME
+ * 12-gon hull buildBarrelTriangle() below uses. */
+export function buildBarrel(world: World, pos: V3, variant: BarrelMaterial, entityId: number): Body {
+	const hullPoints = ngonPrismPoints(BARREL_SIDES, BARREL_RADIUS_M, BARREL_HEIGHT_M);
+	const massKg = BARREL_MASS_KG_BY_MATERIAL[variant];
+	const density = massKg / (ngonArea(BARREL_SIDES, BARREL_RADIUS_M) * BARREL_HEIGHT_M);
+	const body = spawnAsleepBody(world, pos, IDENTITY_Q, BARREL_ANGULAR_DAMPING, BARREL_LINEAR_DAMPING);
+	body.createHullShape(hullPoints, { density, friction: BARREL_FRICTION });
+	body.applyMassFromShapes();
+	body.setUserData(entityId);
+	return body;
 }
 
 function buildBarrelTriangle(world: World): DestructibleBody[] {
 	const out: DestructibleBody[] = [];
 	const hullPoints = ngonPrismPoints(BARREL_SIDES, BARREL_RADIUS_M, BARREL_HEIGHT_M);
 	const volume = ngonArea(BARREL_SIDES, BARREL_RADIUS_M) * BARREL_HEIGHT_M;
-	const density = BARREL_MASS_KG / volume;
 	const rows = 4;
 	let rowIndex = 0;
 	for (let row = 0; row < rows; row++) {
@@ -244,6 +505,13 @@ function buildBarrelTriangle(world: World): DestructibleBody[] {
 		for (let i = 0; i < countInRow; i++) {
 			const x = BARREL_TRIANGLE_APEX.x + (i - (countInRow - 1) / 2) * BARREL_LATERAL_SPACING_M;
 			const pos: V3 = { x, y: BARREL_HEIGHT_M / 2, z };
+			// P010 FIX ("metal barrels don't deform when hit; want full-of-fluid vs empty variants with
+			// different mass"): mass now depends on the barrel's own MATERIAL (blue=full/~200kg,
+			// rust=empty/~20kg -- tuning.ts's BARREL_MASS_KG_BY_MATERIAL), not one flat 25kg for every
+			// barrel. Material assignment is unchanged (alternating by triangle index).
+			const material: BarrelMaterial = rowIndex % 2 === 0 ? 'barrelBlue' : 'barrelRust';
+			const massKg = BARREL_MASS_KG_BY_MATERIAL[material];
+			const density = massKg / volume;
 			const body = spawnAsleepBody(world, pos, IDENTITY_Q, BARREL_ANGULAR_DAMPING, BARREL_LINEAR_DAMPING);
 			const shape = body.createHullShape(hullPoints, { density, friction: BARREL_FRICTION });
 			body.applyMassFromShapes();
@@ -253,7 +521,6 @@ function buildBarrelTriangle(world: World): DestructibleBody[] {
 			// OWN userData is left at 0 (shape.ts's ShapeOptions.userData doc comment), so tagging the
 			// body alone is enough -- no need to also pass userData into createHullShape() above.
 			body.setUserData(BARREL_ENTITY_ID_BASE + rowIndex);
-			const material: BarrelMaterial = rowIndex % 2 === 0 ? 'barrelBlue' : 'barrelRust';
 			out.push({
 				kind: 'barrel',
 				body,
@@ -271,21 +538,257 @@ function buildBarrelTriangle(world: World): DestructibleBody[] {
 	return out;
 }
 
-function buildPoles(world: World): DestructibleBody[] {
-	const out: DestructibleBody[] = [];
-	const half = POLE_SHAFT_HALF_EXTENTS_M;
-	const density = POLE_MASS_KG / boxVolume(half);
-	for (const groundPos of POLE_POSITIONS) {
-		// Box shapes have no off-origin center (see tuning.ts's note above buying POLE_SHAFT_HALF_EXTENTS_M)
-		// -- so the BODY's own origin is placed at half-height instead, putting the box's bottom face
-		// exactly on the ground (y=0) the same way vehicle.ts's wheel/chassis spawn heights work.
-		const pos: V3 = { x: groundPos.x, y: half.y, z: groundPos.z };
-		const body = spawnAsleepBody(world, pos, IDENTITY_Q, POLE_ANGULAR_DAMPING, POLE_LINEAR_DAMPING);
-		const shape = body.createBoxShape({ halfExtents: half, density, friction: POLE_FRICTION });
-		body.applyMassFromShapes();
-		out.push({ kind: 'pole', body, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'wood', halfExtents: half });
+// =================================================================================================
+// P009 FIX -- utility poles: was a FREE dynamic box (40kg, friction-rested, no joint/anchor at all --
+// bug: "the pole prop does nothing to the car, doesn't look like a utility pole, and should be rooted
+// in the ground and behave like trees (lean/snap)"). Each pole is now a PoleProp: a static ground
+// anchor + a dynamic capsule shaft (~420kg) welded to it with an angularly-COMPLIANT joint (bends/
+// shudders under a sub-break-threshold hit, same technique as world/features/trees/bodies.ts's mid-
+// trunk root weld, reimplemented independently here -- trees/* is not touched). A hit past tuning.ts's
+// POLE_FORCE_THRESHOLD_N/POLE_TORQUE_THRESHOLD_NM (calibrated so ~50km/h+ reliably snaps it, a gentle
+// nudge doesn't) snaps the joint and fractures the shaft at its base-third (fractureCapsuleTrunk(),
+// world/features/fracture.ts, called as-is) into an anchored stump + a flying top piece.
+// =================================================================================================
+
+export interface PoleProp {
+	readonly entityId: number;
+	readonly spawnPos: V3;
+	readonly anchor: Body;
+	/** The standing shaft until a break; after a fracture this is re-pointed at the flying top piece
+	 * (mirrors trees/bodies.ts's MidTree.trunk convention). */
+	shaft: Body;
+	joint: WeldJoint | null;
+	/** True once the joint has been destroyed WITHOUT a fracture context available (legacy "fell whole"
+	 * fallback -- kept for API parity with the trees module's shape; in every wired call site here a
+	 * fracture context is always supplied, so this fallback is not the normal path). */
+	broken: boolean;
+	fractured: boolean;
+	stump: { frag: FractureFragment; joint: WeldJoint } | null;
+	flyerFrag: FractureFragment | null;
+	/** Mirrored createDestructibleWorld() bodies[] entry this pole keeps `.body` aliased to -- null for
+	 * standalone callers (crash lab / sim tests) that read this record directly. */
+	mirror: DestructibleBody | null;
+}
+
+function buildPoleShaft(world: World, pos: V3): { body: Body; shape: Shape } {
+	const r = POLE_SHAFT_RADIUS_M;
+	const capLen = POLE_HEIGHT_M - 2 * r;
+	const density = POLE_MASS_KG / capsuleVolume(r, capLen);
+	const body = world.createBody({ type: BodyType.Dynamic, position: pos, rotation: IDENTITY_Q, angularDamping: POLE_ANGULAR_DAMPING, linearDamping: POLE_LINEAR_DAMPING });
+	const shape = body.createCapsuleShape({ center1: { x: 0, y: r, z: 0 }, center2: { x: 0, y: POLE_HEIGHT_M - r, z: 0 }, radius: r, density, friction: POLE_FRICTION });
+	body.applyMassFromShapes();
+	return { body, shape };
+}
+
+function attachPoleJoint(world: World, anchor: Body, shaft: Body): WeldJoint {
+	return world.createWeldJoint(anchor, shaft, {
+		linearHertz: POLE_WELD_LINEAR_HERTZ,
+		angularHertz: POLE_WELD_ANGULAR_HERTZ,
+		linearDampingRatio: POLE_WELD_DAMPING_RATIO,
+		angularDampingRatio: POLE_WELD_DAMPING_RATIO,
+	});
+}
+
+/** Builds ONE utility pole for standalone callers (crash lab / sim tests) -- no mirrored bodies[]
+ * entry. See buildPoles() for the multi-instance variant createDestructibleWorld() uses. */
+export function buildPole(world: World, groundPos: V3, entityId: number): PoleProp {
+	const pos: V3 = { x: groundPos.x, y: 0, z: groundPos.z };
+	const anchor = world.createBody({ type: BodyType.Static, position: pos, rotation: IDENTITY_Q });
+	const { body: shaft } = buildPoleShaft(world, pos);
+	shaft.setUserData(entityId);
+	const joint = attachPoleJoint(world, anchor, shaft);
+	shaft.setAwake(false);
+	return { entityId, spawnPos: pos, anchor, shaft, joint, broken: false, fractured: false, stump: null, flyerFrag: null, mirror: null };
+}
+
+function fracturePole(p: PoleProp, forceMag: number, ctx: PropFractureContext, massRegistry: Map<number, number> | null): void {
+	if (p.fractured || p.broken) return;
+	p.joint!.destroy();
+	p.joint = null;
+	p.broken = true;
+
+	const t = p.shaft.getTransform();
+	const lv = p.shaft.getLinearVelocity();
+	const av = p.shaft.getAngularVelocity();
+	p.shaft.destroy();
+	massRegistry?.delete(p.entityId);
+
+	const { stump, flyer } = fractureCapsuleTrunk({
+		world: ctx.world,
+		position: t.position,
+		rotation: t.rotation,
+		linearVelocity: lv,
+		angularVelocity: av,
+		radius: POLE_SHAFT_RADIUS_M,
+		fullHeight: POLE_HEIGHT_M,
+		massKg: POLE_MASS_KG,
+		friction: POLE_FRICTION,
+		stumpFraction: POLE_STUMP_FRACTION,
+		forceMag,
+		threshold: POLE_FRACTURE_THRESHOLD,
+		seed: fractureSeed(p.entityId),
+		timeSec: 0,
+		idAllocator: ctx.idAllocator,
+		breakSpeedCapMs: POLE_FRAGMENT_SPEED_CAP_MS,
+		breakSpinCapRad: POLE_FRAGMENT_SPIN_CAP_RAD,
+	});
+
+	// Rigid stump weld back onto the anchor (default identity frames): reads as "snapped off at the
+	// base", same convention as trees/bodies.ts's fractureMid() stump joint.
+	const stumpJoint = ctx.world.createWeldJoint(p.anchor, stump.body, { linearHertz: 0, angularHertz: 0, linearDampingRatio: 1, angularDampingRatio: 1 });
+	p.stump = { frag: stump, joint: stumpJoint };
+	p.flyerFrag = flyer;
+	p.shaft = flyer.body;
+	p.fractured = true;
+	if (p.mirror) p.mirror.body = flyer.body;
+	massRegistry?.set(stump.entityId, stump.massKg);
+	massRegistry?.set(flyer.entityId, flyer.massKg);
+}
+
+/** Polls one pole's root-weld constraint force/torque (per-step polling, NOT world.jointEvents() --
+ * same technique as trees/bodies.ts's pollMidBreaks(), since box3d joint-break events only report for
+ * awake joints). Past threshold with a fracture context + budget available, SNAPS the pole at its
+ * base-third; without one (or once the per-step budget is spent), falls back to felling the whole
+ * shaft (legacy "joint just breaks" behavior). */
+export function pollPoleBreak(p: PoleProp, ctx: PropFractureContext | undefined, massRegistry: Map<number, number> | null): void {
+	if (p.broken || !p.joint) return;
+	const f = p.joint.getConstraintForce();
+	const forceMag = Math.hypot(f.x, f.y, f.z);
+	const t = p.joint.getConstraintTorque();
+	const torqueMag = Math.hypot(t.x, t.y, t.z);
+	if (forceMag > POLE_FORCE_THRESHOLD_N || torqueMag > POLE_TORQUE_THRESHOLD_NM) {
+		if (ctx && tryConsumeFractureBudget(ctx.budget)) {
+			fracturePole(p, forceMag, ctx, massRegistry);
+		} else {
+			p.joint.destroy();
+			p.joint = null;
+			p.broken = true;
+		}
 	}
-	return out;
+}
+
+/** Polls every pole -- call once per fixed step, AFTER world.step(). Exported for standalone callers
+ * (crash lab / sim tests); createDestructibleWorld() users should prefer stepDestructiblePoles() below
+ * (handles the budget reset too). */
+export function stepPoleBreaks(poles: readonly PoleProp[], ctx: PropFractureContext | undefined, massRegistry: Map<number, number> | null): void {
+	for (const p of poles) pollPoleBreak(p, ctx, massRegistry);
+}
+
+/** Idempotent single-pole reset (Shift+R): rebuilds a fresh anchored shaft+joint if fractured/felled,
+ * else just teleports+resleeps -- same shape as trees/bodies.ts's resetMid(). */
+export function resetPole(world: World, p: PoleProp, massRegistry: Map<number, number> | null): void {
+	if (p.fractured && p.stump && p.flyerFrag) {
+		p.stump.joint.destroy();
+		p.stump.frag.shape.destroy(false);
+		p.stump.frag.body.destroy();
+		p.flyerFrag.shape.destroy(false);
+		p.flyerFrag.body.destroy(); // this IS p.shaft (re-pointed at fracture time)
+		massRegistry?.delete(p.stump.frag.entityId);
+		massRegistry?.delete(p.flyerFrag.entityId);
+		massRegistry?.set(p.entityId, POLE_MASS_KG);
+		p.stump = null;
+		p.flyerFrag = null;
+		p.fractured = false;
+		const { body: shaft } = buildPoleShaft(world, p.spawnPos);
+		shaft.setUserData(p.entityId);
+		p.shaft = shaft;
+		p.joint = attachPoleJoint(world, p.anchor, shaft);
+		p.broken = false;
+		if (p.mirror) p.mirror.body = shaft;
+	} else if (p.broken || !p.joint) {
+		p.shaft.destroy();
+		const { body: shaft } = buildPoleShaft(world, p.spawnPos);
+		shaft.setUserData(p.entityId);
+		p.shaft = shaft;
+		p.joint = attachPoleJoint(world, p.anchor, shaft);
+		p.broken = false;
+		if (p.mirror) p.mirror.body = shaft;
+	} else {
+		p.shaft.setTransform(p.spawnPos, IDENTITY_Q);
+		p.shaft.setLinearVelocity({ x: 0, y: 0, z: 0 });
+		p.shaft.setAngularVelocity({ x: 0, y: 0, z: 0 });
+	}
+	p.shaft.setAwake(false);
+}
+
+/** Full teardown of one pole (anchor + whatever's currently live -- shaft, or stump+flyer if
+ * fractured). */
+export function destroyPole(p: PoleProp, massRegistry: Map<number, number> | null): void {
+	massRegistry?.delete(p.entityId);
+	if (p.fractured && p.stump) {
+		massRegistry?.delete(p.stump.frag.entityId);
+		if (p.flyerFrag) massRegistry?.delete(p.flyerFrag.entityId);
+		try {
+			p.stump.joint.destroy();
+		} catch {
+			/* already freed */
+		}
+		try {
+			p.stump.frag.shape.destroy(false);
+		} catch {
+			/* already freed */
+		}
+		try {
+			p.stump.frag.body.destroy();
+		} catch {
+			/* already freed */
+		}
+		try {
+			p.shaft.destroy(); // === flyerFrag.body
+		} catch {
+			/* already freed */
+		}
+	} else {
+		if (p.joint) {
+			try {
+				p.joint.destroy();
+			} catch {
+				/* already freed */
+			}
+		}
+		try {
+			p.shaft.destroy();
+		} catch {
+			/* already freed */
+		}
+	}
+	try {
+		p.anchor.destroy();
+	} catch {
+		/* already freed */
+	}
+}
+
+function buildPoles(world: World): { bodies: DestructibleBody[]; poles: PoleProp[] } {
+	const bodiesOut: DestructibleBody[] = [];
+	const poles: PoleProp[] = [];
+	POLE_POSITIONS.forEach((groundPos, i) => {
+		const entityId = POLE_ENTITY_ID_BASE + i;
+		const pos: V3 = { x: groundPos.x, y: 0, z: groundPos.z };
+		const anchor = world.createBody({ type: BodyType.Static, position: pos, rotation: IDENTITY_Q });
+		const { body: shaft, shape } = buildPoleShaft(world, pos);
+		shaft.setUserData(entityId);
+		const joint = attachPoleJoint(world, anchor, shaft);
+		shaft.setAwake(false);
+		const mirror: DestructibleBody = { kind: 'pole', body: shaft, shapes: [shape], spawnPos: pos, spawnRot: IDENTITY_Q, material: 'poleWood', radius: POLE_SHAFT_RADIUS_M, height: POLE_HEIGHT_M };
+		bodiesOut.push(mirror);
+		poles.push({ entityId, spawnPos: pos, anchor, shaft, joint, broken: false, fractured: false, stump: null, flyerFrag: null, mirror });
+	});
+	return { bodies: bodiesOut, poles };
+}
+
+/** Once per fixed step, AFTER world.step(): resets the per-step fracture budget then polls every pole's
+ * root weld (see pollPoleBreak()/stepPoleBreaks() above). */
+export function stepDestructiblePoles(destructible: DestructibleWorld): void {
+	resetFractureBudget(destructible.poleFracture.budget);
+	stepPoleBreaks(destructible.poles, destructible.poleFracture, destructible.massRegistry);
+}
+
+/** Once per fixed step, AFTER world.step(): resets the per-step fracture budget then drains
+ * world.hitEvents() for crate impacts (see stepCrateFractures() above). */
+export function stepDestructibleCrates(destructible: DestructibleWorld): void {
+	resetFractureBudget(destructible.crateFracture.budget);
+	stepCrateFractures(destructible.world, destructible.crateByEntityId, destructible.crateFracture, destructible.massRegistry);
 }
 
 function buildRamps(world: World): RampBody[] {
@@ -307,19 +810,22 @@ function buildRamps(world: World): RampBody[] {
  * static ramps (kicker + wide). Total dynamic body count is logged by the caller (main.ts/perf-
  * bench.mjs) for the "~110-160 dynamic destructible bodies" spec target.
  */
-export function createDestructibleWorld(world: World): DestructibleWorld {
+export function createDestructibleWorld(world: World, massRegistry: Map<number, number> | null = null): DestructibleWorld {
 	const bodies: DestructibleBody[] = [];
 	for (const wall of WALL_CONFIGS) bodies.push(...buildWall(world, wall));
-	bodies.push(...buildCrateTower(world));
+	const crateResult = buildCrateTower(world);
+	bodies.push(...crateResult.bodies);
 	const barrelStartIndex = bodies.length;
 	bodies.push(...buildBarrelTriangle(world));
-	bodies.push(...buildPoles(world));
+	const poleResult = buildPoles(world);
+	bodies.push(...poleResult.bodies);
 
 	// FRACTURE SPEC §E (docs/loom/d1-fracture-material-spec.md): tag every still-untagged destructible
-	// (wall blocks, crates, poles -- barrels were already tagged above with BARREL_ENTITY_ID_BASE+i)
-	// with a deterministic entity id so main.ts can register its real mass into the damage system's
-	// foreign-mass registry (setForeignMass), giving light debris mass-attenuated car damage instead of
-	// wall-strength damage. Creation-order indexing keeps ids byte-stable across runs (warning #3).
+	// (only wall blocks now -- barrels/crates/poles are all pre-tagged at build time above, each with
+	// its own entity-id range, P009/P011 fix) with a deterministic entity id so main.ts can register
+	// its real mass into the damage system's foreign-mass registry (setForeignMass), giving light
+	// debris mass-attenuated car damage instead of wall-strength damage. Creation-order indexing keeps
+	// ids byte-stable across runs (warning #3).
 	for (let i = 0; i < bodies.length; i++) {
 		if (bodies[i].body.getUserData() === 0) bodies[i].body.setUserData(LEGACY_DESTRUCTIBLE_ENTITY_ID_BASE + i);
 	}
@@ -332,7 +838,20 @@ export function createDestructibleWorld(world: World): DestructibleWorld {
 
 	const ramps = buildRamps(world);
 	const explodingBarrels = createExplodingBarrelsState(bodies, barrelStartIndex);
-	return { bodies, ramps, explodingBarrels };
+
+	const crateByEntityId = new Map<number, CrateProp>(crateResult.crates.map((c) => [c.entityId, c]));
+	// Fragment id ranges: disjoint from world/features/trees/index.ts's own allocator (FRACTURE_
+	// FRAGMENT_ENTITY_ID_BASE+0) and buildings/index.ts's (+500,000) -- see tuning.ts's CRATE_ENTITY_ID_
+	// BASE/POLE_ENTITY_ID_BASE doc comment for the full range map.
+	const poleFracture: PropFractureContext = { world, budget: createFractureBudget(1), idAllocator: createFractureIdAllocator(FRACTURE_FRAGMENT_ENTITY_ID_BASE + 900_000) };
+	const crateFracture: PropFractureContext = { world, budget: createFractureBudget(1), idAllocator: createFractureIdAllocator(FRACTURE_FRAGMENT_ENTITY_ID_BASE + 950_000) };
+
+	if (massRegistry) {
+		for (const p of poleResult.poles) massRegistry.set(p.entityId, POLE_MASS_KG);
+		for (const c of crateResult.crates) massRegistry.set(c.entityId, CRATE_MASS_KG);
+	}
+
+	return { bodies, ramps, explodingBarrels, poles: poleResult.poles, crates: crateResult.crates, crateByEntityId, poleFracture, crateFracture, world, massRegistry };
 }
 
 /** Teleports every dynamic destructible body back to its spawn pose, zeroes velocity, and re-sleeps
@@ -340,9 +859,16 @@ export function createDestructibleWorld(world: World): DestructibleWorld {
  * destroy+rebuild, chosen here since these bodies never get destroyed/mutated by any other system
  * (unlike the car's panels/wheels), so an in-place teleport is exactly equivalent and far cheaper for
  * ~130+ bodies. Also resets the exploding-barrels feature's exploded/fuse/RNG state (see
- * ExplodingBarrelsState) -- same call site, no extra reset hook needed by main.ts. */
-export function resetDestructibleWorld(world: DestructibleWorld): void {
-	for (const b of world.bodies) {
+ * ExplodingBarrelsState) -- same call site, no extra reset hook needed by main.ts.
+ *
+ * Poles (P009) and crates (P011) are skipped by the generic teleport loop and handled by their own
+ * resetPole()/resetCrateProp() instead: a FRACTURED pole/crate has no single intact body left to
+ * teleport (its mirrored bodies[] entry aliases a fragment, see DestructibleBody's doc comment) and
+ * needs a full rebuild, exactly like trees/bodies.ts's resetMid()/resetSapling() already do for their
+ * own fracturable members. */
+export function resetDestructibleWorld(destructible: DestructibleWorld): void {
+	for (const b of destructible.bodies) {
+		if (b.kind === 'pole' || b.kind === 'crate') continue;
 		b.body.setTransform(b.spawnPos, b.spawnRot);
 		b.body.setLinearVelocity({ x: 0, y: 0, z: 0 });
 		b.body.setAngularVelocity({ x: 0, y: 0, z: 0 });
@@ -352,19 +878,27 @@ export function resetDestructibleWorld(world: DestructibleWorld): void {
 		// this loop resets.
 		if (b.kind === 'barrel') b.body.setBullet(false);
 	}
-	resetExplodingBarrelsState(world.explodingBarrels);
+	for (const p of destructible.poles) resetPole(destructible.world, p, destructible.massRegistry);
+	for (const c of destructible.crates) resetCrateProp(destructible.world, c, destructible.massRegistry);
+	resetExplodingBarrelsState(destructible.explodingBarrels);
 }
 
 /** Full teardown (shapes then bodies, mirroring vehicle.ts's destroyVehicle() ordering so every
  * native handle is explicitly unregistered from the box3d-js live-handle registry -- see
  * ../../../src/ts/registry.ts). Not on the normal Shift+R path (which teleports+sleeps instead, see
- * resetDestructibleWorld()) but kept available for completeness/tests. */
-export function destroyDestructibleWorld(world: DestructibleWorld): void {
-	for (const b of world.bodies) {
+ * resetDestructibleWorld()) but kept available for completeness/tests. Poles/crates (each of which may
+ * own EXTRA native handles -- an anchor + a live joint, or splinter fragments -- beyond the single
+ * body/shape pair the generic loop below assumes) are torn down via their own destroyPole()/
+ * destroyCrateProp() instead. */
+export function destroyDestructibleWorld(destructible: DestructibleWorld): void {
+	for (const b of destructible.bodies) {
+		if (b.kind === 'pole' || b.kind === 'crate') continue;
 		for (const s of b.shapes) s.destroy(false);
 		b.body.destroy();
 	}
-	for (const r of world.ramps) {
+	for (const p of destructible.poles) destroyPole(p, destructible.massRegistry);
+	for (const c of destructible.crates) destroyCrateProp(c, destructible.massRegistry);
+	for (const r of destructible.ramps) {
 		r.shape.destroy(false);
 		r.body.destroy();
 	}
@@ -507,10 +1041,14 @@ function triggerBarrelExplosion(world: World, destructible: DestructibleWorld, s
 	state.rngState = rngAfterAngle;
 	const angle = angleRand * Math.PI * 2;
 	body.setBullet(true);
+	// P010 FIX: impulse = target SPEED * this barrel's OWN real mass (not a flat kg*m/s magnitude -- see
+	// tuning.ts's BARREL_ROCKET_UPWARD_SPEED_MS doc comment) so every barrel launches at the SAME ~18m/s
+	// regardless of its full/empty variant mass.
+	const rocketMassKg = body.getMass();
 	body.applyLinearImpulseToCenter({
-		x: Math.cos(angle) * BARREL_ROCKET_JITTER_KGMS,
-		y: BARREL_ROCKET_UPWARD_IMPULSE_KGMS,
-		z: Math.sin(angle) * BARREL_ROCKET_JITTER_KGMS,
+		x: Math.cos(angle) * BARREL_ROCKET_JITTER_SPEED_MS * rocketMassKg,
+		y: BARREL_ROCKET_UPWARD_SPEED_MS * rocketMassKg,
+		z: Math.sin(angle) * BARREL_ROCKET_JITTER_SPEED_MS * rocketMassKg,
 	});
 
 	state.pendingEvents.push({ position, barrelIndex: bodyIndex, radius: BARREL_EXPLOSION_RADIUS_M, falloff: BARREL_EXPLOSION_FALLOFF_M });
@@ -545,10 +1083,16 @@ function checkHitEntityForBarrelTrigger(
 	state.hitEventsSeen++;
 	if (state.exploded[bodyIndex]) return;
 
-	// approachSpeed * barrel's own mass -- see tuning.ts's BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS doc
-	// comment for why this (not the OTHER body's mass) is the right, self-contained proxy here.
-	const barrelMassKg = destructible.bodies[bodyIndex].body.getMass();
-	const impulseLike = approachSpeed * barrelMassKg;
+	// approachSpeed * a FIXED reference mass -- see tuning.ts's BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS doc
+	// comment for why this proxy is the right one. Deliberately BARREL_MASS_KG (the pre-P010-fix flat
+	// 25kg every barrel used to weigh), NOT the struck barrel's own REAL live mass: P010 gave full/empty
+	// barrels genuinely different masses (BARREL_MASS_KG_BY_MATERIAL, ~200kg/~20kg) for realistic car-vs-
+	// barrel collision physics, but this exploding-barrels feature's trigger/chain calibration (this
+	// whole section's tuned constants) predates that split and was validated against a uniform 25kg --
+	// a fixed reference here keeps that calibration exactly as tested (sim/exploding-barrels.test.mjs)
+	// regardless of which real-mass variant got hit, rather than making "how easily a barrel detonates"
+	// swing 8x by paint color as an unintended side effect of an unrelated fix.
+	const impulseLike = approachSpeed * BARREL_MASS_KG;
 	if (impulseLike >= BARREL_EXPLOSION_TRIGGER_IMPULSE_KGMS) {
 		triggerBarrelExplosion(world, destructible, state, bodyIndex);
 	}

@@ -1,0 +1,22 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "barrelBlueFollowup": {
+    "dentedAtStep": 45,
+    "dentedFinal": 165,
+    "isFull": true,
+    "maxDepthM": 0.12000000352024326
+  },
+  "barrelRustFollowup": {
+    "dentedAtStep": 51,
+    "dentedFinal": 149,
+    "isFull": false,
+    "maxDepthM": 0.1200000052654261
+  },
+  "crateFollowup": {
+    "fractured": true,
+    "fragmentCount": 2,
+    "fragmentPositions": "[{\"x\":-0.34507548809051514,\"y\":0.14975771307945251,\"z\":57.18919372558594},{\"x\":-0.34456223249435425,\"y\":0.4494374990463257,\"z\":57.201786041259766}]"
+  },
+  "timestamp": "2026-07-15T13:26:05.212Z"
+}

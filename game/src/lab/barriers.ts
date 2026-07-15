@@ -15,6 +15,7 @@ import { Body, BodyType, Shape, World } from '../../../src/ts/index.js';
 import { rotateVector, scale, type V3 } from '../vehicle/mathUtil';
 import type { Vehicle } from '../vehicle/vehicle';
 import { seedSegmentVelocities } from '../vehicle/segments';
+import { InterpolatedTransform } from '../core/loop';
 import type { BarrierKind, CrashProtocol, FreeConfigState } from './protocols';
 
 const LOCAL_FORWARD: V3 = { x: 0, y: 0, z: 1 };
@@ -37,6 +38,16 @@ export interface BarrierRig {
 	 * own momentum transfer that governs what happens next, not a rail continuing to shove through the
 	 * car for the whole settle window). */
 	guide?: { body: Body; velocity: V3; armedUntilS: number };
+	/** BUG P006/P008 FIX: render-interpolation transform for the two MOVING trolley kinds only
+	 * (mdb-trolley/rear-trolley) -- undefined for the three static rig kinds (rigid-full/-offset/-pole),
+	 * whose visual is placed once at spawn and never needs re-sampling. main.ts's doFixedStep samples
+	 * this from `bodies[0].getTransform()` every fixed step (exactly like chassisTransform/wheelVisuals/
+	 * panelVisuals already do for their own bodies -- core/loop.ts's InterpolatedTransform), and
+	 * animate() applies it to `visual` every render frame. Before this field existed, the trolley's
+	 * physics body actually flew toward the car (guided velocity, gravityScale 0 -- see `guide` above)
+	 * while its THREE mesh stayed frozen at its spawn-time position forever, so the car looked like it
+	 * "just magically gets hit" with no sled ever visibly approaching. */
+	transform?: InterpolatedTransform;
 }
 
 /** Extra guided time (seconds) PAST the nominal geometric arrival time (distance/closing-speed) before
@@ -86,6 +97,34 @@ function hazardMaterial(repeatX = 2, repeatY = 1): THREE.MeshStandardMaterial {
 
 function poleMaterial(): THREE.MeshStandardMaterial {
 	return new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.6 });
+}
+
+// ---------------------------------------------------------------------------------------------
+// BUG P006/P008 fix #3: give the two MOVING trolleys a distinct, bright "this is the striking face"
+// marker (few lines, no new assets) so the approaching sled reads as a sled -- not just another
+// hazard-striped wall like the static rigs.
+// ---------------------------------------------------------------------------------------------
+
+/** THREE.BoxGeometry's addGroup() materialIndex order is FIXED (+x,-x,+y,-y,+z,-z -- verified against
+ * node_modules/three/src/geometries/BoxGeometry.js's buildPlane() call sequence), so a face-keyed
+ * material-array index can be looked up directly without inspecting the geometry at runtime. */
+const BOX_FACE_MATERIAL_INDEX: Record<'+x' | '-x' | '+z' | '-z', number> = { '+x': 0, '-x': 1, '+z': 4, '-z': 5 };
+
+function deformableFaceMaterial(): THREE.MeshStandardMaterial {
+	return new THREE.MeshStandardMaterial({ color: 0xff5a1f, roughness: 0.55, metalness: 0.1 });
+}
+
+/** Trolley box mesh: hazard-stripe material on 5 faces, orange "deformable face" marker on the ONE
+ * face pointing along the trolley's travel direction (`travelFace`, in the box's own LOCAL axes --
+ * both trolley meshes keep an identity quaternion at spawn, see the mdb-trolley/rear-trolley cases
+ * below, so local axes == world axes and the caller can compute `travelFace` straight from the launch
+ * direction). */
+function trolleyVisual(halfExtents: V3, travelFace: '+x' | '-x' | '+z' | '-z'): THREE.Mesh {
+	const mesh = boxVisual(halfExtents, hazardMaterial(3, 2));
+	const bodyMat = mesh.material as THREE.Material;
+	const materials: THREE.Material[] = [0, 1, 2, 3, 4, 5].map((i) => (i === BOX_FACE_MATERIAL_INDEX[travelFace] ? deformableFaceMaterial() : bodyMat));
+	mesh.material = materials;
+	return mesh;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,11 +214,19 @@ export function spawnBarrierRig(world: World, scene: THREE.Scene, vehicle: Vehic
 			const speedMs = effectiveRunParams(protocol, freeConfig).speedKmh / 3.6;
 			const velocity = scale(right, -speedMs * sign); // toward the car, opposite the rig's own offset direction
 			body.setLinearVelocity(velocity);
-			const mesh = boxVisual(halfExtents, hazardMaterial(3, 2));
+			// Travel direction is exactly velocity's sign along local +/-x (right={1,0,0}, spawnRotation always
+			// identity -- see launchVehicle()'s doc comment): sign>0 (struck side 'right') moves -x toward the
+			// car, sign<0 ('left') moves +x.
+			const mesh = trolleyVisual(halfExtents, sign > 0 ? '-x' : '+x');
 			mesh.position.set(position.x, position.y, position.z);
 			scene.add(mesh);
 			const armedUntilS = distanceRight / Math.max(speedMs, 0.1) + TROLLEY_GUIDE_IMPACT_BUFFER_S;
-			return { kind: 'mdb-trolley', bodies: [body], shapes: [shape], visual: mesh, guide: { body, velocity, armedUntilS } };
+			// BUG P006 FIX: render-interpolation transform so main.ts can keep this mesh glued to the physics
+			// body every frame instead of leaving it frozen at its spawn-time position (BarrierRig.transform doc).
+			const trolleyTransform = new InterpolatedTransform();
+			const t0 = body.getTransform();
+			trolleyTransform.sample(t0.position, t0.rotation);
+			return { kind: 'mdb-trolley', bodies: [body], shapes: [shape], visual: mesh, guide: { body, velocity, armedUntilS }, transform: trolleyTransform };
 		}
 		case 'rear-trolley': {
 			const distanceBehind = protocol.approachDistanceM;
@@ -197,11 +244,17 @@ export function spawnBarrierRig(world: World, scene: THREE.Scene, vehicle: Vehic
 			const speedMs = effectiveRunParams(protocol, freeConfig).speedKmh / 3.6;
 			const velocity = scale(forward, speedMs);
 			body.setLinearVelocity(velocity);
-			const mesh = boxVisual(halfExtents, hazardMaterial(3, 2));
+			// Travel direction is always local +z (forward={0,0,1}, spawnRotation always identity, velocity is
+			// unconditionally +forward here regardless of `side` -- see above).
+			const mesh = trolleyVisual(halfExtents, '+z');
 			mesh.position.set(position.x, position.y, position.z);
 			scene.add(mesh);
 			const armedUntilS = distanceBehind / Math.max(speedMs, 0.1) + TROLLEY_GUIDE_IMPACT_BUFFER_S;
-			return { kind: 'rear-trolley', bodies: [body], shapes: [shape], visual: mesh, guide: { body, velocity, armedUntilS } };
+			// BUG P008 FIX: render-interpolation transform, same rationale as mdb-trolley above.
+			const trolleyTransform = new InterpolatedTransform();
+			const t0 = body.getTransform();
+			trolleyTransform.sample(t0.position, t0.rotation);
+			return { kind: 'rear-trolley', bodies: [body], shapes: [shape], visual: mesh, guide: { body, velocity, armedUntilS }, transform: trolleyTransform };
 		}
 	}
 }
@@ -229,9 +282,14 @@ export function teardownBarrierRig(scene: THREE.Scene, rig: BarrierRig): void {
 	scene.remove(rig.visual);
 	if (rig.visual instanceof THREE.Mesh) {
 		rig.visual.geometry.dispose();
-		const mat = rig.visual.material as THREE.MeshStandardMaterial;
-		mat.map?.dispose();
-		mat.dispose();
+		// Trolley rigs (trolleyVisual()) use a 6-slot material ARRAY (hazard body + one orange deformable-
+		// face marker sharing the SAME hazard-material instance on 5 slots) -- de-dupe via Set so the shared
+		// instance isn't disposed redundantly, and so this still works for the static rigs' single Material.
+		const mats = Array.isArray(rig.visual.material) ? rig.visual.material : [rig.visual.material];
+		for (const mat of new Set(mats as THREE.MeshStandardMaterial[])) {
+			mat.map?.dispose();
+			mat.dispose();
+		}
 	}
 }
 
