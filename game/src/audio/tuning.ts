@@ -60,16 +60,44 @@ export function skidGainFromSlip(absSlipMs: number): number {
 	return SKID_MAX_GAIN * t;
 }
 
-// ---- Engine hum (continuous, subtle -- pitch only, per spec) ----
+// ---- Engine hum (continuous, subtle) ----
 export const ENGINE_HUM_GAIN = 0.05;
 export const ENGINE_IDLE_RPM = 900;
 export const ENGINE_REDLINE_RPM = 6800;
-export const ENGINE_HUM_HZ_AT_IDLE = 42;
-export const ENGINE_HUM_HZ_AT_REDLINE = 165;
+/** Fundamental = 4-cylinder 4-stroke firing frequency (rpm/30): 900rpm -> 30Hz, 6800rpm -> ~227Hz.
+ * The endpoints below make the linear map below EXACTLY rpm/30 across the idle..redline span, so
+ * pitch tracks revs the way a real inline-4 does instead of the old arbitrary 42..165Hz squeeze. */
+export const ENGINE_HUM_HZ_AT_IDLE = ENGINE_IDLE_RPM / 30;
+export const ENGINE_HUM_HZ_AT_REDLINE = ENGINE_REDLINE_RPM / 30;
+/** Lowpass cutoff tracks rpm: near-closed at idle (soft chug), opens toward redline (bright snarl).
+ * This timbre sweep -- not pitch alone -- is most of what reads as "revving" to the ear. */
+export const ENGINE_FILTER_HZ_AT_IDLE = 320;
+export const ENGINE_FILTER_HZ_AT_REDLINE = 2400;
+/** Engine loudness at redline as a multiple of ENGINE_HUM_GAIN (idle loudness). */
+export const ENGINE_GAIN_REDLINE_MULT = 2.4;
+/** Extra short-lived loudness while rpm is RISING (throttle isn't in Telemetry, so rev rate is the
+ * load proxy): full boost at/above this many rpm/s of climb, scaled linearly below it. */
+export const ENGINE_REV_RATE_FULL_RPM_S = 4000;
+export const ENGINE_REV_BOOST_MULT = 0.8;
+
+/** 0..1 position of `rpm` within the idle..redline band. */
+export function engineRpm01(rpm: number): number {
+	return clamp01((rpm - ENGINE_IDLE_RPM) / (ENGINE_REDLINE_RPM - ENGINE_IDLE_RPM));
+}
 
 export function engineHzFromRpm(rpm: number): number {
-	const t = clamp01((rpm - ENGINE_IDLE_RPM) / (ENGINE_REDLINE_RPM - ENGINE_IDLE_RPM));
-	return ENGINE_HUM_HZ_AT_IDLE + (ENGINE_HUM_HZ_AT_REDLINE - ENGINE_HUM_HZ_AT_IDLE) * t;
+	return ENGINE_HUM_HZ_AT_IDLE + (ENGINE_HUM_HZ_AT_REDLINE - ENGINE_HUM_HZ_AT_IDLE) * engineRpm01(rpm);
+}
+
+export function engineFilterHzFromRpm(rpm: number): number {
+	return ENGINE_FILTER_HZ_AT_IDLE + (ENGINE_FILTER_HZ_AT_REDLINE - ENGINE_FILTER_HZ_AT_IDLE) * engineRpm01(rpm);
+}
+
+/** Absolute engine-hum gain from rpm + rev rate (rpm/s, positive while climbing). */
+export function engineGainFromRpm(rpm: number, revRateRpmS: number): number {
+	const base = ENGINE_HUM_GAIN * (1 + (ENGINE_GAIN_REDLINE_MULT - 1) * engineRpm01(rpm));
+	const boost = ENGINE_HUM_GAIN * ENGINE_REV_BOOST_MULT * clamp01(revRateRpmS / ENGINE_REV_RATE_FULL_RPM_S);
+	return base + boost;
 }
 
 export function clamp01(x: number): number {

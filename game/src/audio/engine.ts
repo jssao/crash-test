@@ -33,6 +33,8 @@ import {
 	SCRAPE_FADE_IN_S,
 	SCRAPE_FADE_OUT_S,
 	SKID_RELEASE_HOLD_S,
+	engineFilterHzFromRpm,
+	engineGainFromRpm,
 	engineHzFromRpm,
 	impactGainFromSpeed,
 	scrapeGainFromSpeed,
@@ -330,25 +332,31 @@ export function createAudioSystem(): AudioSystem {
 
 	const noiseBuffer = buildNoiseBuffer(ctx);
 
-	// ---- Engine hum: persistent, subtle, pitch-only (per spec) ----
+	// ---- Engine hum: persistent, correlates with revs via pitch + filter-cutoff + loudness ----
+	// Two sawtooths an octave apart (firing fundamental + half-order rumble, slight detune for beat/
+	// roughness) through ONE shared lowpass whose cutoff opens with rpm -- the timbre sweep is what
+	// makes revving READ as revving; a fixed-cutoff drone is what earned the old "static" complaint.
 	const engineGain = ctx.createGain();
 	engineGain.gain.value = ENGINE_HUM_GAIN;
-	const engineFilter = ctx.createBiquadFilter(); // tames the sawtooth's harsh upper harmonics -> a smoother drone
+	const engineFilter = ctx.createBiquadFilter();
 	engineFilter.type = 'lowpass';
-	engineFilter.frequency.value = 800;
+	engineFilter.frequency.value = engineFilterHzFromRpm(0);
+	engineFilter.Q.value = 1.1; // mild resonance at the cutoff -- reads as intake/exhaust formant
 	engineFilter.connect(engineGain).connect(master);
 	const engineOsc = ctx.createOscillator();
 	engineOsc.type = 'sawtooth';
 	engineOsc.connect(engineFilter);
 	engineOsc.start();
-	const engineOsc2 = ctx.createOscillator(); // one octave down, thickens the tone without raising volume
-	engineOsc2.type = 'sine';
+	const engineOsc2 = ctx.createOscillator(); // half-order (one octave down), detuned a hair
+	engineOsc2.type = 'sawtooth';
+	engineOsc2.detune.value = 6;
 	const engineGain2 = ctx.createGain();
-	engineGain2.gain.value = ENGINE_HUM_GAIN * 0.5;
-	engineOsc2.connect(engineGain2).connect(master);
+	engineGain2.gain.value = 0.6; // relative to osc1, PRE-filter -- overall level lives on engineGain
+	engineOsc2.connect(engineGain2).connect(engineFilter);
 	engineOsc2.start();
 	adjustNodeCount(5); // engineGain, engineFilter, engineOsc, engineOsc2, engineGain2
 	let engineHz = engineHzFromRpm(0);
+	let enginePrevRpm = 0;
 
 	// ---- Scrape: lazy looping voice, alive only while a car-vs-world contact persists ----
 	let scrapeVoice: LoopVoice | null = null;
@@ -487,9 +495,17 @@ export function createAudioSystem(): AudioSystem {
 			skidVoice.gain.gain.setTargetAtTime(skidGain, ctx.currentTime, 0.03);
 		}
 
+		// Rev rate (rpm/s, clamped at 0 while falling) is the load proxy -- Telemetry carries no
+		// throttle, but rpm climbing fast IS the player accelerating, which is when an engine gets loud.
+		const revRateRpmS = Math.max(0, (telemetry.rpm - enginePrevRpm) / dt);
+		enginePrevRpm = telemetry.rpm;
 		engineHz = engineHzFromRpm(telemetry.rpm);
-		engineOsc.frequency.setTargetAtTime(engineHz, ctx.currentTime, 0.08);
-		engineOsc2.frequency.setTargetAtTime(engineHz * 0.5, ctx.currentTime, 0.08);
+		// 0.03s tracking (was 0.08): pitch must move WITH the tach, not trail it -- the lag read as
+		// "doesn't correlate". Filter/gain get slightly softer smoothing; they can breathe a little.
+		engineOsc.frequency.setTargetAtTime(engineHz, ctx.currentTime, 0.03);
+		engineOsc2.frequency.setTargetAtTime(engineHz * 0.5, ctx.currentTime, 0.03);
+		engineFilter.frequency.setTargetAtTime(engineFilterHzFromRpm(telemetry.rpm), ctx.currentTime, 0.05);
+		engineGain.gain.setTargetAtTime(engineGainFromRpm(telemetry.rpm, revRateRpmS), ctx.currentTime, 0.05);
 	}
 
 	return {
