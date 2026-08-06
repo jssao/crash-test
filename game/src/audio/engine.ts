@@ -32,7 +32,10 @@ import {
 	MASTER_VOLUME_DEFAULT,
 	SCRAPE_FADE_IN_S,
 	SCRAPE_FADE_OUT_S,
+	SCRAPE_FILTER_HZ_MIN,
+	SCRAPE_FILTER_Q,
 	SKID_RELEASE_HOLD_S,
+	scrapeFilterHzFromSpeed,
 	engineFilterHzFromRpm,
 	engineGainFromRpm,
 	engineHzFromRpm,
@@ -366,7 +369,9 @@ export function createAudioSystem(): AudioSystem {
 	function ensureScrapeStarted(): void {
 		scrapeStopping = false;
 		if (scrapeVoice) return;
-		scrapeVoice = startLoopVoice(ctx, master, noiseBuffer, 2000, 1.2); // starts at gain 0, ramped by processStep below
+		// Starts at gain 0; gain AND filter frequency are ramped per-step below (speed-swept resonant
+		// band = grind/screech that tracks the scrape, not the old fixed wide-band hiss).
+		scrapeVoice = startLoopVoice(ctx, master, noiseBuffer, SCRAPE_FILTER_HZ_MIN, SCRAPE_FILTER_Q);
 		adjustNodeCount(3);
 	}
 
@@ -395,7 +400,9 @@ export function createAudioSystem(): AudioSystem {
 		skidStopping = false;
 		skidReleaseTimer = SKID_RELEASE_HOLD_S;
 		if (skidVoice) return;
-		skidVoice = startLoopVoice(ctx, master, noiseBuffer, 4200, 2.5);
+		// Narrow band around ~1.1kHz turns the white noise into a tonal squeal (a real tire's tread
+		// resonance) -- the old wide 4.2kHz band was plain hiss and read as "static", not a tire.
+		skidVoice = startLoopVoice(ctx, master, noiseBuffer, 1100, 8);
 		adjustNodeCount(3);
 	}
 
@@ -479,6 +486,7 @@ export function createAudioSystem(): AudioSystem {
 			const vel = vehicle.chassis.getLinearVelocity();
 			const speedMs = Math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z);
 			scrapeVoice.gain.gain.setTargetAtTime(scrapeGainFromSpeed(speedMs), ctx.currentTime, SCRAPE_FADE_IN_S / 2);
+			scrapeVoice.filter.frequency.setTargetAtTime(scrapeFilterHzFromSpeed(speedMs), ctx.currentTime, 0.05);
 		}
 
 		// ---- Skid + engine hum: read-only telemetry, never touches vehicle.ts ----

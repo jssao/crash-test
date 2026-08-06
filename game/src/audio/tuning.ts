@@ -36,21 +36,41 @@ export const SCRAPE_MAX_GAIN = 0.5;
 export const SCRAPE_FADE_IN_S = 0.06;
 export const SCRAPE_FADE_OUT_S = 0.18;
 
+/** Resonant band the scrape noise is squeezed through, swept with speed: a crawling drag sits low
+ * (grindy growl), a full-speed scrape climbs toward a screech. The old fixed wide band at 2kHz
+ * (Q 1.2) was effectively unshaped hiss -- read as "static", not metal on asphalt. */
+export const SCRAPE_FILTER_HZ_MIN = 480;
+export const SCRAPE_FILTER_HZ_MAX = 1400;
+export const SCRAPE_FILTER_Q = 4;
+
+/** 0..1 position of chassis speed within the scrape's min..full band. */
+function scrapeSpeed01(speedMs: number): number {
+	return clamp01((speedMs - SCRAPE_MIN_SPEED_MS) / (SCRAPE_FULL_SPEED_MS - SCRAPE_MIN_SPEED_MS));
+}
+
 /** Contact begin/end events carry no speed of their own (see events.ts's ContactEventCursor) -- while
  * a car-vs-world contact persists, the scrape loop's gain is driven by the chassis's own speed instead
  * (a reasonable proxy: a stationary/crawling scrape is quiet, a wall-scrape at speed is loud). */
 export function scrapeGainFromSpeed(speedMs: number): number {
-	const t = clamp01((speedMs - SCRAPE_MIN_SPEED_MS) / (SCRAPE_FULL_SPEED_MS - SCRAPE_MIN_SPEED_MS));
-	return SCRAPE_MAX_GAIN * t;
+	return SCRAPE_MAX_GAIN * scrapeSpeed01(speedMs);
+}
+
+export function scrapeFilterHzFromSpeed(speedMs: number): number {
+	return SCRAPE_FILTER_HZ_MIN + (SCRAPE_FILTER_HZ_MAX - SCRAPE_FILTER_HZ_MIN) * scrapeSpeed01(speedMs);
 }
 
 // ---- Skid (tire slip, read-only via vehicle/vehicle.ts's getTelemetry().slipHints) ----
 /** m/s slip (Telemetry.slipHints magnitude) before the skid voice becomes audible, and the slip level
- * at which it reaches full gain -- well below vehicle/tuning.ts's TRACTION_SLIP_CUTOFF_RAD_S*radius,
- * so a skid is heard clearly before the traction model even caps drive torque. */
-export const SKID_ONSET_SLIP_MS = 1.2;
-export const SKID_FULL_SLIP_MS = 6;
-export const SKID_MAX_GAIN = 0.45;
+ * at which it reaches full gain. ONSET MUST SIT ABOVE THE NORMAL-DRIVING SLIP BAND: the traction
+ * model deliberately allows TRACTION_SLIP_ALLOWANCE_RAD_S (10 rad/s ~= 3.9 m/s at the ~0.39m wheel)
+ * of slip at FULL drive torque before it cuts anything (vehicle/tuning.ts), so ordinary throttle/
+ * brake constantly produces 1-4 m/s of slip. The old 1.2 onset lived inside that band and blasted
+ * the skid noise on EVERY acceleration -- the "loud static when pressing forward/back" complaint.
+ * 4.0 clears the allowance band; 12 (a genuine wheelspin launch or lockup; full burnout implied by
+ * TRACTION_SLIP_CUTOFF_RAD_S is ~19 m/s) reads as full-scale squeal. */
+export const SKID_ONSET_SLIP_MS = 4.0;
+export const SKID_FULL_SLIP_MS = 12;
+export const SKID_MAX_GAIN = 0.4;
 /** Hysteresis hold, seconds -- keeps a brief slip dip (a gear shift, one bumpy step) from chattering
  * the skid voice on/off every other frame. */
 export const SKID_RELEASE_HOLD_S = 0.12;
