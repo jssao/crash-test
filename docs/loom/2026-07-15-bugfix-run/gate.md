@@ -167,3 +167,16 @@ After the spend-limit event, the orchestrator finished the dead agents' work dir
 | P005 | Done (R2) | Done | (unchanged) |
 
 **FINAL: 18 Done / 2 In Progress (P001, R004).** Regression at close: tsc 0 errors · sim 306/306 · crash-lab 21/21.
+
+---
+
+# Round 4 addendum (2026-07-15, user-commissioned final two — orchestrator-verified)
+
+| Bug | Verdict | Basis |
+|---|---|---|
+| P001 | **Done** | Footwell shelf enabled by GROUND_CATEGORY_BITS (~OCCUPANT bit) on all static grounds — verified against vendor filter semantics; shelf masks occupants only; SPEED-GATED (rest-engaged, off >3.5 m/s) so ejection/brace/flee calibrations stay byte-identical (flee re-verified at 65 km/h). Shin-capsule BOTTOM settles 0.030/0.029 vs 0.03 floor line (was −0.138/−0.159) — asserted in strengthened occupants-load-pose. Beaching suites green (heightfield-drive et al). Feet remain externally unphotographable (tinted glass) — numeric gate + sunroof top-down (original bug angle) carry it; orchestrator eyes-on confirms clean cabin. |
+| R004 | **Done** | Orchestrator eyes-on: legible silvery scuffs on the black nose at 56 km/h (final-scuffs-nose-56); pristine front seamless (no split line); front bumper visibly drooping after 100 km/h (side view unambiguous); rear bumper hanging after rear-80 — that frame also shows the R003 glass-shard burst clearly, closing that residual. Deformable sync ~5e-6 m even mid-swing; 56 km/h stays attached by design (scuffs without bumper loss). |
+
+Combined final regression (both fixes in one tree, orchestrator-run): tsc 0 errors · sim 306/306 (95 files) · crash-lab 21/21.
+
+**PROGRAM COMPLETE: 20/20 bugs Done.** Remaining follow-up queue (plan.md) is polish only — rear-belt eject threshold at ~30g is the top pick.

@@ -2,11 +2,17 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { CAR_MAP } from '../assets/car-map';
 import { polishCarMaterials } from './carMaterials';
+import { splitBumpers, type BumperSplit } from './bumperSplit';
 
 export interface CarBundle {
   root: THREE.Object3D;
   gltf: GLTF;
   glassMeshes: THREE.Mesh[];
+  /** BUG R004 deliverable 2: front/rear bumper regions carved out of BodyShell at load time into their
+   * own hinged, swingable meshes -- driven by main.ts/lab/main.ts each fixed step (see bumperSplit.ts).
+   * Created here (BEFORE registerCarDeformables()) so the resulting shell/bumper meshes register as
+   * separate deformables and the crumple/structural-sync pipeline stays consistent. */
+  bumpers: BumperSplit;
 }
 
 /**
@@ -116,5 +122,11 @@ export async function loadCar(url: string): Promise<CarBundle> {
     }
   });
 
-  return { root: gltf.scene, gltf, glassMeshes };
+  // BUG R004 (deliverable 2): carve the front/rear bumper regions out of the BodyShell primitives into
+  // their own hinged meshes -- MUST run here (after material polish/shadow flags, before the caller's
+  // registerCarDeformables()) so the split shell + bumper meshes are what gets registered. Runs before
+  // detachWheelVisuals() too, but only touches the BodyShell subtree, so wheels are unaffected.
+  const bumpers = splitBumpers(gltf.scene);
+
+  return { root: gltf.scene, gltf, glassMeshes, bumpers };
 }

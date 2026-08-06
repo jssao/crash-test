@@ -78,8 +78,14 @@ export const CAR_GROUP_INDEX = -1;
 //             SEAT_PAN_CATEGORY_BITS (below; re-exported by occupants/tuning.ts) -- one bit PER
 //             SEAT (index 0-3); each seat pan carries ONLY its own seat's bit as its category.
 //   1n << 5n  OCCUPANT_COLLIDABLE_BIT (below) -- cleared from car volumes occupants pass through.
-//   1n << 6n  OCCUPANT_CATEGORY_BIT (below) -- the occupant capsules' own (only) category bit.
+//   1n << 6n  OCCUPANT_CATEGORY_BIT (below) -- the occupant capsules' own (only) category bit; also
+//             the SOLE bit CLEARED from every static ground's category (GROUND_CATEGORY_BITS) so the
+//             occupant-only FOOTWELL SHELF (mask = this bit) never beaches the car on the terrain.
 //   1n << 7n  OCCUPANT_EJECTED_COLLIDABLE_BIT (below) -- panels: ejected-only occupant collision.
+// The four SEAT_PAN_CATEGORY_BITS are ALSO reused as the FOOTWELL SHELF's category (front row = seats
+// 0,1; rear = seats 2,3, FOOTWELL_SHELF_*_CATEGORY_BITS below): a seated occupant's own seat bit
+// makes it rest on its row's ledge, while an ejected occupant (seat bits dropped from its mask) flies
+// straight through -- the ledge holds feet without ever blocking ejection.
 // (1n << 3n was the retired EJECTED_MARKER_BIT -- Stage 2 replaced the whole ejected-filter-flip
 // machinery with the real category scheme below; the bit is left unassigned deliberately.)
 // ---------------------------------------------------------------------------------------------
@@ -156,6 +162,76 @@ export const OCCUPANT_TRANSPARENT_CATEGORY_BITS =
  * (OCCUPANT_COLLIDABLE_BIT and the pan bits cleared) but collidable for EJECTED bodies
  * (OCCUPANT_EJECTED_COLLIDABLE_BIT kept) -- see that bit's doc comment. */
 export const EJECTED_ONLY_OCCUPANT_CATEGORY_BITS = ~(OCCUPANT_COLLIDABLE_BIT | SEAT_PAN_ALL_CATEGORY_BITS) & ALL_FILTER_BITS;
+
+/**
+ * categoryBits for every STATIC GROUND SURFACE -- the game terrain heightfield
+ * (world/terrain/terrainBody.ts) and the flat sim/lab pad (createGroundBody below, shared by the
+ * headless sim harness AND lab/main.ts). Default all-ones MINUS the occupant capsule's own category
+ * bit (OCCUPANT_CATEGORY_BIT). This is the enabling half of the P001 FOOTWELL SHELF fix (geometry.ts
+ * buildFootwellShelfShapes(), vehicle.ts): the shelf's maskBits are OCCUPANT_CATEGORY_BIT alone, so
+ * clearing that ONE bit from every ground's category makes the two-sided box3d filter
+ * ((catA & maskB) && (catB & maskA), vendor/box3d/src/shape.h b3ShouldShapesCollide) drop the
+ * shelf<->ground pair -- the shelf can hang at the cabin floor line to hold seated feet WITHOUT the
+ * car beaching itself on the terrain (the original FOOTWELL-SHELF NEGATIVE RESULT, geometry.ts).
+ * WHY THIS IS SAFE for everything else -- verified against the actual filter, not assumed:
+ *   - Cars/wheels/panels/trees/buildings/debris carry DEFAULT all-ones masks, which still intersect
+ *     every OTHER bit of a ground's category -> ground contact is byte-identical for them.
+ *   - Occupant capsules collide with grounds through OCCUPANT_COLLIDABLE_BIT (in their mask AND still
+ *     in a ground's category) crossed with their own OCCUPANT_CATEGORY_BIT (in a ground's still-all-
+ *     ones MASK) -- clearing bit 6 from the ground CATEGORY does NOT touch either leg, so ejected
+ *     bodies still land on the ground exactly as before (proven: heightfield-drive + occupants suites).
+ *   - The occupant ground-recovery raycast (active.ts sampleGroundY) already masks OCCUPANT_CATEGORY_
+ *     BIT (and the seat bits) OUT of its query, so it never relied on a ground's category carrying bit
+ *     6 and still finds the ground through the other bits.
+ * The ONLY shape in the whole project whose mask is exactly OCCUPANT_CATEGORY_BIT is the footwell
+ * shelf, so this clear has a blast radius of one: the shelf. */
+export const GROUND_CATEGORY_BITS = ~OCCUPANT_CATEGORY_BIT & ALL_FILTER_BITS;
+
+/**
+ * The occupant-only FOOTWELL SHELF (geometry.ts buildFootwellShelfShapes(), created on the chassis in
+ * vehicle.ts) -- the real fix for P001 ("seated dummies' feet dip below the car's floor line"). It is
+ * a thin static ledge at the cabin floor line that the SEATED occupants' feet rest ON, so they no
+ * longer dangle through the occupant-transparent floorpan onto the world ground plane.
+ *
+ * FILTER (per row, so a rear occupant sliding forward can never be caught by the FRONT footwell ledge,
+ * mirroring the per-seat pan philosophy -- SEAT_PAN_CATEGORY_BITS doc):
+ *   categoryBits = the row's two SEAT_PAN_CATEGORY_BITS (front = seats 0,1; rear = seats 2,3). A
+ *     SEATED occupant's mask carries its OWN seat bit (physics.ts addCapsuleShape), so it collides
+ *     with its row's shelf; an EJECTED occupant's mask drops all seat bits, so the shelf is
+ *     transparent to it and NEVER blocks the designed ejection path down through the (occupant-
+ *     transparent) floorpan -- the shelf needs no runtime break/disable on ejection, the ejected
+ *     filter already flies through it. The ground-recovery ray (active.ts) also masks the seat bits
+ *     out, so an ejected occupant's downward ray ignores the shelf and finds the real ground.
+ *   maskBits = OCCUPANT_CATEGORY_BIT ALONE -- the shelf reaches for nothing but occupant capsules.
+ *     Crossed with GROUND_CATEGORY_BITS (bit 6 cleared) this is exactly what keeps the car off the
+ *     terrain. (It still meets a tree/wall/debris shape carrying an all-ones category if one ever
+ *     physically intrudes into the cabin footwell -- an unavoidable, harmless residual given those
+ *     out-of-scope world bodies keep all-ones categories; documented, not a beaching path.)
+ *   groupIndex = CAR_GROUP_INDEX -- it is a chassis shape, so it never fights other car parts.
+ */
+export const FOOTWELL_SHELF_FRONT_CATEGORY_BITS = SEAT_PAN_CATEGORY_BITS[0] | SEAT_PAN_CATEGORY_BITS[1];
+export const FOOTWELL_SHELF_REAR_CATEGORY_BITS = SEAT_PAN_CATEGORY_BITS[2] | SEAT_PAN_CATEGORY_BITS[3];
+export const FOOTWELL_SHELF_MASK_BITS = OCCUPANT_CATEGORY_BIT;
+
+/**
+ * SPEED-GATING of the footwell shelf (stepVehicle's updateFootwellShelfEngagement()). The ledge holds
+ * the seated feet at the floor line only while the car is AT REST / crawling -- exactly the state in
+ * which the seated pose is ever actually looked at (crash-lab idle, a parked car; the occupants are an
+ * opaque-glass-tinted non-entity while driving). ABOVE FOOTWELL_SHELF_DISENGAGE_SPEED_MS the shelf's
+ * maskBits are flipped to 0 (collides with nothing) so the feet dangle to their free rest exactly as
+ * they did before this shelf existed, and BOTH hard-driving jostle AND -- the load-bearing reason --
+ * the crash ejection dynamics are byte-for-byte the pre-shelf behavior every occupant crash/brace/flee
+ * test is calibrated on. WHY SPEED, NOT G-LOAD: the wall-crash tests inject a cruise velocity and coast
+ * ~1s to the barrier at near-constant (low-g) speed; a g-gate would re-engage during that coast and
+ * put the feet back on the ledge at impact, flipping the documented +-2cm ejection knife-edge (rears
+ * clearing the seated fronts -- occupants-escalation). A SPEED gate stays disengaged for the whole
+ * high-speed approach, so the legs settle to their free hang well before impact and the ejection is
+ * identical. Hysteresis (engage < ENGAGE, disengage > DISENGAGE) avoids per-step filter thrash near
+ * the boundary (setFilter is ~as costly as recreating the shape). MEASURED: a 45km/h crash approaches
+ * at 12.5m/s (>> DISENGAGE); an idle/parked car sits at ~0 (< ENGAGE); the leg free-fall from the
+ * floor line to its hang takes ~0.2s, far inside the crash coast. */
+export const FOOTWELL_SHELF_ENGAGE_SPEED_MS = 1.5;
+export const FOOTWELL_SHELF_DISENGAGE_SPEED_MS = 3.5;
 
 /**
  * OCCUPANT capsule entity-id band [base, end) -- occupant part shapes/bodies tag

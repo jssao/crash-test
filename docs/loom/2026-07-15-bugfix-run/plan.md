@@ -88,6 +88,10 @@ File-conflict rule: one slice owns a file; cross-slice edits are reported back t
 10. __GAME__ render/skip-autotune hook for driving-page headless screenshots (S1 flag; S2's ?quality=medium workaround exists).
 11. Deeper MECHANICAL side crush via mdb trolley mass in lab/barriers.ts if P004 visual amplify isn't enough (S1 flag).
 
+## Round 4 (post-RUN-6 commit, user-commissioned): the final two
+- P001 footwell shelf via terrain category-bit change (opus) — dispatched.
+- R004 legible decals + hanging bumpers via BodyShell mesh split (user approved split; opus) — dispatched. Landmine flagged: deformable-registry consistency (deformableSyncCheck must stay green).
+
 ## Orchestrator eyes-on (Wave 4, 2026-07-15)
 Verified personally: P013 pristine + paint fixed; P014 340km/h front destroyed to A-pillar (2.03m, 297g, occupants dead); P004 right-flank intrusion visible top-down (modest vs refs — verifier to weigh); P006 sled visible mid-approach; P001 all 4 dummies upright/seated via sunroof; R005 index page glossy gunmetal car; P009 pole snapped + 0.48m crush + 31g; P002 mid tree rooted w/ slight lean, damage localized. New flag: rear-eject at moderate crashes (follow-up 7).
 

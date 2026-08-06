@@ -12,7 +12,7 @@
 
 import { Body, BodyType, Shape, World, WheelJoint, type Quat, type Vec3 } from '../../../src/ts/index.js';
 import { createPanels, resetAttachedPanels, type PanelHandle, type PanelKey } from '../damage/panels';
-import { buildCabinShapes, buildChassisHullPoints, buildGlassPaneShapes, deductSegmentsFromParity, solveChassisDensities, type GlassPaneKey } from './geometry';
+import { buildCabinShapes, buildChassisHullPoints, buildFootwellShelfShapes, buildGlassPaneShapes, deductSegmentsFromParity, solveChassisDensities, type GlassPaneKey } from './geometry';
 import { createSegments, destroySegments, resetSegments, segmentMassSpecs, type SegmentAssembly } from './segments';
 import {
 	add,
@@ -57,9 +57,15 @@ import {
 	ENGINE_BRAKE_TORQUE_NM,
 	FRONT_PASSIVE_DRAG_NM,
 	GRAVITY_MAG,
+	GROUND_CATEGORY_BITS,
 	GROUND_CONTACT_DEFLECTION_ENTER_M,
 	GROUND_CONTACT_DEFLECTION_EXIT_M,
 	GROUND_FRICTION,
+	FOOTWELL_SHELF_FRONT_CATEGORY_BITS,
+	FOOTWELL_SHELF_REAR_CATEGORY_BITS,
+	FOOTWELL_SHELF_MASK_BITS,
+	FOOTWELL_SHELF_ENGAGE_SPEED_MS,
+	FOOTWELL_SHELF_DISENGAGE_SPEED_MS,
 	HANDBRAKE_TORQUE_NM,
 	LATERAL_GRIP_ASSIST_GAIN_NM_PER_MS2,
 	LATERAL_GRIP_ASSIST_TORQUE_CAP_NM,
@@ -233,8 +239,12 @@ export interface Vehicle {
 	 * shapes: floorpan/nose/tail/roof/sills/pillars, see geometry.ts buildCabinShapes()). Kept only so
 	 * destroyVehicle() can explicitly destroy each before destroying the chassis body (see that
 	 * function's doc comment) -- createVehicle() itself never reads these back. Mass/COM/inertia are
-	 * hard-set via setMassData() to the pre-Tier-3 single-hull values, so no ballast shape is needed. */
-	chassisShapes: { cabin: Shape[] };
+	 * hard-set via setMassData() to the pre-Tier-3 single-hull values, so no ballast shape is needed.
+	 * `shelf` holds the 2 occupant-only FOOTWELL SHELF hulls (P001, geometry.ts
+	 * buildFootwellShelfShapes()) -- also chassis shapes, so they get the same explicit-destroy
+	 * treatment before the chassis body dies (otherwise their handles leak -- handle-stability +
+	 * segment-structure suites catch it). */
+	chassisShapes: { cabin: Shape[]; shelf: Shape[] };
 	/** Tier-3 Stage 2: the 2 destroyable solid glass panes (windshield/rear window) on the chassis --
 	 * see GLASS_ENTITY_ID's doc comment. The damage system nulls a pane's shape when it shatters. */
 	glass: Record<GlassPaneKey, GlassPaneHandle>;
@@ -274,6 +284,11 @@ export interface Vehicle {
 	 * acceleration for no physical reason.
 	 */
 	settleStepsRemaining: number;
+	/** P001 footwell shelf: whether the occupant-only foot ledges are currently COLLIDING (feet held at
+	 * the floor line). Speed-gated in stepVehicle (updateFootwellShelfEngagement): true at rest/low
+	 * speed, false while driving/crashing so the legs hang free and the crash/jostle dynamics are
+	 * unchanged -- see tuning.ts's FOOTWELL_SHELF_*_SPEED_MS doc. Starts true (feet plant at spawn). */
+	shelfEngaged: boolean;
 	/**
 	 * Per-wheel count of CONSECUTIVE steps this wheel's slip (real spin speed vs
 	 * chassisImpliedWheelOmega()) has stayed above TRACTION_SLIP_CUTOFF_RAD_S -- debounce for
@@ -348,7 +363,17 @@ export const NEUTRAL_INPUT: Readonly<VehicleInput> = Object.freeze({ throttle: 0
  */
 export function createGroundBody(world: World, halfSize = 5000): Body {
 	const ground = world.createBody({ type: BodyType.Static, position: { x: 0, y: -0.5, z: 0 } });
-	ground.createBoxShape({ halfExtents: { x: halfSize, y: 0.5, z: halfSize }, friction: GROUND_FRICTION, density: 1 });
+	ground.createBoxShape({
+		halfExtents: { x: halfSize, y: 0.5, z: halfSize },
+		friction: GROUND_FRICTION,
+		density: 1,
+		// GROUND_CATEGORY_BITS clears ONLY OCCUPANT_CATEGORY_BIT (bit 6) from the default all-ones
+		// category so the occupant-only footwell shelf (mask = that bit) never collides with the ground
+		// -- see tuning.ts's GROUND_CATEGORY_BITS doc. Every other body keeps colliding with the ground
+		// byte-identically (all-ones masks still match the ground's other bits; occupants match via
+		// OCCUPANT_COLLIDABLE_BIT). Mask stays default.
+		categoryBits: GROUND_CATEGORY_BITS,
+	});
 	return ground;
 }
 
@@ -476,6 +501,42 @@ export function createVehicle(
 			}),
 		};
 	}
+	// P001 FOOTWELL SHELF: two thin occupant-only ledges (front/rear row) at the cabin floor line so
+	// SEATED occupants' feet rest ON the floor instead of dangling through the occupant-transparent
+	// floorpan onto the world ground (geometry.ts buildFootwellShelfShapes() + FOOTWELL SHELF section).
+	// Created BEFORE the mass-parity stamp below so their nominal density mass is overridden like every
+	// other chassis shape's (no NEW mass, no COM shift). Filter (per row): categoryBits = the row's seat
+	// bits (a seated occupant collides via its own seat bit; an ejected occupant drops the seat bits and
+	// flies through -- no ejection blockage), maskBits = OCCUPANT_CATEGORY_BIT alone (reaches nothing but
+	// occupant capsules; crossed with GROUND_CATEGORY_BITS's cleared bit 6 it can never beach on terrain
+	// -- tuning.ts FOOTWELL_SHELF_* + GROUND_CATEGORY_BITS docs). groupIndex CAR_GROUP_INDEX (never
+	// fights other car parts); NO hit events (an internal ledge, not a crumple surface).
+	// FRICTIONLESS (friction 0): the ledge provides VERTICAL foot support only -- it holds the feet at
+	// the floor line so they no longer dip through it, but adds NO fore-aft grip. A grippy ledge instead
+	// anchors the seated lower body to the (moving) chassis and shares a crash's deceleration load with
+	// the belt, which measurably SUPPRESSED ejection (all 4 stayed belted through a 45km/h wall that used
+	// to eject the rears -- occupants-escalation) and damped the brace/limp deviation the drama tiers are
+	// calibrated on. With no fore-aft grip the feet slide freely on the ledge under hard decel (as a real
+	// footwell floor lets them), the belt does the arresting exactly as before, and the graded-drama +
+	// ejection calibration is preserved while the resting feet still plant vertically at the floor line.
+	const shelfPoints = buildFootwellShelfShapes();
+	const footwellShelfShapes: Shape[] = [
+		chassis.createHullShape(shelfPoints.front, {
+			density: solved.hullDensity,
+			friction: 0,
+			groupIndex: CAR_GROUP_INDEX,
+			categoryBits: FOOTWELL_SHELF_FRONT_CATEGORY_BITS,
+			maskBits: FOOTWELL_SHELF_MASK_BITS,
+		}),
+		chassis.createHullShape(shelfPoints.rear, {
+			density: solved.hullDensity,
+			friction: 0,
+			groupIndex: CAR_GROUP_INDEX,
+			categoryBits: FOOTWELL_SHELF_REAR_CATEGORY_BITS,
+			maskBits: FOOTWELL_SHELF_MASK_BITS,
+		}),
+	];
+
 	// Crush structure BEFORE the parity stamp below: createSegments() adds the two crush-core shapes
 	// to the CHASSIS body (their nominal shape mass must be overridden by setMassData like every other
 	// chassis shape's).
@@ -563,7 +624,7 @@ export function createVehicle(
 	return {
 		world,
 		chassis,
-		chassisShapes: { cabin: cabinShapes },
+		chassisShapes: { cabin: cabinShapes, shelf: footwellShelfShapes },
 		glass,
 		segments,
 		wheels,
@@ -579,6 +640,7 @@ export function createVehicle(
 		groundAuthority: 1,
 		brakeRamp: 0,
 		settleStepsRemaining: SUSPENSION_SETTLE_GRACE_STEPS,
+		shelfEngaged: true, // matches the shelf shapes' as-created engaged filter (maskBits set)
 		wheelSlipOverCutoffStreak: { fl: 0, fr: 0, rl: 0, rr: 0 },
 		driveDebug: {
 			branch: 'none',
@@ -636,6 +698,8 @@ export function destroyVehicle(vehicle: Vehicle): void {
 	// then shapes before bodies -- see destroySegments()'s doc comment.
 	destroySegments(vehicle.segments);
 	for (const s of vehicle.chassisShapes.cabin) s.destroy(false);
+	// P001 footwell-shelf hulls (chassis shapes) -- same explicit unregister-before-body-destroy rule.
+	for (const s of vehicle.chassisShapes.shelf) s.destroy(false);
 	// A shattered pane's shape was already destroyed (and nulled) by the damage system.
 	for (const pane of Object.values(vehicle.glass)) {
 		if (pane.shape) {
@@ -673,6 +737,12 @@ export function resetVehicle(vehicle: Vehicle): void {
 	vehicle.groundAuthority = 1;
 	vehicle.brakeRamp = 0;
 	vehicle.settleStepsRemaining = SUSPENSION_SETTLE_GRACE_STEPS;
+	// Reset puts the car at rest -- re-engage the footwell shelf so a re-seated occupant's feet plant at
+	// the floor line again (it may have been left disengaged by a crash before the reset).
+	if (!vehicle.shelfEngaged) {
+		setFootwellShelfMask(vehicle, FOOTWELL_SHELF_MASK_BITS);
+		vehicle.shelfEngaged = true;
+	}
 }
 
 export function speedSensitiveSteerClamp(speedKmh: number): number {
@@ -1050,7 +1120,37 @@ function stepGearboxPeek(state: GearboxState, wheelOmegaAbs: number) {
  * Advances the vehicle's control layer (drivetrain servo targets, brakes, steering) by one fixed
  * physics step. Call this immediately before world.step(dt, ...). Does not itself call world.step().
  */
+/**
+ * P001 footwell-shelf speed gate. The occupant-only foot ledges hold the seated feet at the floor line
+ * (fixing the "feet dip below the floor" bug) only while the car is at rest / crawling -- the only
+ * state in which the seated pose is actually observed. Above FOOTWELL_SHELF_DISENGAGE_SPEED_MS the
+ * ledges' maskBits are flipped to 0 (collide with nothing) so the legs hang free and the crash/jostle
+ * dynamics are the byte-identical pre-shelf behavior every occupant crash/brace/flee test is calibrated
+ * on; below FOOTWELL_SHELF_ENGAGE_SPEED_MS they collide again. Hysteresis avoids per-step filter thrash
+ * (setFilter is ~as costly as recreating the shape). Only touches maskBits -- each ledge's own category
+ * (its row's seat bits) and groupIndex are preserved. See tuning.ts's FOOTWELL_SHELF_*_SPEED_MS doc. */
+function updateFootwellShelfEngagement(vehicle: Vehicle): void {
+	const v = vehicle.chassis.getLinearVelocity();
+	const speed = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+	if (vehicle.shelfEngaged && speed > FOOTWELL_SHELF_DISENGAGE_SPEED_MS) {
+		setFootwellShelfMask(vehicle, 0n);
+		vehicle.shelfEngaged = false;
+	} else if (!vehicle.shelfEngaged && speed < FOOTWELL_SHELF_ENGAGE_SPEED_MS) {
+		setFootwellShelfMask(vehicle, FOOTWELL_SHELF_MASK_BITS);
+		vehicle.shelfEngaged = true;
+	}
+}
+
+/** Flip the mask on both footwell-shelf shapes, preserving each one's own category + groupIndex. */
+function setFootwellShelfMask(vehicle: Vehicle, maskBits: bigint): void {
+	for (const shape of vehicle.chassisShapes.shelf) {
+		const f = shape.getFilter();
+		shape.setFilter({ categoryBits: f.categoryBits, maskBits, groupIndex: f.groupIndex });
+	}
+}
+
 export function stepVehicle(vehicle: Vehicle, input: VehicleInput, dt: number): void {
+	updateFootwellShelfEngagement(vehicle);
 	// FIX (suspension-feel pass, found via game/sim/damage-moderate-impact.test.mjs regression):
 	// box3d puts a body to sleep after it's held near-zero velocity for its own internal time
 	// threshold (vendor/box3d), and NEITHER WheelJoint.setSpinMotorSpeed()/setMaxSpinTorque() NOR

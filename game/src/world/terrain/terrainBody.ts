@@ -10,7 +10,7 @@
 // tests/heightfield-basic.test.ts and game/sim/heightfield-drive.test.mjs.
 
 import { BodyType, type Body, type World } from '../../../../src/ts/index.js';
-import { GROUND_FRICTION } from '../../vehicle/tuning';
+import { GROUND_CATEGORY_BITS, GROUND_FRICTION } from '../../vehicle/tuning';
 import {
   DIRT_MATERIAL,
   NATURAL_MATERIAL,
@@ -45,6 +45,12 @@ export function createTerrainGroundBody(world: World): Body {
     friction: GROUND_FRICTION, // fallback base material; every cell is actually covered by materials[] below
     materials: TERRAIN_SURFACE_MATERIALS as TerrainSurfaceMaterial[],
     materialIndices,
+    // Occupant-transparent to the footwell shelf ONLY (bit 6 cleared) -- see tuning.ts's
+    // GROUND_CATEGORY_BITS doc. Byte-identical to all-ones for every other body (car/wheels/trees/
+    // building fragments via all-ones masks; occupants via OCCUPANT_COLLIDABLE_BIT). This is what lets
+    // the car drive the terrain heightfield normally while the shelf holds seated feet at the floor
+    // line (the original FOOTWELL-SHELF NEGATIVE RESULT beached the car exactly here).
+    categoryBits: GROUND_CATEGORY_BITS,
   });
   return ground;
 }

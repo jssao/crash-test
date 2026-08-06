@@ -149,6 +149,9 @@ declare global {
 			counters: () => { activeParticles: number; decals: number; puddles: number };
 			debugParticles: () => { kind: string; pos: [number, number, number]; opacity: number; scale: number }[];
 			puddleInfo: () => { active: boolean; x: number; y: number; z: number; radius: number };
+			/** BUG R004 deliverable 2: hanging-bumper split state -- lets a headless probe confirm the
+			 * front/rear bumper actually detached + how far it has swung, without pixel inspection. */
+			bumpers: () => { hasFront: boolean; hasRear: boolean; frontDetached: boolean; rearDetached: boolean; frontSwing: number; rearSwing: number };
 		};
 	}
 }
@@ -405,8 +408,9 @@ async function main() {
 		}
 		occupantsFeature.reset?.('car');
 		// BUG R003/R004: a freshly rebuilt car (new run/reset) shouldn't still show the old wreck's
-		// decals/puddle.
+		// decals/puddle, nor a hanging bumper -- re-seat both flush.
 		crashFx.reset();
+		car.bumpers.reset();
 	}
 
 	function selectProtocol(id: string): void {
@@ -542,6 +546,12 @@ async function main() {
 		{
 			const chassisT = vehicle.chassis.getTransform();
 			crashFx.updateFluidLeak(getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushPlasticM, chassisT.position, chassisT.rotation, FIXED_DT);
+		}
+		// BUG R004 (deliverable 2 -- hanging bumpers): drive the load-time bumper split's detach/swing off
+		// the same plastic-crush telemetry (read-only getter, additive call). Pure visual, no physics.
+		{
+			const seg = getSegmentTelemetry(vehicle.chassis, vehicle.segments);
+			car.bumpers.update(FIXED_DT, seg.frontCrushPlasticM, seg.rearCrushPlasticM);
 		}
 		// BUG R003 (tire smoke): per-wheel slip/ground-contact check via the existing public getters.
 		{
@@ -738,7 +748,7 @@ async function main() {
 	};
 
 	// BUGS R003/R004 verify hook -- see the `declare global` doc comment above.
-	window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo() };
+	window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo(), bumpers: () => car.bumpers.debug() };
 
 	// Crash-target picker (own injected DOM — leaves ./hud.ts untouched).
 	installCrashTargetPicker(document.body, {

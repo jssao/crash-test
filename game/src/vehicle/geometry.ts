@@ -437,20 +437,57 @@ export function buildGlassPaneShapes(): Record<GlassPaneKey, Float32Array> {
 	};
 }
 
-// FOOTWELL-SHELF NEGATIVE RESULT (Tier-3 Stage 2, tried + reverted -- kept for the record): the
-// seated occupants' feet dangle BELOW the belly line (shin capsule ends at chassis-local y ~-0.20 vs
-// hull bottom -0.07) and stand on the WORLD GROUND PLANE through the occupant-transparent floorpan.
-// An occupant-only "footwell shelf" slab on the chassis (top ~1cm above the laden ground line, so
-// the feet would ride WITH the car) fixed every foot-drag artifact in isolation -- but box3d pair
-// filtering is TWO-SIDED: (catA & maskB) && (catB & maskA), and the ground/terrain shapes carry the
-// DEFAULT all-ones category, so a shelf whose mask is "occupants only" still collides with the
-// ground (the ground's all-ones category intersects any nonzero mask) -- the car beached itself on
-// its own invisible shelf (chassis pinned at exactly shelf-bottom height, wheels free-spinning, 0
-// traction; sim/diag/stage2-pinch-probe.mjs). Making it work would require clearing a bit from the
-// terrain feature's heightfield category (outside this slice's ownership). The feet-on-ground
-// artifact instead stays (pre-Stage-2 status quo, all suites calibrated around it) and is defused
-// where it BITES: foot-drag belt spikes can no longer eject anyone (pollOccupantRestraint()'s
-// crash-gate + matchOccupantVelocity()'s ring seeding, occupants/physics.ts).
+// ---------------------------------------------------------------------------------------------
+// FOOTWELL SHELF (P001 resolved 2026-07-15) -- was the "FOOTWELL-SHELF NEGATIVE RESULT" here.
+// ---------------------------------------------------------------------------------------------
+// The seated occupants' feet used to dangle BELOW the belly line (measured shin-capsule bottom
+// ~-0.14/-0.16 chassis-local vs floorpan top 0.03 / hull bottom -0.119) and stand on the WORLD GROUND
+// PLANE through the occupant-transparent floorpan -- visible as feet poking under the car. The fix is
+// an occupant-only "footwell shelf": a thin chassis-owned ledge at the cabin floor line (top =
+// FLOORPAN_TOP_Y_M) that the SEATED occupants' feet rest ON, so they ride WITH the car at the floor
+// instead of dragging on the ground.
+//
+// The original attempt was reverted because box3d pair filtering is TWO-SIDED ((catA & maskB) &&
+// (catB & maskA), vendor/box3d/src/shape.h) and every ground carried the DEFAULT all-ones category, so
+// a shelf whose mask is "occupants only" still collided with the ground and BEACHED the car on its own
+// invisible ledge. RESOLVED by clearing exactly ONE bit (OCCUPANT_CATEGORY_BIT) from every static
+// ground's category (tuning.ts GROUND_CATEGORY_BITS -> terrainBody.ts + vehicle.ts createGroundBody):
+// the shelf's mask is OCCUPANT_CATEGORY_BIT alone, so shelf<->ground now fails the filter and the car
+// drives the terrain heightfield normally (heightfield-drive.test.mjs is the beaching guard). The
+// shelf's category is its ROW's seat bits (front seats 0,1 / rear 2,3), so a SEATED occupant rests on
+// it (own seat bit in its mask) while an EJECTED occupant (seat bits dropped) flies straight through --
+// the shelf never blocks the designed ejection path down through the floorpan and needs no runtime
+// break-on-eject. See tuning.ts's FOOTWELL_SHELF_* + GROUND_CATEGORY_BITS docs for the full filter
+// derivation, and buildFootwellShelfShapes() below for the geometry.
+
+/** Shelf slab thickness (m): a thin ledge whose TOP is the cabin floor line (FLOORPAN_TOP_Y_M). Bottom
+ * stays well above the hull bottom (-0.119), so the ledge lives entirely inside the floorpan's own
+ * vertical band and never changes the car's exterior/ground-contact profile. */
+const FOOTWELL_SHELF_THICKNESS_M = 0.06;
+/** Per-row footwell X/Z spans (chassis-local), covering each row's measured foot envelope (front shins
+ * settle at x~+-0.3..0.5, z~0.66; rear at x~+-0.3..0.5, z~-0.44). Kept inboard of the sills
+ * (SILL_INNER_X_M=0.73) so the ledge sits on the open cabin floor, and clear of the seat-pan columns
+ * so it only ever meets FEET, not the pelvis/thighs riding above. */
+const FOOTWELL_SHELF_FRONT = { x0: -0.7, x1: 0.7, z0: 0.4, z1: 0.95 };
+const FOOTWELL_SHELF_REAR = { x0: -0.7, x1: 0.7, z0: -0.78, z1: -0.18 };
+
+export type FootwellShelfKey = 'front' | 'rear';
+
+/** The 2 footwell-shelf shape defs (chassis-local point clouds), keyed for createVehicle() -- thin
+ * slabs whose TOP face is the cabin floor line (FLOORPAN_TOP_Y_M). vehicle.ts stamps each with its
+ * row's occupant-only filter (tuning.ts FOOTWELL_SHELF_*). See this section's doc comment. */
+export function buildFootwellShelfShapes(): Record<FootwellShelfKey, Float32Array> {
+	const top = FLOORPAN_TOP_Y_M;
+	const bottom = FLOORPAN_TOP_Y_M - FOOTWELL_SHELF_THICKNESS_M;
+	return {
+		front: boxPoints(FOOTWELL_SHELF_FRONT.x0, FOOTWELL_SHELF_FRONT.x1, bottom, top, FOOTWELL_SHELF_FRONT.z0, FOOTWELL_SHELF_FRONT.z1),
+		rear: boxPoints(FOOTWELL_SHELF_REAR.x0, FOOTWELL_SHELF_REAR.x1, bottom, top, FOOTWELL_SHELF_REAR.z0, FOOTWELL_SHELF_REAR.z1),
+	};
+}
+
+/** The cabin floor line (chassis-local Y) -- exported so the occupants regression test can assert foot
+ * capsules rest at/above it without re-hard-coding the literal. */
+export const FLOORPAN_FLOOR_LINE_Y_M = FLOORPAN_TOP_Y_M;
 
 /** Mirror a flat (x,y,z) point cloud across the X=0 plane (left -> right cabin shape). */
 function mirrorX(points: Float32Array): Float32Array {

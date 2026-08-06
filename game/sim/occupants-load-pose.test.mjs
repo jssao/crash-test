@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { createSim } from './harness.mjs';
 import { createOccupant, createSeatPan, teardownOccupant, teardownSeatPan } from '../src/world/features/occupants/physics.ts';
-import { SEAT_KEYS, SETTLE_DROP_M } from '../src/world/features/occupants/tuning.ts';
+import { PART_DIMS, SEAT_KEYS, SETTLE_DROP_M } from '../src/world/features/occupants/tuning.ts';
+import { FLOORPAN_FLOOR_LINE_Y_M } from '../src/vehicle/geometry.ts';
 
 function seatAll(sim) {
 	const chassis = sim.vehicle.chassis;
@@ -29,7 +30,7 @@ function teardownAll(rig) {
 }
 
 describe('occupants: load-pose stability (P001 regression guard)', () => {
-	it('after spawn + ~300 settle steps with no input, every seated dummy holds a properly-seated pose: knees near the seated rest angle, no torso/pelvis slump, feet not badly below the floor line', async () => {
+	it('after spawn + ~300 settle steps with no input, every seated dummy holds a properly-seated pose: knees near the seated rest angle, no torso/pelvis slump, feet resting AT/ABOVE the floor line (on the footwell shelf)', async () => {
 		const sim = await createSim();
 		try {
 			const rig = seatAll(sim);
@@ -80,19 +81,33 @@ describe('occupants: load-pose stability (P001 regression guard)', () => {
 				expect(Math.abs(pelvisY - expectedPelvisY), `${seatKey} pelvis height near designed rest (no slump)`).toBeLessThan(0.08);
 				expect(Math.abs(torsoY - pelvisY - 0.21), `${seatKey} torso-above-pelvis offset near design (no spine slump)`).toBeLessThan(0.08);
 
-				// (c) No shin/foot capsule CENTER below (chassis-local floor line - small epsilon). Floor
-				// line = FLOORPAN_TOP_Y_M (vehicle/geometry.ts, currently 0.03 -- not exported, so
-				// hard-coded here with this note rather than adding a vehicle/* export for one test
-				// constant; re-check this literal if that geometry value ever changes). This is the
-				// geometric mitigation this fix made (SEAT_LOCAL.y raise + shin shortening,
-				// occupants/tuning.ts) -- it does NOT claim the ankle/foot tip itself clears the floor
-				// (documented residual: it doesn't -- see tuning.ts's SEAT_LOCAL doc comment), only that
-				// the capsule's own center -- most of its visible mass -- sits at or above the floor line.
-				const FLOOR_LINE_Y_M = 0.03;
-				const EPSILON_M = 0.05;
+				// (c) P001 REAL FIX (2026-07-15): the shin/foot capsule's own BOTTOM (its lowest point, not
+				// just its center) sits AT/ABOVE the cabin floor line -- i.e. the feet no longer dip below
+				// the floor at all. The occupant-only FOOTWELL SHELF (vehicle/geometry.ts
+				// buildFootwellShelfShapes(), a thin ledge at FLOORPAN_FLOOR_LINE_Y_M) catches the seated
+				// feet at the floor while the car idles here (the shelf is speed-gated -- engaged at rest,
+				// see tuning.ts FOOTWELL_SHELF_*_SPEED_MS -- and disengaged during driving/crashes so it
+				// never perturbs those dynamics; enabled by giving every static ground GROUND_CATEGORY_BITS
+				// so the ledge can't beach the car, tuning.ts). This SUPERSEDES the old caveat that only the
+				// capsule CENTER cleared the floor while the foot tip still dipped to ~-0.14 -- the tip now
+				// rests ON the shelf. The capsule's true lowest point = center.y - halfLen*|worldDownY| -
+				// radius (the shin hangs ~vertical, so |worldDownY| ~1). MEASURED bottom after settle:
+				// ~0.030 (front) / ~0.029 (rear), both essentially AT the 0.03 floor line (the ~1mm below is
+				// box3d's contact slop as the foot rests on the ledge). A small epsilon absorbs that slop.
+				const shin = PART_DIMS.shin;
+				const EPSILON_M = 0.012;
 				for (const key of ['shinL', 'shinR']) {
-					const y = o.parts[key].body.getPosition().y - chassisY;
-					expect(y, `${seatKey}.${key} capsule center at/above the floor line (within epsilon)`).toBeGreaterThan(FLOOR_LINE_Y_M - EPSILON_M);
+					const p = o.parts[key].body.getPosition();
+					const q = o.parts[key].body.getTransform().rotation;
+					// Y-component of the capsule's local +Y axis in world space (see the probe used to derive
+					// this): the capsule spans center +- halfLen along local Y, so its lowest point drops by
+					// halfLen*|that component| plus the end-cap radius.
+					const worldUpY = 1 - 2 * (q.x * q.x + q.z * q.z);
+					const capsuleBottomY = p.y - chassisY - shin.halfLen * Math.abs(worldUpY) - shin.radius;
+					expect(
+						capsuleBottomY,
+						`${seatKey}.${key} capsule BOTTOM at/above the cabin floor line (foot no longer dips below the floor)`,
+					).toBeGreaterThan(FLOORPAN_FLOOR_LINE_Y_M - EPSILON_M);
 				}
 			});
 

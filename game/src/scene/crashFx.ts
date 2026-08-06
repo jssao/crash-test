@@ -66,6 +66,12 @@ const IMPACT_FX_SCALE_MS = 25;
  * severity clears this floor -- a real crash reliably scuffs the paint, a light tap still doesn't,
  * and the decal pool's own oldest-evicted cap (MAX_DECALS) keeps a sustained crush bounded. */
 const DECAL_MIN_SEVERITY_MS = 3.5;
+/** Master off-switch for scuff/chip decals. The pool is still allocated and reset()/repair still
+ * clear it, so flipping this back to `true` restores R004's paint damage with no other edit --
+ * placeDecal() is the single chokepoint both spawn paths route through. While false the `decals`
+ * counter stays 0, so verify/r004-final.mjs (and the other paint-damage probes) will FAIL by
+ * design; the vitest suite doesn't assert on decals and is unaffected. */
+const DECALS_ENABLED = false;
 /** A scuff anchors to the nearest panel visual within this radius (m); beyond it, anchors to the
  * chassis shell (car.root) instead -- covers impacts that land on bare unibody, not a panel. */
 const NEAREST_PANEL_MAX_DIST_M = 1.3;
@@ -146,11 +152,14 @@ function buildDebrisTexture(size = 32): THREE.CanvasTexture {
 	});
 }
 
-/** Diagonal scratch strokes on a transparent field -- one of 3 seeded variants. ROUND-2 (R004 gate
- * FAIL: "clean glossy black paint with NO scratch strokes even brightened 2.4x"): brighter, whiter,
- * thicker strokes on a 128px field so they actually read against near-black gloss at lab distance --
- * each bright gouge carries a dark shadow line for a real "cut into the paint" look. */
-function buildScratchTexture(seed: number, size = 128): THREE.CanvasTexture {
+/** Diagonal scratch strokes on a transparent field -- one of 3 seeded variants. ROUND-4 (R004 gate
+ * FAIL: "6-13 decals counter-proven but INVISIBLE in every capture, even a barrier-hidden nose close-
+ * up"): the read on real black gloss is that damage exposes LIGHT bare metal, so this now paints a
+ * scuffed ABRASION PATCH (a soft light-gray smudge halo the eye reads as rubbed paint) with bold
+ * near-white exposed-metal gouges over it, each carrying a dark shadow line for a cut-into-the-paint
+ * look. 256px field, thicker/brighter strokes so a SINGLE decal reads as unmistakable damage at the
+ * ~4m lab close-up distance. */
+function buildScratchTexture(seed: number, size = 256): THREE.CanvasTexture {
 	return makeTexture(size, (ctx) => {
 		let s = seed;
 		const rnd = () => {
@@ -159,32 +168,41 @@ function buildScratchTexture(seed: number, size = 128): THREE.CanvasTexture {
 		};
 		ctx.clearRect(0, 0, size, size);
 		ctx.lineCap = 'round';
-		const lines = 4 + Math.floor(rnd() * 4);
+		// Soft abrasion halo -- a light-gray scuffed patch the gouges sit in, so even the gaps between
+		// strokes read as "rubbed/abraded paint" rather than clean gloss.
+		const hg = ctx.createRadialGradient(size * 0.5, size * 0.5, size * 0.05, size * 0.5, size * 0.5, size * 0.5);
+		hg.addColorStop(0, 'rgba(200,202,205,0.5)');
+		hg.addColorStop(0.55, 'rgba(178,180,184,0.32)');
+		hg.addColorStop(1, 'rgba(160,162,166,0)');
+		ctx.fillStyle = hg;
+		ctx.fillRect(0, 0, size, size);
+		const lines = 5 + Math.floor(rnd() * 4);
 		for (let i = 0; i < lines; i++) {
-			const y0 = size * (0.1 + rnd() * 0.15 + i * 0.11);
+			const y0 = size * (0.1 + rnd() * 0.12 + i * 0.095);
 			// Dark shadow line drawn FIRST (below/behind the bright stroke) -- reads as a real gouge, not
 			// a flat painted-on highlight.
-			ctx.strokeStyle = `rgba(15,13,11,${0.45 + rnd() * 0.3})`;
-			ctx.lineWidth = 3 + rnd() * 3;
+			ctx.strokeStyle = `rgba(12,10,8,${0.5 + rnd() * 0.3})`;
+			ctx.lineWidth = 5 + rnd() * 5;
 			ctx.beginPath();
-			ctx.moveTo(size * 0.04, y0 + 3);
-			ctx.lineTo(size * 0.96, y0 + size * 0.12 + 3);
+			ctx.moveTo(size * 0.04, y0 + 5);
+			ctx.lineTo(size * 0.96, y0 + size * 0.11 + 5);
 			ctx.stroke();
-			// Bright scratch -- near-white, high alpha so it survives against black gloss.
-			ctx.strokeStyle = `rgba(242,244,238,${0.72 + rnd() * 0.28})`;
-			ctx.lineWidth = 1.5 + rnd() * 2.5;
+			// Bright exposed-metal gouge -- near-white silver, high alpha so it survives against black gloss.
+			ctx.strokeStyle = `rgba(248,250,246,${0.85 + rnd() * 0.15})`;
+			ctx.lineWidth = 3 + rnd() * 4;
 			ctx.beginPath();
-			ctx.moveTo(size * 0.04, y0 + (rnd() - 0.5) * 8);
-			ctx.lineTo(size * 0.96, y0 - (rnd() - 0.5) * 12 + size * 0.12);
+			ctx.moveTo(size * 0.04, y0 + (rnd() - 0.5) * 10);
+			ctx.lineTo(size * 0.96, y0 - (rnd() - 0.5) * 16 + size * 0.11);
 			ctx.stroke();
 		}
 	});
 }
 
-/** An irregular paint-chip blotch: bright exposed-bare-metal center + a lighter cracked-paint rim.
- * ROUND-2: brighter (silver) exposed-metal so a chip reads as a distinct light mark against near-
- * black paint rather than dissolving into it; a scatter of small satellite chips sells "flaked". */
-function buildChipTexture(seed: number, size = 128): THREE.CanvasTexture {
+/** An irregular paint-chip blotch: bright exposed-bare-metal center + a primer-gray cracked-paint rim.
+ * ROUND-4: bigger, brighter (silver) exposed-metal core + a wide primer-gray halo so a chip reads as a
+ * distinct LIGHT mark against near-black paint (real damage on black paint reads light), with a scatter
+ * of satellite flakes to sell "flaked". 256px field to match the scratch variant's resolution. */
+function buildChipTexture(seed: number, size = 256): THREE.CanvasTexture {
 	return makeTexture(size, (ctx) => {
 		let s = seed;
 		const rnd = () => {
@@ -194,29 +212,30 @@ function buildChipTexture(seed: number, size = 128): THREE.CanvasTexture {
 		ctx.clearRect(0, 0, size, size);
 		const cx = size * (0.42 + rnd() * 0.16);
 		const cy = size * (0.42 + rnd() * 0.16);
-		const rim = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.36);
-		rim.addColorStop(0, 'rgba(205,208,212,0.92)');
-		rim.addColorStop(0.5, 'rgba(140,140,138,0.7)');
-		rim.addColorStop(1, 'rgba(120,118,114,0)');
+		// Primer-gray cracked-paint halo (wide, so the chip has a readable footprint).
+		const rim = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.44);
+		rim.addColorStop(0, 'rgba(198,200,204,0.95)');
+		rim.addColorStop(0.5, 'rgba(150,150,150,0.72)');
+		rim.addColorStop(1, 'rgba(125,124,122,0)');
 		ctx.fillStyle = rim;
 		ctx.beginPath();
-		ctx.arc(cx, cy, size * 0.36, 0, Math.PI * 2);
+		ctx.arc(cx, cy, size * 0.44, 0, Math.PI * 2);
 		ctx.fill();
 		// Bright bare-metal core.
-		const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.18);
-		core.addColorStop(0, 'rgba(225,228,232,0.98)');
-		core.addColorStop(0.7, 'rgba(160,162,164,0.85)');
-		core.addColorStop(1, 'rgba(120,120,120,0.3)');
+		const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.22);
+		core.addColorStop(0, 'rgba(235,238,242,1)');
+		core.addColorStop(0.65, 'rgba(175,177,180,0.9)');
+		core.addColorStop(1, 'rgba(130,130,130,0.35)');
 		ctx.fillStyle = core;
 		ctx.beginPath();
-		ctx.arc(cx, cy, size * 0.18, 0, Math.PI * 2);
+		ctx.arc(cx, cy, size * 0.22, 0, Math.PI * 2);
 		ctx.fill();
 		// Satellite flakes around the main chip.
-		for (let i = 0; i < 5; i++) {
+		for (let i = 0; i < 7; i++) {
 			const a = rnd() * Math.PI * 2;
-			const d = size * (0.2 + rnd() * 0.2);
-			const r = size * (0.03 + rnd() * 0.05);
-			ctx.fillStyle = `rgba(200,202,205,${0.5 + rnd() * 0.4})`;
+			const d = size * (0.22 + rnd() * 0.22);
+			const r = size * (0.035 + rnd() * 0.06);
+			ctx.fillStyle = `rgba(205,207,210,${0.55 + rnd() * 0.4})`;
 			ctx.beginPath();
 			ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, r, 0, Math.PI * 2);
 			ctx.fill();
@@ -499,12 +518,21 @@ export function createCrashFx(scene: THREE.Scene, carRoot: THREE.Object3D, panel
 			map: scuffTextures[i % scuffTextures.length],
 			transparent: true,
 			depthWrite: false,
+			// ROUND-4 (R004 gate FAIL: scuffs counter-proven but INVISIBLE in every capture): the
+			// contact-dent + structural-crush pipeline displaces the shell up to ~0.4m at the impact, so a
+			// depth-tested decal anchored to the pre-crush surface was being Z-swallowed by the deformed
+			// metal (and lost against the dark gloss). depthTest:false + a high renderOrder draws every
+			// scuff ON TOP of the body unconditionally, so crumpled geometry can never bury it. Safe for
+			// the crash shots: scuffs only spawn at the IMPACT face (nose/tail on a frontal/rear), which is
+			// the near side of every damage camera, so there's no "decal bleeding through the far side".
+			depthTest: false,
 			polygonOffset: true,
-			polygonOffsetFactor: -4,
-			polygonOffsetUnits: -4,
+			polygonOffsetFactor: -8,
+			polygonOffsetUnits: -8,
 			side: THREE.DoubleSide,
 		});
 		const mesh = new THREE.Mesh(decalGeometry, material);
+		mesh.renderOrder = 12;
 		mesh.visible = false;
 		decalGroup.add(mesh);
 		decals.push({ mesh, active: false });
@@ -522,18 +550,21 @@ export function createCrashFx(scene: THREE.Scene, carRoot: THREE.Object3D, panel
 
 	const _decalInv = new THREE.Matrix4();
 	function placeDecal(parent: THREE.Object3D, localPoint: THREE.Vector3): void {
+		if (!DECALS_ENABLED) return;
 		const slot = allocDecal();
 		if (slot.mesh.parent !== parent) {
 			slot.mesh.parent?.remove(slot.mesh);
 			parent.add(slot.mesh);
 		}
 		const dir = localPoint.lengthSq() > 1e-6 ? localPoint.clone().normalize() : new THREE.Vector3(0, 1, 0);
-		slot.mesh.position.copy(localPoint).addScaledVector(dir, 0.012);
+		// ROUND-4: sit the quad well proud of the surface (0.045m) so it clears the outermost buckle/bulge
+		// crease of the deformed shell -- combined with depthTest:false this keeps every scuff on top.
+		slot.mesh.position.copy(localPoint).addScaledVector(dir, 0.045);
 		slot.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
 		slot.mesh.rotateZ(Math.random() * Math.PI * 2);
-		// ROUND-2 (R004): larger scuffs with a firm min-size floor so a single decal still reads as a
-		// mark on the paint at lab distance (was 0.08-0.18m; now 0.16-0.28m).
-		const s = 0.16 + Math.random() * 0.12;
+		// ROUND-4 (R004): larger scuffs with a firm min-size floor so a single decal reads as unmistakable
+		// damage at the ~4m lab close-up (was 0.16-0.28m; now 0.24-0.42m, the reference's palm-sized scuff).
+		const s = 0.24 + Math.random() * 0.18;
 		slot.mesh.scale.set(s, s, 1);
 		slot.mesh.visible = true;
 	}
@@ -673,11 +704,13 @@ export function createCrashFx(scene: THREE.Scene, carRoot: THREE.Object3D, panel
 				opacity: 0.92,
 			});
 		}
-		// ROUND-2 (R004): scuff the paint on EVERY impact that clears the severity floor (was every 6th).
-		// A small lateral jitter fans successive scuffs across the panel instead of stacking them at the
-		// exact same contact point, so a real crush reads as a scuffed AREA, not one dot.
+		// ROUND-4 (R004): scuff the paint on EVERY impact that clears the severity floor, spawning a small
+		// CLUSTER (2-4, severity-scaled) fanned across the contact area so a real crush reads as a broad
+		// scuffed/gouged PATCH of exposed metal -- a single decal read as a lone speck at lab distance. The
+		// decal pool's oldest-evicted cap (MAX_DECALS) still bounds a sustained crush.
 		if (severity >= DECAL_MIN_SEVERITY_MS) {
-			spawnScuffDecalFromWorld(jitter(worldPoint, 0.18));
+			const cluster = 2 + Math.round(t * 2);
+			for (let k = 0; k < cluster; k++) spawnScuffDecalFromWorld(jitter(worldPoint, 0.22));
 		}
 	}
 

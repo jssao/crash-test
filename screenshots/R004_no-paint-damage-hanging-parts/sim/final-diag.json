@@ -1,0 +1,22 @@
+{
+  "pristineBumpers": "{\"hasFront\":true,\"hasRear\":true,\"frontDetached\":false,\"rearDetached\":false,\"frontSwing\":0,\"rearSwing\":0}",
+  "scuff56": {
+    "counters": "{\"activeParticles\":364,\"decals\":18,\"puddles\":1}",
+    "bumpers": "{\"hasFront\":true,\"hasRear\":true,\"frontDetached\":false,\"rearDetached\":false,\"frontSwing\":0,\"rearSwing\":0}",
+    "frontCrushPlasticM": 0.464236863904405,
+    "worstSync": 0.000004665323084503839,
+    "structM": 0.5062160574079319,
+    "dented": 43541
+  },
+  "hardFront": {
+    "bumpers": "{\"hasFront\":true,\"hasRear\":true,\"frontDetached\":true,\"rearDetached\":false,\"frontSwing\":0.999999999902412,\"rearSwing\":0}",
+    "frontCrushPlasticM": 0.63,
+    "worstSync": 0.000004665323084503839,
+    "chassisZ": 0
+  },
+  "rear80": {
+    "bumpers": "{\"hasFront\":true,\"hasRear\":true,\"frontDetached\":false,\"rearDetached\":true,\"frontSwing\":0,\"rearSwing\":0.999999999830028}",
+    "rearCrushPlasticM": 0.57,
+    "worstSync": 0.000007858312643111581
+  }
+}

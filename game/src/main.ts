@@ -203,6 +203,8 @@ declare global {
       counters: () => { activeParticles: number; decals: number; puddles: number };
       debugParticles: () => { kind: string; pos: [number, number, number]; opacity: number; scale: number }[];
       puddleInfo: () => { active: boolean; x: number; y: number; z: number; radius: number };
+      // BUG R004 deliverable 2 -- must stay identical to the lab's __FX__ declaration (global merge).
+      bumpers: () => { hasFront: boolean; hasRear: boolean; frontDetached: boolean; rearDetached: boolean; frontSwing: number; rearSwing: number };
     };
   }
 }
@@ -540,8 +542,10 @@ async function main() {
     }
     chaseCamera.reset();
     features.reset('car');
-    // BUG R003/R004: a freshly repaired car shouldn't still show the old wreck's decals/puddle.
+    // BUG R003/R004: a freshly repaired car shouldn't still show the old wreck's decals/puddle, nor a
+    // hanging bumper -- re-seat both flush.
     crashFx.reset();
+    car.bumpers.reset();
   }
 
   function doWorldRepair(): void {
@@ -595,6 +599,12 @@ async function main() {
     {
       const chassisT = vehicle.chassis.getTransform();
       crashFx.updateFluidLeak(getSegmentTelemetry(vehicle.chassis, vehicle.segments).frontCrushPlasticM, chassisT.position, chassisT.rotation, FIXED_DT);
+    }
+    // BUG R004 (deliverable 2 -- hanging bumpers): drive the load-time bumper split's detach/swing off
+    // the same plastic-crush telemetry (read-only getter, additive call). Pure visual, no physics.
+    {
+      const seg = getSegmentTelemetry(vehicle.chassis, vehicle.segments);
+      car.bumpers.update(FIXED_DT, seg.frontCrushPlasticM, seg.rearCrushPlasticM);
     }
     // BUG R003 (tire smoke): per-wheel slip/ground-contact check, driven by the existing public
     // getTelemetry()/wheelGrounded getters -- no vehicle/** files edited.
@@ -811,7 +821,7 @@ async function main() {
   };
 
   // BUGS R003/R004 verify hook -- see the `declare global` doc comment above.
-  window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo() };
+  window.__FX__ = { counters: () => crashFx.counters(), debugParticles: () => crashFx.debugParticles(), puddleInfo: () => crashFx.puddleInfo(), bumpers: () => car.bumpers.debug() };
 
   resize();
 
