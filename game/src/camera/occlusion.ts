@@ -26,7 +26,8 @@
 // exploding barrels -- keeps the default all-bits filter and blocks normally.
 
 import type { Vec3, World } from '../../../src/ts/index.js';
-import { CAR_ENTITY_ID } from '../vehicle/vehicle';
+import { CAR_ENTITY_ID, GLASS_ENTITY_ID } from '../vehicle/vehicle';
+import { SEGMENT_ENTITY_ID_SET } from '../vehicle/segments';
 import { PANEL_ENTITY_ID } from '../damage/panels';
 
 /** occupants/physics.ts's entityIdFor(seatIndex, partIndex) = 1000 + seatIndex*100 + partIndex, for
@@ -34,18 +35,39 @@ import { PANEL_ENTITY_ID } from '../damage/panels';
 const OCCUPANT_ENTITY_ID_MIN = 1000;
 const OCCUPANT_ENTITY_ID_MAX = 1399;
 
+/** world/features/cardetail's on-car detail bodies (mirrors/wipers/badges) -- tuning.ts's
+ * CARDETAIL_JOINT_ID_BASE (88.1M) / CARDETAIL_BODY_ID_BASE (88.2M). Same documented-range treatment
+ * as occupants above (importing a world/features module from camera/** would cross the ownership
+ * boundary the other way). */
+const CARDETAIL_ENTITY_ID_MIN = 88_000_000;
+const CARDETAIL_ENTITY_ID_MAX = 88_999_999;
+
 const CAR_OWNED_ENTITY_IDS: ReadonlySet<number> = new Set<number>([
 	CAR_ENTITY_ID.chassis,
 	...Object.values(CAR_ENTITY_ID.wheel),
 	...Object.values(PANEL_ENTITY_ID),
+	// Glass panes (12-13) + crush segments/cores (14-25): every one of these sits ON the cast's path
+	// out of the cabin (the rear window and trunk segments squarely so for the default 6m-back chase
+	// offset). Before these were filtered, the FIRST chase frame's cast hit the car's own rear
+	// window/trunk, clamped the allowed distance to minDistanceM (1.5m -- inside the cabin), and
+	// KEPT re-clamping it every subsequent frame -- so a fresh boot rendered the car's own black
+	// interior backfaces until the player toggled away from chase mode ("car texture never loads on
+	// fresh start", 2026-08-05).
+	...Object.values(GLASS_ENTITY_ID),
+	...SEGMENT_ENTITY_ID_SET,
 ]);
 
 /** True if `id` (a cast/hit-event entityId, i.e. Body/Shape userData) belongs to the car itself --
- * chassis, wheels, damage panels (attached or freshly detached), or a seated/ejected occupant. Zero
- * (the default userData for untagged bodies, e.g. verify/spawnTestWall's test wall, world terrain,
- * trees, buildings, exploding barrels) is never in this set. */
+ * chassis, wheels, damage panels (attached or freshly detached), glass panes, crush segments/cores,
+ * on-car detail parts (mirrors/wipers), or a seated/ejected occupant. Zero (the default userData for
+ * untagged bodies, e.g. verify/spawnTestWall's test wall, world terrain, trees, buildings, exploding
+ * barrels) is never in this set. */
 export function isCarOwnedEntityId(id: number): boolean {
-	return CAR_OWNED_ENTITY_IDS.has(id) || (id >= OCCUPANT_ENTITY_ID_MIN && id <= OCCUPANT_ENTITY_ID_MAX);
+	return (
+		CAR_OWNED_ENTITY_IDS.has(id) ||
+		(id >= OCCUPANT_ENTITY_ID_MIN && id <= OCCUPANT_ENTITY_ID_MAX) ||
+		(id >= CARDETAIL_ENTITY_ID_MIN && id <= CARDETAIL_ENTITY_ID_MAX)
+	);
 }
 
 export interface OcclusionCastOptions {

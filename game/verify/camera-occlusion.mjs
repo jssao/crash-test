@@ -171,7 +171,9 @@ async function main() {
     const evalExpr = (expr) => c.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }).then((r) => r?.result?.value);
 
     let ok = false;
-    for (let i = 0; i < 60; i++) {
+    // 90s budget: a cold SwiftShader boot of the FULL game (25MB GLB + HDRI env bake + world build)
+    // measures ~28-30s on this machine -- the old 30s budget made ready-or-not a coin flip.
+    for (let i = 0; i < 180; i++) {
       const r = await evalExpr('window.__GAME__ && window.__GAME__.ready === true');
       if (r === true) { ok = true; break; }
       await sleep(500);
