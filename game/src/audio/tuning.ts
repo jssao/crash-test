@@ -120,6 +120,20 @@ export function engineGainFromRpm(rpm: number, revRateRpmS: number): number {
 	return base + boost;
 }
 
+// ---- Horn (hold H -- see engine.ts's self-owned keydown/keyup listeners, same pattern as M-mute) ----
+/** Classic dual-horn dyad, a rough major third apart (real horns pair two diaphragms around
+ * ~400/500Hz) -- two notes beating together is most of what makes a horn read as a HORN rather
+ * than a test tone. */
+export const HORN_HZ_LOW = 420;
+export const HORN_HZ_HIGH = 505;
+export const HORN_GAIN = 0.28;
+/** Bandpass formant the two oscillators share: squeezes the raw waves into the honky midrange bark
+ * of a diaphragm+trumpet resonator. */
+export const HORN_FORMANT_HZ = 950;
+export const HORN_FORMANT_Q = 1.4;
+export const HORN_ATTACK_S = 0.012;
+export const HORN_RELEASE_S = 0.09;
+
 export function clamp01(x: number): number {
 	return x < 0 ? 0 : x > 1 ? 1 : x;
 }

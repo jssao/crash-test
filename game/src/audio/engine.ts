@@ -27,6 +27,13 @@ import { resolveImpactProfile, type ImpactProfile } from './materials';
 import { isCarEntity, isCarVsWorld } from './entities';
 import {
 	ENGINE_HUM_GAIN,
+	HORN_ATTACK_S,
+	HORN_FORMANT_HZ,
+	HORN_FORMANT_Q,
+	HORN_GAIN,
+	HORN_HZ_HIGH,
+	HORN_HZ_LOW,
+	HORN_RELEASE_S,
 	IMPACT_MAX_VOICES_PER_STEP,
 	IMPACT_MIN_SPEED_MS,
 	MASTER_VOLUME_DEFAULT,
@@ -422,13 +429,82 @@ export function createAudioSystem(): AudioSystem {
 		);
 	}
 
+	// ---- Horn: hold H (keydown starts, keyup stops) -- lazily built per press, torn down after the
+	// release envelope so no oscillator idles between honks. Same self-owned-listener pattern as M. ----
+	let hornVoice: { oscLow: OscillatorNode; oscHigh: OscillatorNode; gainHigh: GainNode; formant: BiquadFilterNode; gain: GainNode } | null = null;
+
+	function startHorn(): void {
+		if (hornVoice) return;
+		const oscLow = ctx.createOscillator();
+		oscLow.type = 'triangle';
+		oscLow.frequency.value = HORN_HZ_LOW;
+		const oscHigh = ctx.createOscillator();
+		oscHigh.type = 'triangle';
+		oscHigh.frequency.value = HORN_HZ_HIGH;
+		const gainHigh = ctx.createGain();
+		gainHigh.gain.value = 0.8; // high note slightly under the low -- matches a real dual-horn's balance
+		const formant = ctx.createBiquadFilter();
+		formant.type = 'bandpass';
+		formant.frequency.value = HORN_FORMANT_HZ;
+		formant.Q.value = HORN_FORMANT_Q;
+		const gain = ctx.createGain();
+		const now = ctx.currentTime;
+		gain.gain.setValueAtTime(0.0001, now);
+		gain.gain.linearRampToValueAtTime(HORN_GAIN, now + HORN_ATTACK_S);
+		oscLow.connect(formant);
+		oscHigh.connect(gainHigh).connect(formant);
+		formant.connect(gain).connect(master);
+		oscLow.start();
+		oscHigh.start();
+		adjustNodeCount(5);
+		hornVoice = { oscLow, oscHigh, gainHigh, formant, gain };
+	}
+
+	function stopHorn(): void {
+		if (!hornVoice) return;
+		const v = hornVoice;
+		hornVoice = null;
+		const now = ctx.currentTime;
+		v.gain.gain.cancelScheduledValues(now);
+		v.gain.gain.setTargetAtTime(0, now, HORN_RELEASE_S / 3);
+		// Same stop-time jitter rationale as fadeAndStopLoopVoice (render-quantum-collision, see
+		// IMPACT_STOP_STAGGER_S's doc comment). Only oscLow carries the onended teardown; oscHigh
+		// stops a hair later so its own (guarded, no-op-safe) ended event can't race the disconnect.
+		v.oscLow.stop(now + HORN_RELEASE_S + 0.05 + Math.random() * IMPACT_STOP_JITTER_MAX_S);
+		v.oscHigh.stop(now + HORN_RELEASE_S + 0.06 + Math.random() * IMPACT_STOP_JITTER_MAX_S);
+		let ended = false;
+		v.oscLow.onended = () => {
+			if (ended) {
+				onDuplicateOnended();
+				return;
+			}
+			ended = true;
+			try {
+				v.oscLow.disconnect();
+				v.oscHigh.disconnect();
+				v.gainHigh.disconnect();
+				v.formant.disconnect();
+				v.gain.disconnect();
+			} catch {
+				/* already disconnected */
+			}
+			adjustNodeCount(-5);
+		};
+	}
+
 	// ---- M mutes/unmutes -- self-contained listener (this module owns no other input file) ----
 	window.addEventListener('keydown', (e) => {
 		if (e.code === 'KeyM' && !e.repeat) {
 			muted = !muted;
 			applyMasterGain();
 		}
+		if (e.code === 'KeyH' && !e.repeat) startHorn();
 	});
+	window.addEventListener('keyup', (e) => {
+		if (e.code === 'KeyH') stopHorn();
+	});
+	// A honk latched on when the page loses focus mid-press (alt-tab) would otherwise drone forever.
+	window.addEventListener('blur', stopHorn);
 
 	let lastImpactVoicesSpawned = 0;
 
